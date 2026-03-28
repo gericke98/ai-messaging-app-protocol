@@ -193,16 +193,16 @@ Deferred to future release. Tracked but not in current roadmap.
 | TOOL-03 | Phase 2, 4 | Complete |
 | TOOL-04 | Phase 2 | Complete |
 | TOOL-05 | Phase 2 | Complete |
-| MEMO-01 | Phase 2, 4 | Pending |
-| MEMO-02 | Phase 2, 4 | Pending |
-| MEMO-03 | Phase 2, 4 | Pending |
-| MEMO-04 | Phase 2, 4 | Pending |
-| MEMO-05 | Phase 2, 4 | Pending |
+| MEMO-01 | Phase 2, 4 | Complete |
+| MEMO-02 | Phase 2, 4 | Complete |
+| MEMO-03 | Phase 2, 4 | Complete |
+| MEMO-04 | Phase 2, 4 | Complete |
+| MEMO-05 | Phase 2, 4 | Complete |
 | MEMO-06 | Phase 2 | Complete |
-| COMP-01 | Phase 2, 4 | Pending |
-| COMP-02 | Phase 2, 4 | Pending |
-| COMP-03 | Phase 2, 4 | Pending |
-| COMP-04 | Phase 2, 4 | Pending |
+| COMP-01 | Phase 2, 4 | Complete |
+| COMP-02 | Phase 2, 4 | Complete |
+| COMP-03 | Phase 2, 4 | Complete |
+| COMP-04 | Phase 2, 4 | Complete |
 | SPEC-01 | Phase 3 | Complete |
 | SPEC-02 | Phase 3, 4 | Complete |
 | SPEC-03 | Phase 3, 4 | Complete |

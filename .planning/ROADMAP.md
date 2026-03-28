@@ -90,7 +90,7 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md -- AsyncAPI + Schema fixes (sub_thread method, stream.error schema, MessageEnvelope enum)
 - [x] 04-02-PLAN.md -- Demo field conformance (init auth, field names, Agent Card, sequence removal)
-- [ ] 04-03-PLAN.md -- Demo new scenarios (memory store/query/context-frame, MCP/A2A bridge simulations)
+- [x] 04-03-PLAN.md -- Demo new scenarios (memory store/query/context-frame, MCP/A2A bridge simulations)
 
 ## Progress
 
