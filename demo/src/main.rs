@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
         "description": "A demo agent showcasing the AI-Native Messaging Protocol",
         "url": "https://demo.ainm.local",
         "version": "0.1.0",
+        "protocolVersion": "0.1.0",
         "capabilities": {
             "streaming": true,
             "pushNotifications": false
@@ -60,11 +61,22 @@ async fn main() -> Result<()> {
             }
         ],
         "ainm": {
+            "protocolVersion": "0.1.0",
             "address": "helper@demo.ainm.local",
+            "type": "agent",
             "contentTypes": ["text", "code", "button", "form", "approval"],
             "streaming": {
                 "supported": true,
-                "parallelStreaming": false
+                "parallelBlocks": false,
+                "preferredChunkSize": "token"
+            },
+            "threading": {
+                "subThreads": false,
+                "maxConcurrentThreads": 1
+            },
+            "memory": {
+                "archivalSupported": true,
+                "contextFramePreferred": true
             },
             "tools": [
                 {
@@ -122,6 +134,8 @@ async fn main() -> Result<()> {
     println!("    tool     - Tool visibility demo");
     println!("    button   - ButtonBlock demo");
     println!("    /card    - View Agent Card");
+    println!("    /memory  - Memory store, query, context frame demo");
+    println!("    /bridge  - MCP and A2A bridge compatibility demo");
     println!("    /help    - Show commands");
     println!("    /quit    - Exit");
     println!();

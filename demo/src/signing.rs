@@ -4,6 +4,16 @@ use base64::Engine;
 use ring::signature::{Ed25519KeyPair, UnparsedPublicKey, ED25519};
 use serde_json_canonicalizer::to_string as canonicalize;
 
+/// Sign an initialization request per transport.md Section 4.3.
+/// Signs: identity_address + "|" + timestamp as the init token.
+/// Returns base64url-encoded Ed25519 signature.
+pub fn sign_init(key_pair: &Ed25519KeyPair, identity: &str) -> Result<String> {
+    let timestamp = crate::protocol::now_rfc3339();
+    let payload = format!("{}|{}", identity, timestamp);
+    let sig = key_pair.sign(payload.as_bytes());
+    Ok(URL_SAFE_NO_PAD.encode(sig.as_ref()))
+}
+
 /// Sign a message envelope following security.md Section 4:
 /// 1. Clone envelope, remove "signature" field
 /// 2. Canonicalize with RFC 8785

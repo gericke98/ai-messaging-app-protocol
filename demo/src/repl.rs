@@ -17,12 +17,14 @@ pub async fn run(
     let (ws_stream, _) = tokio_tungstenite::connect_async(&url).await?;
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    // Perform ainm.initialize handshake
+    // Perform ainm.initialize handshake with Ed25519 signature
+    let init_signature = signing::sign_init(&identity.key_pair, &identity.address)?;
     let init_req = protocol::new_request(
         "ainm.initialize",
         serde_json::json!({
             "identity": identity.address,
             "protocolVersion": "0.1.0",
+            "signature": init_signature,
             "capabilities": {
                 "streaming": true,
                 "contentTypes": ["text", "code", "button", "form", "table", "approval", "action"],

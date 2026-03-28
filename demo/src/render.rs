@@ -313,6 +313,41 @@ pub fn render_agent_card(card: &serde_json::Value) {
             let type_strs: Vec<&str> = types.iter().filter_map(|t| t.as_str()).collect();
             println!("  Content:     {}", type_strs.join(", "));
         }
+        if let Some(pv) = ainm.get("protocolVersion").and_then(|v| v.as_str()) {
+            println!("  Protocol:    {}", pv);
+        }
+        if let Some(streaming) = ainm.get("streaming") {
+            let parallel = streaming
+                .get("parallelBlocks")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(false);
+            println!("  Parallel:    {}", parallel);
+            if let Some(chunk) = streaming.get("preferredChunkSize").and_then(|c| c.as_str()) {
+                println!("  Chunk size:  {}", chunk);
+            }
+        }
+        if let Some(threading) = ainm.get("threading") {
+            let sub = threading
+                .get("subThreads")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
+            println!("  Threads:     sub-threads {}", if sub { "enabled" } else { "disabled" });
+            if let Some(max) = threading.get("maxConcurrentThreads").and_then(|m| m.as_u64()) {
+                println!("  Concurrency: {} threads", max);
+            }
+        }
+        if let Some(memory) = ainm.get("memory") {
+            let archival = memory
+                .get("archivalSupported")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(false);
+            let frame = memory
+                .get("contextFramePreferred")
+                .and_then(|f| f.as_bool())
+                .unwrap_or(false);
+            println!("  Memory:      archival {}", if archival { "supported" } else { "not supported" });
+            println!("  Context:     frame delivery {}", if frame { "preferred" } else { "not preferred" });
+        }
         if let Some(tools) = ainm.get("tools").and_then(|t| t.as_array()) {
             println!("  Tools:");
             for tool in tools {
