@@ -472,9 +472,239 @@ async fn handle_bridge(
     identity: &Identity,
     thread_id: &str,
 ) -> Result<()> {
-    // Placeholder -- implemented in Task 2
-    let text = "Bridge compatibility demo coming soon.";
-    streaming::send_streamed_response(ws_sender, identity, thread_id, text).await
+    // 1. Send intro message
+    let mut intro = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Demonstrating AINM compatibility bridges: MCP tool bridging and A2A task delegation.",
+                "fallback": "Demonstrating AINM compatibility bridges: MCP tool bridging and A2A task delegation."
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut intro)?;
+    send_message(ws_sender, &intro).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // 2. MCP Bridge section -- Agent Card info
+    let mut mcp_card = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "MCP Bridge Agent Card:\n  Name: MCP Code Tools Bridge\n  Bridge Type: mcp\n  Bridge Target: mcp-code-tools://localhost:3001\n  Identity: mcp-code-tools@demo.ainm.local",
+                "fallback": "[MCP Bridge Agent Card]"
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut mcp_card)?;
+    send_message(ws_sender, &mcp_card).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // MCP tool call simulation via tool visibility events
+    let call_id = format!("tc-{}", protocol::new_message_id());
+
+    // tool.call.started
+    let mut tool_started = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.started",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Reading file contents via MCP bridge...",
+                "fallback": "Reading file contents via MCP bridge..."
+            }
+        ],
+        "tool": {
+            "call_id": call_id,
+            "name": "file_read",
+            "description": "Read file contents (via MCP bridge)",
+            "input": { "path": "/src/main.rs" }
+        }
+    });
+    signing::sign_envelope(&identity.key_pair, &mut tool_started)?;
+    send_message(ws_sender, &tool_started).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+    // tool.call.progress
+    let mut tool_progress = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.progress",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Reading /src/main.rs...",
+                "fallback": "Reading /src/main.rs..."
+            }
+        ],
+        "tool": {
+            "call_id": call_id,
+            "progress_text": "Reading /src/main.rs...",
+            "percent_complete": 50
+        }
+    });
+    signing::sign_envelope(&identity.key_pair, &mut tool_progress)?;
+    send_message(ws_sender, &tool_progress).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+    // tool.call.completed
+    let mut tool_completed = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.completed",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "File read complete via MCP bridge.",
+                "fallback": "File read complete via MCP bridge."
+            }
+        ],
+        "tool": {
+            "call_id": call_id,
+            "status": "success",
+            "result_summary": "42 lines read",
+            "duration_ms": 150
+        }
+    });
+    signing::sign_envelope(&identity.key_pair, &mut tool_completed)?;
+    send_message(ws_sender, &tool_completed).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // 3. A2A Bridge section
+    let mut a2a_intro = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "A2A Bridge: Simulating task delegation to external A2A agent.\n  Bridge Identity: a2a-research@demo.ainm.local\n  A2A Agent URL: https://research.example.com/.well-known/agent.json",
+                "fallback": "[A2A Bridge info]"
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut a2a_intro)?;
+    send_message(ws_sender, &a2a_intro).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // A2A task submitted
+    let mut a2a_submitted = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "A2A task submitted -> sub-thread created (ainm.thread.create with parent_thread_id)",
+                "fallback": "A2A task submitted"
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut a2a_submitted)?;
+    send_message(ws_sender, &a2a_submitted).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // A2A task working -- send ainm.presence.update notification
+    let presence_update = protocol::new_notification(
+        "ainm.presence.update",
+        serde_json::json!({
+            "identity": "a2a-research@demo.ainm.local",
+            "status": "processing",
+            "detail": "A2A task working: Researching topic...",
+            "thread_id": thread_id
+        }),
+    );
+    let presence_text = serde_json::to_string(&presence_update)?;
+    ws_sender
+        .send(Message::Text(presence_text.into()))
+        .await
+        .map_err(|e| anyhow::anyhow!("send presence update: {}", e))?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // A2A task completed
+    let mut a2a_completed = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "A2A task completed -> result delivered to sub-thread as content message",
+                "fallback": "A2A task completed"
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut a2a_completed)?;
+    send_message(ws_sender, &a2a_completed).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // Summary
+    let mut summary = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Bridge demo complete. Both MCP tool calls and A2A task lifecycles map cleanly to AINM message types — no new protocol methods needed.",
+                "fallback": "[Bridge demo summary]"
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut summary)?;
+    send_message(ws_sender, &summary).await
 }
 
 /// Default scenario: echo back with streaming.
