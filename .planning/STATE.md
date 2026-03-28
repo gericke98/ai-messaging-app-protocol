@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-03-28T19:36:00.982Z"
+status: verifying
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-03-28T19:47:20.037Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 
 Phase: 02 (agent-native-features) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P02 | 5min | 1 tasks | 1 files |
 | Phase 02 P03 | 5min | 2 tasks | 2 files |
 | Phase 02 P04 | 5min | 1 tasks | 1 files |
+| Phase 02 P05 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting current work:
 - [Phase 02]: AINM Agent Cards are A2A superset with AINM extensions under namespaced ainm object; tool events are persistent signed thread messages
 - [Phase 02]: Agent Card error codes -32060 to -32069; tool visibility reuses transport error codes; tool call_id uses UUIDv7 with tc- prefix
 - [Phase 02]: Memory operations are private JSON-RPC exchanges (not thread messages); archival facts use key collision replacement; context frames limited to 32KB with 50/20/20/10 budget split
+- [Phase 02]: Bridges use proxy participant pattern with own AINM identity, Ed25519 keys, and Agent Card; MCP tool names preserved verbatim; A2A tasks map to sub-threads; no new error codes for bridges
+- [Phase 02]: Phase 2 error codes reserved in 10-code blocks: -32040..49 streaming, -32050..59 memory, -32060..69 agent-card, -32070..79 interactive; transport.md serves as central method/error registry
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T19:36:00.979Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-03-28T19:47:20.033Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None

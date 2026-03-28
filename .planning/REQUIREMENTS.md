@@ -87,10 +87,10 @@ Requirements for the initial protocol specification and working demo.
 
 ### Compatibility
 
-- [ ] **COMP-01**: Protocol defines mapping from MCP tool calls to protocol message types
-- [ ] **COMP-02**: An MCP server can be exposed as an agent participant in a thread
-- [ ] **COMP-03**: Protocol defines mapping from A2A task lifecycle to thread message events
-- [ ] **COMP-04**: A2A task updates can be rendered as thread messages
+- [x] **COMP-01**: Protocol defines mapping from MCP tool calls to protocol message types
+- [x] **COMP-02**: An MCP server can be exposed as an agent participant in a thread
+- [x] **COMP-03**: Protocol defines mapping from A2A task lifecycle to thread message events
+- [x] **COMP-04**: A2A task updates can be rendered as thread messages
 
 ### Specification
 
@@ -199,10 +199,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | MEMO-04 | Phase 2 | Complete |
 | MEMO-05 | Phase 2 | Complete |
 | MEMO-06 | Phase 2 | Complete |
-| COMP-01 | Phase 2 | Pending |
-| COMP-02 | Phase 2 | Pending |
-| COMP-03 | Phase 2 | Pending |
-| COMP-04 | Phase 2 | Pending |
+| COMP-01 | Phase 2 | Complete |
+| COMP-02 | Phase 2 | Complete |
+| COMP-03 | Phase 2 | Complete |
+| COMP-04 | Phase 2 | Complete |
 | SPEC-01 | Phase 3 | Pending |
 | SPEC-02 | Phase 3 | Pending |
 | SPEC-03 | Phase 3 | Pending |
