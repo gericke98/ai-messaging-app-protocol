@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-03-28T21:10:03.018Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-03-28T21:16:49.866Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 ## Current Position
 
 Phase: 03 (specification-publication-working-demo) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P01 | 5min | 2 tasks | 5 files |
 | Phase 03 P02 | 6min | 2 tasks | 7 files |
 | Phase 03 P03 | 5min | 2 tasks | 3 files |
+| Phase 03 P04 | 10min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,8 @@ Recent decisions affecting current work:
 - [Phase 03]: ActionBlock is NOT allOf ContentBlockBase -- it is a response message type per interactive.md
 - [Phase 03]: Tool visibility events include envelope context fields since they are persistent signed thread messages
 - [Phase 03]: AsyncAPI channels organized by protocol domain (session, messaging, etc.) not WebSocket path; tool events in dedicated channel; keepalive as separate channel
+- [Phase 03]: Used concrete WebSocket types and StdRng (Send-safe) to avoid Send/Sync issues with tokio::spawn in demo
+- [Phase 03]: Broadcast channels for bidirectional message routing between human and agent WebSocket connections
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T21:10:03.015Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-03-28T21:16:49.864Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
