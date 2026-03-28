@@ -151,7 +151,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | Phase 1, 4 | Pending |
+| TRNS-01 | Phase 1, 4 | Complete |
 | TRNS-02 | Phase 1 | Complete |
 | TRNS-03 | Phase 1 | Complete |
 | TRNS-04 | Phase 1 | Complete |
@@ -164,16 +164,16 @@ Deferred to future release. Tracked but not in current roadmap.
 | SECU-01 | Phase 1 | Complete |
 | SECU-02 | Phase 1 | Complete |
 | SECU-03 | Phase 1 | Complete |
-| SECU-04 | Phase 1, 4 | Pending |
+| SECU-04 | Phase 1, 4 | Complete |
 | SECU-05 | Phase 1 | Complete |
-| STRM-01 | Phase 2, 4 | Pending |
+| STRM-01 | Phase 2, 4 | Complete |
 | STRM-02 | Phase 2 | Complete |
 | STRM-03 | Phase 2, 4 | Pending |
 | STRM-04 | Phase 2 | Complete |
 | CONT-01 | Phase 1 | Complete |
 | CONT-02 | Phase 1 | Complete |
-| CONT-03 | Phase 2, 4 | Pending |
-| CONT-04 | Phase 2, 4 | Pending |
+| CONT-03 | Phase 2, 4 | Complete |
+| CONT-04 | Phase 2, 4 | Complete |
 | CONT-05 | Phase 2 | Complete |
 | THRD-01 | Phase 1 | Complete |
 | THRD-02 | Phase 1, 4 | Pending |
@@ -184,7 +184,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | MIXD-03 | Phase 1 | Complete |
 | MIXD-04 | Phase 1 | Complete |
 | DISC-01 | Phase 2 | Complete |
-| DISC-02 | Phase 2, 4 | Pending |
+| DISC-02 | Phase 2, 4 | Complete |
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
 | DISC-05 | Phase 2 | Complete |
@@ -207,7 +207,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SPEC-02 | Phase 3, 4 | Pending |
 | SPEC-03 | Phase 3, 4 | Pending |
 | SPEC-04 | Phase 3 | Complete |
-| SPEC-05 | Phase 3, 4 | Pending |
+| SPEC-05 | Phase 3, 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 57 total

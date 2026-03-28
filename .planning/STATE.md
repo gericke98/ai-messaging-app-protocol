@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-03-28T21:39:30.257Z"
+status: executing
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-28T23:08:12.101Z"
 last_activity: 2026-03-28
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 15
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 03 — specification-publication-working-demo
+**Current focus:** Phase 04 — protocol-conformance-polish
 
 ## Current Position
 
-Phase: 03
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 04 (protocol-conformance-polish) — EXECUTING
+Plan: 3 of 3
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P03 | 5min | 2 tasks | 3 files |
 | Phase 03 P04 | 10min | 2 tasks | 10 files |
 | Phase 03 P05 | 9min | 3 tasks | 22 files |
+| Phase 04 P02 | 3min | 2 tasks | 7 files |
+| Phase 04 P01 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -100,6 +102,10 @@ Recent decisions affecting current work:
 - [Phase 03]: Broadcast channels for bidirectional message routing between human and agent WebSocket connections
 - [Phase 03]: Used markdown.format detect to handle spec files with JSON curly braces in Docusaurus MDX context
 - [Phase 03]: Spec files prebuild-copied (not symlinked) with Docusaurus frontmatter injection to keep original spec files clean
+- [Phase 04]: sign_init uses identity|timestamp payload format per transport.md Section 4.3
+- [Phase 04]: All demo JSON field names must exactly match JSON Schema defs (camelCase enforcement)
+- [Phase 04]: Removed invented ainm.sub_thread.create method -- sub-threads use ainm.thread.create with parent_thread_id per spec
+- [Phase 04]: StreamErrorNotification is an event payload schema with 4 required fields, distinct from StreamingErrorCodes catalog
 
 ### Pending Todos
 
@@ -112,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T21:30:50.310Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-03-28T23:07:58.163Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
