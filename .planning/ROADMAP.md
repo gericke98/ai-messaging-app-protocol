@@ -64,7 +64,7 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 03-01-PLAN.md -- Foundational JSON Schemas (common definitions + identity, security, content, transport schemas)
+- [x] 03-01-PLAN.md -- Foundational JSON Schemas (common definitions + identity, security, content, transport schemas)
 - [ ] 03-02-PLAN.md -- Extension JSON Schemas (interactive, streaming, threading, agent-card, memory, tool-visibility, compatibility schemas)
 - [ ] 03-03-PLAN.md -- AsyncAPI 3.1.0 transport bindings + protocol versioning (asyncapi.yaml, CHANGELOG.md, VERSION)
 - [ ] 03-04-PLAN.md -- Rust CLI demo (single-binary Axum server + scripted agent + terminal REPL proving protocol end-to-end)

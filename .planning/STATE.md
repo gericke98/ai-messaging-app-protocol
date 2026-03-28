@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-28T20:18:11.780Z"
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-28T20:58:51.579Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 13
+  completed_plans: 9
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 03 — specification-publication-&-working-demo
+**Current focus:** Phase 03 — specification-publication-working-demo
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 03 (specification-publication-working-demo) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P03 | 5min | 2 tasks | 2 files |
 | Phase 02 P04 | 5min | 1 tasks | 1 files |
 | Phase 02 P05 | 8min | 2 tasks | 3 files |
+| Phase 03 P01 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Memory operations are private JSON-RPC exchanges (not thread messages); archival facts use key collision replacement; context frames limited to 32KB with 50/20/20/10 budget split
 - [Phase 02]: Bridges use proxy participant pattern with own AINM identity, Ed25519 keys, and Agent Card; MCP tool names preserved verbatim; A2A tasks map to sub-threads; no new error codes for bridges
 - [Phase 02]: Phase 2 error codes reserved in 10-code blocks: -32040..49 streaming, -32050..59 memory, -32060..69 agent-card, -32070..79 interactive; transport.md serves as central method/error registry
+- [Phase 03]: Per-domain JSON Schema bundles with common.schema.json shared $defs: 52 definitions across 5 files formalizing all spec inline examples
 
 ### Pending Todos
 
@@ -99,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T20:18:11.769Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-specification-publication-working-demo/03-CONTEXT.md
+Last session: 2026-03-28T20:58:51.577Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
