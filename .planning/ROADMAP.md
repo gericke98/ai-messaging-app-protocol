@@ -85,20 +85,21 @@ Plans:
   6. Demo includes /memory scenario exercising store, query, and context push operations
   7. Demo includes /bridge scenario exercising MCP-to-protocol and A2A-to-protocol compatibility mappings
   8. Stream delta payloads either include sequence in the schema or the demo omits the undocumented field
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- AsyncAPI + Schema fixes (sub_thread method, stream.error schema, MessageEnvelope enum, sequence field)
-- [ ] 04-02-PLAN.md -- Demo conformance (field names, init auth, Agent Card, memory scenario, bridge scenario)
+- [ ] 04-01-PLAN.md -- AsyncAPI + Schema fixes (sub_thread method, stream.error schema, MessageEnvelope enum)
+- [ ] 04-02-PLAN.md -- Demo field conformance (init auth, field names, Agent Card, sequence removal)
+- [ ] 04-03-PLAN.md -- Demo new scenarios (memory store/query/context-frame, MCP/A2A bridge simulations)
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Protocol Kernel | 3/3 | Complete | 2026-03-28 |
 | 2. Agent-Native Features | 5/5 | Complete | 2026-03-28 |
-| 3. Spec Publication & Demo | 0/5 | Planning complete | - |
-| 4. Protocol Conformance Polish | 0/2 | Pending | - |
+| 3. Spec Publication & Demo | 5/5 | Complete | 2026-03-28 |
+| 4. Protocol Conformance Polish | 0/3 | Planning complete | - |
