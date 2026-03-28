@@ -44,12 +44,14 @@ Plans:
   3. A developer can read the tool visibility spec and implement events (ToolCallStarted, ToolCallProgress, ToolCallCompleted) that are visible to all thread participants and renderable as collapsible activity indicators
   4. A developer can read the memory spec and implement three-tier context management (active context, conversation memory, archival memory) that is conversation-scoped, shared across participants, and delivers structured context payloads to agents
   5. A developer can read the compatibility spec and map MCP tool calls to protocol message types (exposing an MCP server as a thread participant) and map A2A task lifecycle to thread message events
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md -- Streaming specification (start/delta/end lifecycle, parallel multi-block, cancellation, collapse semantics)
+- [ ] 02-02-PLAN.md -- Interactive content specification (ButtonBlock, FormBlock, TableBlock, ApprovalBlock, ActionBlock)
+- [ ] 02-03-PLAN.md -- Agent Card discovery and Tool Visibility specifications (A2A-compatible cards, tool event lifecycle)
+- [ ] 02-04-PLAN.md -- Memory management specification (three-tier memory, context frames, store/query/evict)
+- [ ] 02-05-PLAN.md -- Compatibility bridges (MCP/A2A mapping) and Phase 1 spec updates (transport + threading extensions)
 
 ### Phase 3: Specification Publication & Working Demo
 **Goal**: The complete protocol specification is published as an open document with formal schemas, and a working reference server demonstrates the protocol end-to-end
@@ -72,6 +74,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Protocol Kernel | 0/3 | Not started | - |
-| 2. Agent-Native Features | 0/3 | Not started | - |
+| 1. Protocol Kernel | 3/3 | Complete | 2026-03-28 |
+| 2. Agent-Native Features | 0/5 | Planning complete | - |
 | 3. Spec Publication & Demo | 0/2 | Not started | - |
