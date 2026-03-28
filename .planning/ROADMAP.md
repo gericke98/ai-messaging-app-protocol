@@ -16,6 +16,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Agent-Native Features** - Extend the protocol with streaming, rich interactive content, agent discovery, tool visibility, memory management, and MCP/A2A compatibility
 - [ ] **Phase 3: Specification Publication & Working Demo** - Formalize the spec with JSON Schema and AsyncAPI, publish it, and build a reference server demo proving end-to-end operation
 - [ ] **Phase 4: Protocol Conformance Polish** - Fix AsyncAPI errors, schema gaps, and demo-to-schema mismatches identified by milestone audit (13 findings)
+- [ ] **Phase 5: Demo Handshake & Discovery Conformance** - Implement ainm.initialized handshake lifecycle and fix Agent Card URL path in demo
+- [ ] **Phase 6: Demo Feature Gaps & Code Cleanup** - Add memory evict, Agent Card caching, remove dead code and cargo warnings
 
 ## Phase Details
 
@@ -92,10 +94,34 @@ Plans:
 - [x] 04-02-PLAN.md -- Demo field conformance (init auth, field names, Agent Card, sequence removal)
 - [x] 04-03-PLAN.md -- Demo new scenarios (memory store/query/context-frame, MCP/A2A bridge simulations)
 
+### Phase 5: Demo Handshake & Discovery Conformance
+**Goal**: Demo clients and server fully implement the ainm.initialized handshake lifecycle and serve Agent Cards at the spec-correct URL path — closing the two integration gaps and the broken WebSocket lifecycle flow from the v3.1 audit
+**Depends on**: Phase 4
+**Requirements**: TRNS-01, TRNS-04, DISC-01, DISC-02, SPEC-05
+**Gap Closure**: Closes INT-01 (ainm.initialized), INT-02 (Agent Card URL), WebSocket lifecycle flow
+**Success Criteria** (what must be TRUE):
+  1. Demo REPL and agent clients send `ainm.initialized` after receiving the init response, and the server rejects any method call with `-32021` before receiving it
+  2. Agent Card HTTP endpoint serves at `/.well-known/ainm/{name}/agent-card.json` matching the spec pattern
+  3. `demo.md` documents the correct port binding behavior (random port, not hardcoded 9090)
+  4. WebSocket connection lifecycle flow passes end-to-end (init → initialized → methods)
+**Plans**: TBD
+
+### Phase 6: Demo Feature Gaps & Code Cleanup
+**Goal**: Demo exercises the memory evict operation, Agent Card responses include caching headers, and all cargo warnings and dead code are eliminated
+**Depends on**: Phase 5
+**Requirements**: MEMO-01, DISC-05, SPEC-05
+**Gap Closure**: Closes memory evict flow gap + 5 tech debt items
+**Success Criteria** (what must be TRUE):
+  1. Demo includes an evict scenario (e.g., `/evict` command in REPL) that exercises `ainm.memory.evict` end-to-end
+  2. Agent Card HTTP handler returns ETag and honors If-None-Match for conditional requests
+  3. `cargo build` produces zero warnings
+  4. No dead code paths remain for `ainm.tool.call.*` raw dispatch
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -103,3 +129,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 2. Agent-Native Features | 5/5 | Complete | 2026-03-28 |
 | 3. Spec Publication & Demo | 5/5 | Complete | 2026-03-28 |
 | 4. Protocol Conformance Polish | 0/3 | Planning complete | - |
+| 5. Demo Handshake & Discovery | - | Pending | - |
+| 6. Demo Feature Gaps & Cleanup | - | Pending | - |

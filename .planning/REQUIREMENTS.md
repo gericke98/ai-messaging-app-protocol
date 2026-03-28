@@ -151,10 +151,10 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | Phase 1, 4 | Complete |
+| TRNS-01 | Phase 1, 4, 5 | Pending |
 | TRNS-02 | Phase 1 | Complete |
 | TRNS-03 | Phase 1 | Complete |
-| TRNS-04 | Phase 1 | Complete |
+| TRNS-04 | Phase 1, 5 | Pending |
 | TRNS-05 | Phase 1 | Complete |
 | IDNT-01 | Phase 1 | Complete |
 | IDNT-02 | Phase 1 | Complete |
@@ -183,17 +183,17 @@ Deferred to future release. Tracked but not in current roadmap.
 | MIXD-02 | Phase 1 | Complete |
 | MIXD-03 | Phase 1 | Complete |
 | MIXD-04 | Phase 1 | Complete |
-| DISC-01 | Phase 2 | Complete |
-| DISC-02 | Phase 2, 4 | Complete |
+| DISC-01 | Phase 2, 5 | Pending |
+| DISC-02 | Phase 2, 4, 5 | Pending |
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
-| DISC-05 | Phase 2 | Complete |
+| DISC-05 | Phase 2, 6 | Pending |
 | TOOL-01 | Phase 2, 4 | Complete |
 | TOOL-02 | Phase 2, 4 | Complete |
 | TOOL-03 | Phase 2, 4 | Complete |
 | TOOL-04 | Phase 2 | Complete |
 | TOOL-05 | Phase 2 | Complete |
-| MEMO-01 | Phase 2, 4 | Complete |
+| MEMO-01 | Phase 2, 4, 6 | Pending |
 | MEMO-02 | Phase 2, 4 | Complete |
 | MEMO-03 | Phase 2, 4 | Complete |
 | MEMO-04 | Phase 2, 4 | Complete |
@@ -207,14 +207,14 @@ Deferred to future release. Tracked but not in current roadmap.
 | SPEC-02 | Phase 3, 4 | Complete |
 | SPEC-03 | Phase 3, 4 | Complete |
 | SPEC-04 | Phase 3 | Complete |
-| SPEC-05 | Phase 3, 4 | Complete |
+| SPEC-05 | Phase 3, 4, 5, 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 57 total
 - Mapped to phases: 57
 - Unmapped: 0
-- Pending (Phase 4 conformance): 24
+- Pending (gap closure Phases 5-6): 7
 
 ---
 *Requirements defined: 2026-03-28*
-*Last updated: 2026-03-28 after gap closure phase creation*
+*Last updated: 2026-03-28 after gap closure phases 5-6 creation*
