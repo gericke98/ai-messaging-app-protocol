@@ -12,20 +12,19 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Open protocol specification for AI-native messaging — *Validated in Phase 1: protocol-kernel (identity, security, content, transport, threading specs)*
+- [x] Email-like identity model for both humans and agents (`name@provider`) — *Validated in Phase 1: identity.md*
+- [x] Mixed human-agent threads — both as equal participants — *Validated in Phase 1: threading.md*
+- [x] Flat conversations by default with optional sub-threading — *Validated in Phase 1: threading.md*
+- [x] Security foundations — cryptographic message signing, identity verification, anti-prompt-injection — *Validated in Phase 1: security.md*
 
 ### Active
 
-- [ ] Open protocol specification for AI-native messaging
 - [ ] Federated architecture — anyone can run a server, messages route across servers
-- [ ] Email-like identity model for both humans and agents (`name@provider`)
 - [ ] Agent capability discovery (Agent Cards / capability manifests)
-- [ ] Mixed human-agent threads — both as equal participants
-- [ ] Flat conversations by default with optional sub-threading
 - [ ] Rich interactive content from agents (forms, buttons, charts, code blocks, approvals)
 - [ ] Streaming support — agents can stream responses in real-time
 - [ ] Context/memory management at the protocol level (active context, conversation history, archival)
-- [ ] Security foundations — cryptographic message signing, identity verification, anti-prompt-injection
 - [ ] Working demo that proves the protocol works end-to-end
 - [ ] Native iOS app (SwiftUI) as reference client
 
@@ -77,12 +76,12 @@ The agent communication ecosystem is fragmented across layers:
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Design protocol from scratch (not fork AMP) | AMP is v0.1.2, covers ~30% of vision, adopting would mean rewriting anyway. Better to design from first principles informed by all research. | — Pending |
-| Federated architecture | Agents shouldn't be locked to one provider. Like email, anyone should be able to run a server. | — Pending |
-| Email-like identity (`name@provider`) | Familiar, works naturally with federation, human-readable. | — Pending |
-| Protocol spec before iOS app | Protocol is the strategic asset. App is the showcase, not the product. | — Pending |
-| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | — Pending |
-| Rich interactive agent UI | Agents need more than text — forms, approvals, charts, code. A2UI's "UI as data" model is the right approach. | — Pending |
+| Design protocol from scratch (not fork AMP) | AMP is v0.1.2, covers ~30% of vision, adopting would mean rewriting anyway. Better to design from first principles informed by all research. | Confirmed — Phase 1 delivered 5 original specs |
+| Federated architecture | Agents shouldn't be locked to one provider. Like email, anyone should be able to run a server. | Confirmed — transport.md defines HTTP federation relay |
+| Email-like identity (`name@provider`) | Familiar, works naturally with federation, human-readable. | Confirmed — identity.md specifies format + resolution |
+| Protocol spec before iOS app | Protocol is the strategic asset. App is the showcase, not the product. | In progress — Phase 1 kernel complete |
+| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | In progress |
+| Rich interactive agent UI | Agents need more than text — forms, approvals, charts, code. A2UI's "UI as data" model is the right approach. | Phase 2 scope |
 
 ## Evolution
 
@@ -102,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 after initialization*
+*Last updated: 2026-03-28 after Phase 1 (protocol-kernel) completion*
