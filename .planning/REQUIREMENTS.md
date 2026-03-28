@@ -33,18 +33,18 @@ Requirements for the initial protocol specification and working demo.
 
 ### Streaming
 
-- [ ] **STRM-01**: Agents can stream text responses token-by-token in real-time
-- [ ] **STRM-02**: Protocol defines streaming lifecycle events (stream-start, content-delta, stream-end)
-- [ ] **STRM-03**: Streaming messages collapse into permanent events upon completion
-- [ ] **STRM-04**: Clients can receive and render partial messages during streaming
+- [x] **STRM-01**: Agents can stream text responses token-by-token in real-time
+- [x] **STRM-02**: Protocol defines streaming lifecycle events (stream-start, content-delta, stream-end)
+- [x] **STRM-03**: Streaming messages collapse into permanent events upon completion
+- [x] **STRM-04**: Clients can receive and render partial messages during streaming
 
 ### Content
 
 - [x] **CONT-01**: Messages are composed of typed content blocks with declared schemas
 - [x] **CONT-02**: Protocol defines core block types: TextBlock (markdown), CodeBlock (language, content), ImageBlock, FileBlock (MIME type, digest)
-- [ ] **CONT-03**: Protocol defines interactive block types: ButtonBlock, FormBlock, TableBlock, ChartBlock, ApprovalBlock
-- [ ] **CONT-04**: Interactive blocks use declarative component model (UI as data, not code) — agents reference a client-controlled component catalog
-- [ ] **CONT-05**: No arbitrary payload size limits at the protocol level
+- [x] **CONT-03**: Protocol defines interactive block types: ButtonBlock, FormBlock, TableBlock, ChartBlock, ApprovalBlock
+- [x] **CONT-04**: Interactive blocks use declarative component model (UI as data, not code) — agents reference a client-controlled component catalog
+- [x] **CONT-05**: No arbitrary payload size limits at the protocol level
 
 ### Threading
 
@@ -166,15 +166,15 @@ Deferred to future release. Tracked but not in current roadmap.
 | SECU-03 | Phase 1 | Complete |
 | SECU-04 | Phase 1 | Complete |
 | SECU-05 | Phase 1 | Complete |
-| STRM-01 | Phase 2 | Pending |
-| STRM-02 | Phase 2 | Pending |
-| STRM-03 | Phase 2 | Pending |
-| STRM-04 | Phase 2 | Pending |
+| STRM-01 | Phase 2 | Complete |
+| STRM-02 | Phase 2 | Complete |
+| STRM-03 | Phase 2 | Complete |
+| STRM-04 | Phase 2 | Complete |
 | CONT-01 | Phase 1 | Complete |
 | CONT-02 | Phase 1 | Complete |
-| CONT-03 | Phase 2 | Pending |
-| CONT-04 | Phase 2 | Pending |
-| CONT-05 | Phase 2 | Pending |
+| CONT-03 | Phase 2 | Complete |
+| CONT-04 | Phase 2 | Complete |
+| CONT-05 | Phase 2 | Complete |
 | THRD-01 | Phase 1 | Complete |
 | THRD-02 | Phase 1 | Complete |
 | THRD-03 | Phase 1 | Complete |

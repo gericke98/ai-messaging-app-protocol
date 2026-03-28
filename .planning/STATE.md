@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-28T09:37:13.522Z"
+status: executing
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-28T19:34:42.227Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 8
+  completed_plans: 5
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 01 — protocol-kernel
+**Current focus:** Phase 02 — agent-native-features
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 02 (agent-native-features) — EXECUTING
+Plan: 3 of 5
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
@@ -55,6 +55,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 6min | 2 tasks | 2 files |
 | Phase 01-protocol-kernel P02 | 6min | 2 tasks | 2 files |
 | Phase 01-protocol-kernel P03 | 5min | 2 tasks | 1 files |
+| Phase 02 P01 | 4min | 1 tasks | 1 files |
+| Phase 02 P02 | 5min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +74,11 @@ Recent decisions affecting current work:
 - [Phase 01-protocol-kernel]: Content blocks use mandatory fallback field on every block for graceful degradation; extension blocks use reverse-domain namespacing
 - [Phase 01-protocol-kernel]: WebSocket lifecycle follows MCP pattern (initialize/initialized/shutdown); server-to-server relay uses triple-layer validation (mTLS + server sig + message sig)
 - [Phase 01-protocol-kernel]: One-level sub-threading only to prevent Matrix-style complexity; minimal context inheritance (lineage yes, messages no); thread-scoped presence to avoid global-busy problem
+- [Phase 02]: Streaming deltas are ephemeral (session-authenticated) not individually signed -- collapse provides final Ed25519-signed record
+- [Phase 02]: Block layout immutable after stream-start; only TextBlock and CodeBlock streamable in v1; parallelStreaming defaults to false
+- [Phase 02]: ActionBlocks are full signed messages visible to all thread participants (transparency by design)
+- [Phase 02]: Interactive blocks use 3 semantic styles (primary/secondary/danger); clients map to own design system
+- [Phase 02]: ApprovalBlock uses server-enforced state machine with immutable terminal states; error code -32071 for already-resolved
 
 ### Pending Todos
 
@@ -85,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T09:37:13.517Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-agent-native-features/02-CONTEXT.md
+Last session: 2026-03-28T19:34:42.223Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None
