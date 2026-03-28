@@ -21,8 +21,13 @@ The protocol must enable mixed human-agent threads where any participant (human 
 ### Active
 
 - [ ] Federated architecture — anyone can run a server, messages route across servers
-- [ ] Working demo that proves the protocol works end-to-end
 - [ ] Native iOS app (SwiftUI) as reference client
+
+### Validated in Phase 3
+
+- [x] Working demo that proves the protocol works end-to-end — *Validated in Phase 3: Rust CLI demo (Axum WebSocket server, Ed25519 signing, streaming, rich content, agent discovery)*
+- [x] Published formal protocol specification (JSON Schema 2020-12 + AsyncAPI 3.1.0) — *Validated in Phase 3: 12 schema files, asyncapi.yaml, Docusaurus site*
+- [x] Protocol versioning with backwards compatibility rules — *Validated in Phase 3: CHANGELOG.md, VERSION, SemVer policy*
 
 ### Validated in Phase 2
 
@@ -84,8 +89,8 @@ The agent communication ecosystem is fragmented across layers:
 | Design protocol from scratch (not fork AMP) | AMP is v0.1.2, covers ~30% of vision, adopting would mean rewriting anyway. Better to design from first principles informed by all research. | Confirmed — Phase 1 delivered 5 original specs |
 | Federated architecture | Agents shouldn't be locked to one provider. Like email, anyone should be able to run a server. | Confirmed — transport.md defines HTTP federation relay |
 | Email-like identity (`name@provider`) | Familiar, works naturally with federation, human-readable. | Confirmed — identity.md specifies format + resolution |
-| Protocol spec before iOS app | Protocol is the strategic asset. App is the showcase, not the product. | In progress — Phase 2 complete, 11 spec files |
-| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | In progress — Phase 3 remaining |
+| Protocol spec before iOS app | Protocol is the strategic asset. App is the showcase, not the product. | Complete — 11 prose specs + 12 JSON schemas + AsyncAPI + Docusaurus site |
+| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | Complete — Rust CLI demo proves protocol end-to-end |
 | Rich interactive agent UI | Agents need more than text — forms, approvals, tables, code. A2UI's "UI as data" model is the right approach. | Confirmed — interactive.md defines declarative component catalog |
 | Three-tier memory model | Agents need structured context, not raw message dumps. Letta/MemGPT-inspired tiers. | Confirmed — memory.md defines active/conversation/archival tiers |
 | A2A-compatible Agent Cards | Capability discovery must interop with Google A2A ecosystem while extending for AINM features. | Confirmed — agent-card.md uses AINM extension namespace |
@@ -108,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after Phase 2 (agent-native-features) completion*
+*Last updated: 2026-03-28 after Phase 3 (specification-publication-working-demo) completion*
