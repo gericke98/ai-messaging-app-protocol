@@ -151,69 +151,69 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | — | Pending |
-| TRNS-02 | — | Pending |
-| TRNS-03 | — | Pending |
-| TRNS-04 | — | Pending |
-| TRNS-05 | — | Pending |
-| IDNT-01 | — | Pending |
-| IDNT-02 | — | Pending |
-| IDNT-03 | — | Pending |
-| IDNT-04 | — | Pending |
-| IDNT-05 | — | Pending |
-| SECU-01 | — | Pending |
-| SECU-02 | — | Pending |
-| SECU-03 | — | Pending |
-| SECU-04 | — | Pending |
-| SECU-05 | — | Pending |
-| STRM-01 | — | Pending |
-| STRM-02 | — | Pending |
-| STRM-03 | — | Pending |
-| STRM-04 | — | Pending |
-| CONT-01 | — | Pending |
-| CONT-02 | — | Pending |
-| CONT-03 | — | Pending |
-| CONT-04 | — | Pending |
-| CONT-05 | — | Pending |
-| THRD-01 | — | Pending |
-| THRD-02 | — | Pending |
-| THRD-03 | — | Pending |
-| THRD-04 | — | Pending |
-| MIXD-01 | — | Pending |
-| MIXD-02 | — | Pending |
-| MIXD-03 | — | Pending |
-| MIXD-04 | — | Pending |
-| DISC-01 | — | Pending |
-| DISC-02 | — | Pending |
-| DISC-03 | — | Pending |
-| DISC-04 | — | Pending |
-| DISC-05 | — | Pending |
-| TOOL-01 | — | Pending |
-| TOOL-02 | — | Pending |
-| TOOL-03 | — | Pending |
-| TOOL-04 | — | Pending |
-| TOOL-05 | — | Pending |
-| MEMO-01 | — | Pending |
-| MEMO-02 | — | Pending |
-| MEMO-03 | — | Pending |
-| MEMO-04 | — | Pending |
-| MEMO-05 | — | Pending |
-| MEMO-06 | — | Pending |
-| COMP-01 | — | Pending |
-| COMP-02 | — | Pending |
-| COMP-03 | — | Pending |
-| COMP-04 | — | Pending |
-| SPEC-01 | — | Pending |
-| SPEC-02 | — | Pending |
-| SPEC-03 | — | Pending |
-| SPEC-04 | — | Pending |
-| SPEC-05 | — | Pending |
+| TRNS-01 | Phase 1 | Pending |
+| TRNS-02 | Phase 1 | Pending |
+| TRNS-03 | Phase 1 | Pending |
+| TRNS-04 | Phase 1 | Pending |
+| TRNS-05 | Phase 1 | Pending |
+| IDNT-01 | Phase 1 | Pending |
+| IDNT-02 | Phase 1 | Pending |
+| IDNT-03 | Phase 1 | Pending |
+| IDNT-04 | Phase 1 | Pending |
+| IDNT-05 | Phase 1 | Pending |
+| SECU-01 | Phase 1 | Pending |
+| SECU-02 | Phase 1 | Pending |
+| SECU-03 | Phase 1 | Pending |
+| SECU-04 | Phase 1 | Pending |
+| SECU-05 | Phase 1 | Pending |
+| STRM-01 | Phase 2 | Pending |
+| STRM-02 | Phase 2 | Pending |
+| STRM-03 | Phase 2 | Pending |
+| STRM-04 | Phase 2 | Pending |
+| CONT-01 | Phase 1 | Pending |
+| CONT-02 | Phase 1 | Pending |
+| CONT-03 | Phase 2 | Pending |
+| CONT-04 | Phase 2 | Pending |
+| CONT-05 | Phase 2 | Pending |
+| THRD-01 | Phase 1 | Pending |
+| THRD-02 | Phase 1 | Pending |
+| THRD-03 | Phase 1 | Pending |
+| THRD-04 | Phase 1 | Pending |
+| MIXD-01 | Phase 1 | Pending |
+| MIXD-02 | Phase 1 | Pending |
+| MIXD-03 | Phase 1 | Pending |
+| MIXD-04 | Phase 1 | Pending |
+| DISC-01 | Phase 2 | Pending |
+| DISC-02 | Phase 2 | Pending |
+| DISC-03 | Phase 2 | Pending |
+| DISC-04 | Phase 2 | Pending |
+| DISC-05 | Phase 2 | Pending |
+| TOOL-01 | Phase 2 | Pending |
+| TOOL-02 | Phase 2 | Pending |
+| TOOL-03 | Phase 2 | Pending |
+| TOOL-04 | Phase 2 | Pending |
+| TOOL-05 | Phase 2 | Pending |
+| MEMO-01 | Phase 2 | Pending |
+| MEMO-02 | Phase 2 | Pending |
+| MEMO-03 | Phase 2 | Pending |
+| MEMO-04 | Phase 2 | Pending |
+| MEMO-05 | Phase 2 | Pending |
+| MEMO-06 | Phase 2 | Pending |
+| COMP-01 | Phase 2 | Pending |
+| COMP-02 | Phase 2 | Pending |
+| COMP-03 | Phase 2 | Pending |
+| COMP-04 | Phase 2 | Pending |
+| SPEC-01 | Phase 3 | Pending |
+| SPEC-02 | Phase 3 | Pending |
+| SPEC-03 | Phase 3 | Pending |
+| SPEC-04 | Phase 3 | Pending |
+| SPEC-05 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 51 total
-- Mapped to phases: 0
-- Unmapped: 51
+- v1 requirements: 57 total
+- Mapped to phases: 57
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-28*
-*Last updated: 2026-03-28 after initial definition*
+*Last updated: 2026-03-27 after roadmap creation*
