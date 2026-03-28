@@ -96,8 +96,8 @@ Requirements for the initial protocol specification and working demo.
 
 - [x] **SPEC-01**: Protocol spec is published as an open document (Markdown + JSON Schema + AsyncAPI)
 - [x] **SPEC-02**: All message types have formal JSON Schema definitions
-- [ ] **SPEC-03**: Transport bindings have formal AsyncAPI v3.1 definitions
-- [ ] **SPEC-04**: Spec is versioned with clear backwards compatibility rules
+- [x] **SPEC-03**: Transport bindings have formal AsyncAPI v3.1 definitions
+- [x] **SPEC-04**: Spec is versioned with clear backwards compatibility rules
 - [ ] **SPEC-05**: Working demo proves the protocol end-to-end (at minimum: 1 human + 1 agent in a thread with streaming and rich content)
 
 ## v2 Requirements
@@ -205,8 +205,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | COMP-04 | Phase 2 | Complete |
 | SPEC-01 | Phase 3 | Complete |
 | SPEC-02 | Phase 3 | Complete |
-| SPEC-03 | Phase 3 | Pending |
-| SPEC-04 | Phase 3 | Pending |
+| SPEC-03 | Phase 3 | Complete |
+| SPEC-04 | Phase 3 | Complete |
 | SPEC-05 | Phase 3 | Pending |
 
 **Coverage:**

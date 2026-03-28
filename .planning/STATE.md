@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-28T21:02:00.890Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-03-28T21:10:03.018Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 ## Current Position
 
 Phase: 03 (specification-publication-working-demo) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P05 | 8min | 2 tasks | 3 files |
 | Phase 03 P01 | 5min | 2 tasks | 5 files |
 | Phase 03 P02 | 6min | 2 tasks | 7 files |
+| Phase 03 P03 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Recent decisions affecting current work:
 - [Phase 03]: Per-domain JSON Schema bundles with common.schema.json shared $defs: 52 definitions across 5 files formalizing all spec inline examples
 - [Phase 03]: ActionBlock is NOT allOf ContentBlockBase -- it is a response message type per interactive.md
 - [Phase 03]: Tool visibility events include envelope context fields since they are persistent signed thread messages
+- [Phase 03]: AsyncAPI channels organized by protocol domain (session, messaging, etc.) not WebSocket path; tool events in dedicated channel; keepalive as separate channel
 
 ### Pending Todos
 
@@ -104,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T21:02:00.888Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-28T21:10:03.015Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
