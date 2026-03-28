@@ -151,7 +151,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | Phase 1 | Complete |
+| TRNS-01 | Phase 1, 4 | Pending |
 | TRNS-02 | Phase 1 | Complete |
 | TRNS-03 | Phase 1 | Complete |
 | TRNS-04 | Phase 1 | Complete |
@@ -164,56 +164,57 @@ Deferred to future release. Tracked but not in current roadmap.
 | SECU-01 | Phase 1 | Complete |
 | SECU-02 | Phase 1 | Complete |
 | SECU-03 | Phase 1 | Complete |
-| SECU-04 | Phase 1 | Complete |
+| SECU-04 | Phase 1, 4 | Pending |
 | SECU-05 | Phase 1 | Complete |
-| STRM-01 | Phase 2 | Complete |
+| STRM-01 | Phase 2, 4 | Pending |
 | STRM-02 | Phase 2 | Complete |
-| STRM-03 | Phase 2 | Complete |
+| STRM-03 | Phase 2, 4 | Pending |
 | STRM-04 | Phase 2 | Complete |
 | CONT-01 | Phase 1 | Complete |
 | CONT-02 | Phase 1 | Complete |
-| CONT-03 | Phase 2 | Complete |
-| CONT-04 | Phase 2 | Complete |
+| CONT-03 | Phase 2, 4 | Pending |
+| CONT-04 | Phase 2, 4 | Pending |
 | CONT-05 | Phase 2 | Complete |
 | THRD-01 | Phase 1 | Complete |
-| THRD-02 | Phase 1 | Complete |
+| THRD-02 | Phase 1, 4 | Pending |
 | THRD-03 | Phase 1 | Complete |
-| THRD-04 | Phase 1 | Complete |
+| THRD-04 | Phase 1, 4 | Pending |
 | MIXD-01 | Phase 1 | Complete |
 | MIXD-02 | Phase 1 | Complete |
 | MIXD-03 | Phase 1 | Complete |
 | MIXD-04 | Phase 1 | Complete |
 | DISC-01 | Phase 2 | Complete |
-| DISC-02 | Phase 2 | Complete |
+| DISC-02 | Phase 2, 4 | Pending |
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
 | DISC-05 | Phase 2 | Complete |
-| TOOL-01 | Phase 2 | Complete |
-| TOOL-02 | Phase 2 | Complete |
-| TOOL-03 | Phase 2 | Complete |
+| TOOL-01 | Phase 2, 4 | Pending |
+| TOOL-02 | Phase 2, 4 | Pending |
+| TOOL-03 | Phase 2, 4 | Pending |
 | TOOL-04 | Phase 2 | Complete |
 | TOOL-05 | Phase 2 | Complete |
-| MEMO-01 | Phase 2 | Complete |
-| MEMO-02 | Phase 2 | Complete |
-| MEMO-03 | Phase 2 | Complete |
-| MEMO-04 | Phase 2 | Complete |
-| MEMO-05 | Phase 2 | Complete |
+| MEMO-01 | Phase 2, 4 | Pending |
+| MEMO-02 | Phase 2, 4 | Pending |
+| MEMO-03 | Phase 2, 4 | Pending |
+| MEMO-04 | Phase 2, 4 | Pending |
+| MEMO-05 | Phase 2, 4 | Pending |
 | MEMO-06 | Phase 2 | Complete |
-| COMP-01 | Phase 2 | Complete |
-| COMP-02 | Phase 2 | Complete |
-| COMP-03 | Phase 2 | Complete |
-| COMP-04 | Phase 2 | Complete |
+| COMP-01 | Phase 2, 4 | Pending |
+| COMP-02 | Phase 2, 4 | Pending |
+| COMP-03 | Phase 2, 4 | Pending |
+| COMP-04 | Phase 2, 4 | Pending |
 | SPEC-01 | Phase 3 | Complete |
-| SPEC-02 | Phase 3 | Complete |
-| SPEC-03 | Phase 3 | Complete |
+| SPEC-02 | Phase 3, 4 | Pending |
+| SPEC-03 | Phase 3, 4 | Pending |
 | SPEC-04 | Phase 3 | Complete |
-| SPEC-05 | Phase 3 | Complete |
+| SPEC-05 | Phase 3, 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 57 total
 - Mapped to phases: 57
 - Unmapped: 0
+- Pending (Phase 4 conformance): 24
 
 ---
 *Requirements defined: 2026-03-28*
-*Last updated: 2026-03-27 after roadmap creation*
+*Last updated: 2026-03-28 after gap closure phase creation*

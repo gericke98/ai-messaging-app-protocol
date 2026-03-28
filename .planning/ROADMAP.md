@@ -15,6 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Protocol Kernel** - Define the foundational protocol: identity, security, transport, content format, threading, and mixed human-agent threads
 - [x] **Phase 2: Agent-Native Features** - Extend the protocol with streaming, rich interactive content, agent discovery, tool visibility, memory management, and MCP/A2A compatibility
 - [ ] **Phase 3: Specification Publication & Working Demo** - Formalize the spec with JSON Schema and AsyncAPI, publish it, and build a reference server demo proving end-to-end operation
+- [ ] **Phase 4: Protocol Conformance Polish** - Fix AsyncAPI errors, schema gaps, and demo-to-schema mismatches identified by milestone audit (13 findings)
 
 ## Phase Details
 
@@ -70,6 +71,26 @@ Plans:
 - [x] 03-04-PLAN.md -- Rust CLI demo (single-binary Axum server + scripted agent + terminal REPL proving protocol end-to-end)
 - [x] 03-05-PLAN.md -- Docusaurus spec publication site + GitHub Actions deployment + end-to-end verification
 
+### Phase 4: Protocol Conformance Polish
+**Goal**: All published artifacts (AsyncAPI, JSON Schema, demo) are fully aligned — no field name mismatches, no invented methods, no missing schema entries. The demo exercises every protocol feature including memory and compatibility bridges.
+**Depends on**: Phase 3
+**Requirements**: TRNS-01, SECU-04, STRM-01, STRM-03, CONT-03, CONT-04, THRD-02, THRD-04, DISC-02, TOOL-01, TOOL-02, TOOL-03, MEMO-01, MEMO-02, MEMO-03, MEMO-04, MEMO-05, COMP-01, COMP-02, COMP-03, COMP-04, SPEC-02, SPEC-03, SPEC-05
+**Gap Closure**: Closes all 12 active findings from v3.1 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. AsyncAPI asyncapi.yaml uses correct method names matching the spec (ainm.thread.create with parent_thread_id, not ainm.sub_thread.create) and references proper event schemas (StreamErrorNotification, not error code catalog)
+  2. MessageEnvelope.type enum includes all Phase 2 message types (tool.call.started, tool.call.progress, tool.call.completed, action)
+  3. Demo code uses exact field names from JSON Schema (protocolVersion, contentTypes, title/value on ApprovalBlock, parallelBlocks) with no snake_case or invented fields
+  4. Demo ainm.initialize includes Ed25519 signature and server responds with nonce per security spec
+  5. Demo Agent Card includes all required ainm extension sub-objects (streaming, threading, memory)
+  6. Demo includes /memory scenario exercising store, query, and context push operations
+  7. Demo includes /bridge scenario exercising MCP-to-protocol and A2A-to-protocol compatibility mappings
+  8. Stream delta payloads either include sequence in the schema or the demo omits the undocumented field
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md -- AsyncAPI + Schema fixes (sub_thread method, stream.error schema, MessageEnvelope enum, sequence field)
+- [ ] 04-02-PLAN.md -- Demo conformance (field names, init auth, Agent Card, memory scenario, bridge scenario)
+
 ## Progress
 
 **Execution Order:**
@@ -80,3 +101,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | 1. Protocol Kernel | 3/3 | Complete | 2026-03-28 |
 | 2. Agent-Native Features | 5/5 | Complete | 2026-03-28 |
 | 3. Spec Publication & Demo | 0/5 | Planning complete | - |
+| 4. Protocol Conformance Polish | 0/2 | Pending | - |
