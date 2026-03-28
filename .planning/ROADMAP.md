@@ -12,8 +12,8 @@ This roadmap delivers the v1 protocol specification and working demo in three ph
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Protocol Kernel** - Define the foundational protocol: identity, security, transport, content format, threading, and mixed human-agent threads
-- [ ] **Phase 2: Agent-Native Features** - Extend the protocol with streaming, rich interactive content, agent discovery, tool visibility, memory management, and MCP/A2A compatibility
+- [x] **Phase 1: Protocol Kernel** - Define the foundational protocol: identity, security, transport, content format, threading, and mixed human-agent threads
+- [x] **Phase 2: Agent-Native Features** - Extend the protocol with streaming, rich interactive content, agent discovery, tool visibility, memory management, and MCP/A2A compatibility
 - [ ] **Phase 3: Specification Publication & Working Demo** - Formalize the spec with JSON Schema and AsyncAPI, publish it, and build a reference server demo proving end-to-end operation
 
 ## Phase Details
@@ -61,11 +61,14 @@ Plans:
   1. The protocol spec is published as an open document (Markdown + JSON Schema + AsyncAPI) with formal definitions for every message type, AsyncAPI v3.1 transport bindings, and clear versioning with backwards compatibility rules
   2. A working demo runs end-to-end: at minimum one human and one agent communicate in a thread, with the agent streaming responses in real-time and sending at least one rich interactive content block -- all messages cryptographically signed and verifiable
   3. An external developer can clone the demo repo, run it locally, and observe the full protocol in action (identity registration, message signing, thread creation, streaming, rich content, agent discovery) without needing to read the spec first
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md -- Foundational JSON Schemas (common definitions + identity, security, content, transport schemas)
+- [ ] 03-02-PLAN.md -- Extension JSON Schemas (interactive, streaming, threading, agent-card, memory, tool-visibility, compatibility schemas)
+- [ ] 03-03-PLAN.md -- AsyncAPI 3.1.0 transport bindings + protocol versioning (asyncapi.yaml, CHANGELOG.md, VERSION)
+- [ ] 03-04-PLAN.md -- Rust CLI demo (single-binary Axum server + scripted agent + terminal REPL proving protocol end-to-end)
+- [ ] 03-05-PLAN.md -- Docusaurus spec publication site + GitHub Actions deployment + end-to-end verification
 
 ## Progress
 
@@ -75,5 +78,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Protocol Kernel | 3/3 | Complete | 2026-03-28 |
-| 2. Agent-Native Features | 0/5 | Planning complete | - |
-| 3. Spec Publication & Demo | 0/2 | Not started | - |
+| 2. Agent-Native Features | 5/5 | Complete | 2026-03-28 |
+| 3. Spec Publication & Demo | 0/5 | Planning complete | - |
