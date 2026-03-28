@@ -91,8 +91,8 @@
         },
         "type": {
           "type": "string",
-          "enum": ["message", "thread.create", "thread.join", "thread.leave", "presence.update"],
-          "description": "Message type discriminator. Determines how the message is processed."
+          "enum": ["message", "thread.create", "thread.join", "thread.leave", "presence.update", "tool.call.started", "tool.call.progress", "tool.call.completed", "action"],
+          "description": "Message type discriminator. Determines how the message is processed. Core: message, thread.create, thread.join, thread.leave, presence.update. Tool visibility: tool.call.started, tool.call.progress, tool.call.completed. Interactive: action."
         },
         "content": {
           "type": "array",

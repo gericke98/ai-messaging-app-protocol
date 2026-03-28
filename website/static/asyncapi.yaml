@@ -1,0 +1,822 @@
+asyncapi: 3.1.0
+info:
+  title: AI-Native Messaging Protocol
+  version: 0.1.0
+  description: >
+    Transport bindings for the AINM protocol version 0.1.0.
+    Defines client-to-server WebSocket and server-to-server HTTP communication patterns.
+    All messages use JSON-RPC 2.0 framing over TLS 1.3.
+  license:
+    name: MIT
+  contact:
+    name: AINM Protocol
+    url: https://ainm.dev
+
+servers:
+  client-server:
+    host: "{server}"
+    protocol: wss
+    description: >
+      WebSocket endpoint for client connections. Requires TLS 1.3.
+      All JSON-RPC methods are multiplexed on a single WebSocket connection.
+  federation:
+    host: "{server}"
+    protocol: https
+    description: >
+      HTTP endpoint for server-to-server federation relay. Requires mutual TLS.
+      Used for cross-server message delivery via ainm.relay.
+
+# Channels are organized by domain (not by WebSocket path) because all
+# client-server methods share the same WebSocket connection at address "/".
+# See transport.md Section 3.5 for the ainm.{domain}.{action} namespace.
+channels:
+  session:
+    address: /
+    description: >
+      Session lifecycle: initialize handshake, initialized confirmation, and shutdown.
+      All client-server communication begins with the session channel.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      initializeRequest:
+        $ref: "#/components/messages/InitializeRequest"
+      initializeResponse:
+        $ref: "#/components/messages/InitializeResponse"
+      initializedNotification:
+        $ref: "#/components/messages/InitializedNotification"
+      shutdownNotification:
+        $ref: "#/components/messages/ShutdownNotification"
+
+  messaging:
+    address: /
+    description: >
+      Core message exchange: sending messages and receiving deliveries.
+      Messages carry signed envelopes with typed content blocks.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      messageSendRequest:
+        $ref: "#/components/messages/MessageSendRequest"
+      messageSendResponse:
+        $ref: "#/components/messages/MessageSendResponse"
+      messageDeliverNotification:
+        $ref: "#/components/messages/MessageDeliverNotification"
+
+  threading:
+    address: /
+    description: >
+      Thread management: creating threads and sub-threads (via optional parent_thread_id),
+      joining, and leaving. Threads are flat conversations with optional one-level sub-threading.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      threadCreateRequest:
+        $ref: "#/components/messages/ThreadCreateRequest"
+      threadCreateResponse:
+        $ref: "#/components/messages/ThreadCreateResponse"
+      threadJoinRequest:
+        $ref: "#/components/messages/ThreadJoinRequest"
+      threadJoinResponse:
+        $ref: "#/components/messages/ThreadJoinResponse"
+      threadLeaveRequest:
+        $ref: "#/components/messages/ThreadLeaveRequest"
+      threadLeaveResponse:
+        $ref: "#/components/messages/ThreadLeaveResponse"
+
+  presence:
+    address: /
+    description: >
+      Thread-scoped presence updates and notifications.
+      Humans use online/offline states; agents use available/busy/processing states.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      presenceUpdateNotification:
+        $ref: "#/components/messages/PresenceUpdateNotification"
+      presenceNotifyNotification:
+        $ref: "#/components/messages/PresenceNotifyNotification"
+
+  streaming:
+    address: /
+    description: >
+      Token-by-token streaming: start declares block layout, deltas deliver
+      incremental content, end signals completion, cancel requests abort,
+      and error reports streaming failures. Supports parallel multi-block streaming.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      streamStartNotification:
+        $ref: "#/components/messages/StreamStartNotification"
+      streamDeltaNotification:
+        $ref: "#/components/messages/StreamDeltaNotification"
+      streamEndNotification:
+        $ref: "#/components/messages/StreamEndNotification"
+      streamCancelRequest:
+        $ref: "#/components/messages/StreamCancelRequest"
+      streamCancelResponse:
+        $ref: "#/components/messages/StreamCancelResponse"
+      streamErrorNotification:
+        $ref: "#/components/messages/StreamErrorNotification"
+
+  memory:
+    address: /
+    description: >
+      Memory operations (store, query, evict) and context frame delivery.
+      Memory operations are private JSON-RPC exchanges, not thread messages.
+      Three-tier model: active context, conversation memory, archival memory.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      memoryStoreRequest:
+        $ref: "#/components/messages/MemoryStoreRequest"
+      memoryStoreResponse:
+        $ref: "#/components/messages/MemoryStoreResponse"
+      memoryQueryRequest:
+        $ref: "#/components/messages/MemoryQueryRequest"
+      memoryQueryResponse:
+        $ref: "#/components/messages/MemoryQueryResponse"
+      memoryEvictRequest:
+        $ref: "#/components/messages/MemoryEvictRequest"
+      memoryEvictResponse:
+        $ref: "#/components/messages/MemoryEvictResponse"
+      contextFrameNotification:
+        $ref: "#/components/messages/ContextFrameNotification"
+
+  toolEvents:
+    address: /
+    description: >
+      Tool visibility events delivered as persistent signed messages via
+      ainm.message.deliver. Includes ToolCallStarted, ToolCallProgress,
+      and ToolCallCompleted message types. These are NOT separate JSON-RPC
+      methods -- they are message types within the message delivery channel.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      toolCallStartedMessage:
+        $ref: "#/components/messages/ToolCallStartedMessage"
+      toolCallProgressMessage:
+        $ref: "#/components/messages/ToolCallProgressMessage"
+      toolCallCompletedMessage:
+        $ref: "#/components/messages/ToolCallCompletedMessage"
+
+  keepalive:
+    address: /
+    description: >
+      Keepalive ping/pong mechanism. Clients SHOULD send ainm.ping every
+      30 seconds during idle periods. Server responds with ainm.pong.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      pingRequest:
+        $ref: "#/components/messages/PingRequest"
+      pongResponse:
+        $ref: "#/components/messages/PongResponse"
+
+  federation:
+    address: /ainm/v1/relay
+    description: >
+      Server-to-server federation relay. Messages are delivered cross-server
+      via HTTP POST with mutual TLS. The relay carries signed message envelopes
+      with an additional server-level signature.
+    servers:
+      - $ref: "#/servers/federation"
+    messages:
+      relayRequest:
+        $ref: "#/components/messages/RelayRequest"
+      relayResponse:
+        $ref: "#/components/messages/RelayResponse"
+
+# Operations map each JSON-RPC method to its channel and messages.
+# Request/response methods use the 'reply' property.
+# Notifications use action: send or receive with no reply.
+operations:
+  # --- Session ---
+  sendInitialize:
+    action: send
+    channel:
+      $ref: "#/channels/session"
+    summary: "Client initiates session with ainm.initialize request"
+    description: >
+      First message on a new WebSocket connection. Client provides identity,
+      signed nonce, and capability flags. Server responds with negotiated
+      capabilities and server info.
+    messages:
+      - $ref: "#/channels/session/messages/initializeRequest"
+    reply:
+      channel:
+        $ref: "#/channels/session"
+      messages:
+        - $ref: "#/channels/session/messages/initializeResponse"
+
+  sendInitialized:
+    action: send
+    channel:
+      $ref: "#/channels/session"
+    summary: "Client confirms handshake with ainm.initialized notification"
+    description: >
+      Sent after receiving the initialize response. Signals that the client
+      has accepted the negotiated capabilities. No further protocol methods
+      are permitted until this notification is sent.
+    messages:
+      - $ref: "#/channels/session/messages/initializedNotification"
+
+  sendShutdown:
+    action: send
+    channel:
+      $ref: "#/channels/session"
+    summary: "Client initiates graceful shutdown with ainm.shutdown notification"
+    description: >
+      Client sends this before closing the WebSocket. Server clears session
+      state, marks participant as offline, and begins queuing messages for
+      store-and-forward delivery.
+    messages:
+      - $ref: "#/channels/session/messages/shutdownNotification"
+
+  # --- Messaging ---
+  sendMessage:
+    action: send
+    channel:
+      $ref: "#/channels/messaging"
+    summary: "Client sends a message via ainm.message.send request"
+    description: >
+      Delivers a signed message envelope to a thread. Server validates the
+      signature, stores the message, and delivers to online participants.
+    messages:
+      - $ref: "#/channels/messaging/messages/messageSendRequest"
+    reply:
+      channel:
+        $ref: "#/channels/messaging"
+      messages:
+        - $ref: "#/channels/messaging/messages/messageSendResponse"
+
+  receiveMessageDeliver:
+    action: receive
+    channel:
+      $ref: "#/channels/messaging"
+    summary: "Server delivers a message via ainm.message.deliver notification"
+    description: >
+      Server pushes a message to a connected client. The message envelope
+      includes the original sender's Ed25519 signature. This is also the
+      delivery mechanism for tool visibility events.
+    messages:
+      - $ref: "#/channels/messaging/messages/messageDeliverNotification"
+
+  # --- Threading ---
+  sendThreadCreate:
+    action: send
+    channel:
+      $ref: "#/channels/threading"
+    summary: "Client creates a thread via ainm.thread.create request"
+    description: >
+      Creates a new thread or sub-thread with a client-generated UUIDv7 thread_id.
+      For sub-threads, include optional parent_thread_id and parent_message_id fields.
+      The creator is automatically added as a participant with the creator role.
+    messages:
+      - $ref: "#/channels/threading/messages/threadCreateRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threading"
+      messages:
+        - $ref: "#/channels/threading/messages/threadCreateResponse"
+
+  sendThreadJoin:
+    action: send
+    channel:
+      $ref: "#/channels/threading"
+    summary: "Client joins a thread via ainm.thread.join request"
+    description: >
+      Adds a participant to an existing thread. Any current participant
+      can invite another participant.
+    messages:
+      - $ref: "#/channels/threading/messages/threadJoinRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threading"
+      messages:
+        - $ref: "#/channels/threading/messages/threadJoinResponse"
+
+  sendThreadLeave:
+    action: send
+    channel:
+      $ref: "#/channels/threading"
+    summary: "Client leaves a thread via ainm.thread.leave request"
+    description: >
+      Removes the participant from the thread. The participant will no longer
+      receive messages for this thread.
+    messages:
+      - $ref: "#/channels/threading/messages/threadLeaveRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threading"
+      messages:
+        - $ref: "#/channels/threading/messages/threadLeaveResponse"
+
+  # --- Presence ---
+  sendPresenceUpdate:
+    action: send
+    channel:
+      $ref: "#/channels/presence"
+    summary: "Client sends presence update via ainm.presence.update notification"
+    description: >
+      Updates the participant's presence status for a specific thread or globally.
+      Humans use online/offline; agents use available/busy/processing with
+      optional detail text.
+    messages:
+      - $ref: "#/channels/presence/messages/presenceUpdateNotification"
+
+  receivePresenceNotify:
+    action: receive
+    channel:
+      $ref: "#/channels/presence"
+    summary: "Server broadcasts presence change via ainm.presence.notify notification"
+    description: >
+      Server relays a presence update to all connected participants in the
+      relevant thread.
+    messages:
+      - $ref: "#/channels/presence/messages/presenceNotifyNotification"
+
+  # --- Streaming ---
+  receiveStreamStart:
+    action: receive
+    channel:
+      $ref: "#/channels/streaming"
+    summary: "Server delivers stream start via ainm.stream.start notification"
+    description: >
+      Declares a new stream with its block layout. The blocks array defines
+      all content blocks the agent intends to populate. Clients should prepare
+      UI placeholders for each block.
+    messages:
+      - $ref: "#/channels/streaming/messages/streamStartNotification"
+
+  receiveStreamDelta:
+    action: receive
+    channel:
+      $ref: "#/channels/streaming"
+    summary: "Server delivers stream delta via ainm.stream.delta notification"
+    description: >
+      Delivers incremental content tokens to a specific block within a stream.
+      Deltas for different blocks may arrive interleaved (parallel multi-block
+      streaming).
+    messages:
+      - $ref: "#/channels/streaming/messages/streamDeltaNotification"
+
+  receiveStreamEnd:
+    action: receive
+    channel:
+      $ref: "#/channels/streaming"
+    summary: "Server delivers stream end via ainm.stream.end notification"
+    description: >
+      Terminates a stream. Status is either completed or cancelled. After
+      stream end, the server delivers a collapsed permanent signed message.
+    messages:
+      - $ref: "#/channels/streaming/messages/streamEndNotification"
+
+  sendStreamCancel:
+    action: send
+    channel:
+      $ref: "#/channels/streaming"
+    summary: "Client cancels a stream via ainm.stream.cancel request"
+    description: >
+      Client requests cancellation of an active stream. This is a request
+      (not notification) because the client needs confirmation that the
+      server processed the cancellation.
+    messages:
+      - $ref: "#/channels/streaming/messages/streamCancelRequest"
+    reply:
+      channel:
+        $ref: "#/channels/streaming"
+      messages:
+        - $ref: "#/channels/streaming/messages/streamCancelResponse"
+
+  receiveStreamError:
+    action: receive
+    channel:
+      $ref: "#/channels/streaming"
+    summary: "Server reports streaming error via ainm.stream.error notification"
+    description: >
+      Reports an error during streaming that terminates the stream abnormally.
+      May include partial_preserved flag indicating partial content was saved.
+    messages:
+      - $ref: "#/channels/streaming/messages/streamErrorNotification"
+
+  # --- Memory ---
+  sendMemoryStore:
+    action: send
+    channel:
+      $ref: "#/channels/memory"
+    summary: "Client stores a fact via ainm.memory.store request"
+    description: >
+      Stores a structured fact (key-value pair with optional tags) in the
+      authenticated participant's archival memory. Server assigns fact_id.
+    messages:
+      - $ref: "#/channels/memory/messages/memoryStoreRequest"
+    reply:
+      channel:
+        $ref: "#/channels/memory"
+      messages:
+        - $ref: "#/channels/memory/messages/memoryStoreResponse"
+
+  sendMemoryQuery:
+    action: send
+    channel:
+      $ref: "#/channels/memory"
+    summary: "Client queries memory via ainm.memory.query request"
+    description: >
+      Queries conversation memory (thread history) or archival memory
+      (cross-conversation facts). Supports text search, time-range filtering,
+      sender filtering, key prefix, and tag filtering.
+    messages:
+      - $ref: "#/channels/memory/messages/memoryQueryRequest"
+    reply:
+      channel:
+        $ref: "#/channels/memory"
+      messages:
+        - $ref: "#/channels/memory/messages/memoryQueryResponse"
+
+  sendMemoryEvict:
+    action: send
+    channel:
+      $ref: "#/channels/memory"
+    summary: "Client evicts a fact via ainm.memory.evict request"
+    description: >
+      Removes a fact from the authenticated participant's archival memory
+      by fact_id or key. Only the participant who stored the fact can evict it.
+    messages:
+      - $ref: "#/channels/memory/messages/memoryEvictRequest"
+    reply:
+      channel:
+        $ref: "#/channels/memory"
+      messages:
+        - $ref: "#/channels/memory/messages/memoryEvictResponse"
+
+  receiveContextFrame:
+    action: receive
+    channel:
+      $ref: "#/channels/memory"
+    summary: "Server delivers context frame via ainm.context.frame notification"
+    description: >
+      Delivers a structured context frame containing active context,
+      conversation summary, relevant archival facts, and participant list.
+      Delivered on thread join, context refresh, or significant thread changes.
+    messages:
+      - $ref: "#/channels/memory/messages/contextFrameNotification"
+
+  # --- Tool Events ---
+  receiveToolCallStarted:
+    action: receive
+    channel:
+      $ref: "#/channels/toolEvents"
+    summary: "Receive tool call started event (delivered via ainm.message.deliver)"
+    description: >
+      Persistent signed message indicating an agent has begun a tool invocation.
+      Delivered through the message delivery mechanism, not as a separate method.
+    messages:
+      - $ref: "#/channels/toolEvents/messages/toolCallStartedMessage"
+
+  receiveToolCallProgress:
+    action: receive
+    channel:
+      $ref: "#/channels/toolEvents"
+    summary: "Receive tool call progress event (delivered via ainm.message.deliver)"
+    description: >
+      Optional progress updates during a tool call, with determinate or
+      indeterminate progress indicators.
+    messages:
+      - $ref: "#/channels/toolEvents/messages/toolCallProgressMessage"
+
+  receiveToolCallCompleted:
+    action: receive
+    channel:
+      $ref: "#/channels/toolEvents"
+    summary: "Receive tool call completed event (delivered via ainm.message.deliver)"
+    description: >
+      Final event in the tool call lifecycle. Indicates success or error
+      with optional result summary.
+    messages:
+      - $ref: "#/channels/toolEvents/messages/toolCallCompletedMessage"
+
+  # --- Keepalive ---
+  sendPing:
+    action: send
+    channel:
+      $ref: "#/channels/keepalive"
+    summary: "Client sends keepalive via ainm.ping request"
+    description: >
+      Sent every 30 seconds during idle periods. If server does not respond
+      within 10 seconds, client should consider the connection dead.
+    messages:
+      - $ref: "#/channels/keepalive/messages/pingRequest"
+    reply:
+      channel:
+        $ref: "#/channels/keepalive"
+      messages:
+        - $ref: "#/channels/keepalive/messages/pongResponse"
+
+  # --- Federation ---
+  sendRelay:
+    action: send
+    channel:
+      $ref: "#/channels/federation"
+    summary: "Server relays messages via ainm.relay request"
+    description: >
+      Server-to-server federation relay. The originating server sends
+      signed message envelopes to the destination server for local delivery.
+      Triple-layer validation: mutual TLS + server signature + message signatures.
+    messages:
+      - $ref: "#/channels/federation/messages/relayRequest"
+    reply:
+      channel:
+        $ref: "#/channels/federation"
+      messages:
+        - $ref: "#/channels/federation/messages/relayResponse"
+
+# Component message definitions with $ref to JSON Schema $defs.
+components:
+  messages:
+    # --- Session Messages ---
+    InitializeRequest:
+      name: ainm.initialize
+      title: Initialize Session Request
+      summary: Client sends identity, signed nonce, and capabilities to establish a session.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/InitializeParams"
+
+    InitializeResponse:
+      name: ainm.initialize.response
+      title: Initialize Session Response
+      summary: Server returns negotiated capabilities and server info.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/InitializeResult"
+
+    InitializedNotification:
+      name: ainm.initialized
+      title: Initialized Confirmation
+      summary: Client confirms the handshake is complete. No payload required.
+      contentType: application/json
+
+    ShutdownNotification:
+      name: ainm.shutdown
+      title: Shutdown Notification
+      summary: Client initiates graceful session shutdown.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ShutdownParams"
+
+    # --- Messaging Messages ---
+    MessageSendRequest:
+      name: ainm.message.send
+      title: Send Message Request
+      summary: Client sends a signed message envelope to a thread.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/MessageSendParams"
+
+    MessageSendResponse:
+      name: ainm.message.send.response
+      title: Send Message Response
+      summary: Server confirms message receipt with server timestamp.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/MessageSendResult"
+
+    MessageDeliverNotification:
+      name: ainm.message.deliver
+      title: Message Delivery Notification
+      summary: Server delivers a signed message envelope to a connected client.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/MessageDeliverNotification"
+
+    # --- Threading Messages ---
+    ThreadCreateRequest:
+      name: ainm.thread.create
+      title: Create Thread Request
+      summary: Client creates a new thread (or sub-thread via optional parent_thread_id) with a UUIDv7 thread_id.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadCreateParams"
+
+    ThreadCreateResponse:
+      name: ainm.thread.create.response
+      title: Create Thread Response
+      summary: Server confirms thread creation with metadata.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadCreateResult"
+
+    ThreadJoinRequest:
+      name: ainm.thread.join
+      title: Join Thread Request
+      summary: Adds a participant to an existing thread.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadJoinParams"
+
+    ThreadJoinResponse:
+      name: ainm.thread.join.response
+      title: Join Thread Response
+      summary: Server confirms thread join with participant count.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadJoinResult"
+
+    ThreadLeaveRequest:
+      name: ainm.thread.leave
+      title: Leave Thread Request
+      summary: Removes a participant from a thread.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadLeaveParams"
+
+    ThreadLeaveResponse:
+      name: ainm.thread.leave.response
+      title: Leave Thread Response
+      summary: Server confirms thread departure.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/ThreadLeaveResult"
+
+    # --- Presence Messages ---
+    PresenceUpdateNotification:
+      name: ainm.presence.update
+      title: Presence Update
+      summary: Client sends its presence status for a thread or globally.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/PresenceUpdateParams"
+
+    PresenceNotifyNotification:
+      name: ainm.presence.notify
+      title: Presence Broadcast
+      summary: Server broadcasts a presence change to thread participants.
+      contentType: application/json
+      payload:
+        $ref: "schemas/threading.schema.json#/$defs/PresenceUpdate"
+
+    # --- Streaming Messages ---
+    StreamStartNotification:
+      name: ainm.stream.start
+      title: Stream Start
+      summary: Declares a new stream and its block layout for progressive delivery.
+      contentType: application/json
+      payload:
+        $ref: "schemas/streaming.schema.json#/$defs/StreamStart"
+
+    StreamDeltaNotification:
+      name: ainm.stream.delta
+      title: Stream Delta
+      summary: Delivers incremental content tokens to a specific block.
+      contentType: application/json
+      payload:
+        $ref: "schemas/streaming.schema.json#/$defs/StreamDelta"
+
+    StreamEndNotification:
+      name: ainm.stream.end
+      title: Stream End
+      summary: Terminates a stream with completed or cancelled status.
+      contentType: application/json
+      payload:
+        $ref: "schemas/streaming.schema.json#/$defs/StreamEnd"
+
+    StreamCancelRequest:
+      name: ainm.stream.cancel
+      title: Stream Cancel Request
+      summary: Client requests cancellation of an active stream.
+      contentType: application/json
+      payload:
+        $ref: "schemas/streaming.schema.json#/$defs/CancelStream"
+
+    StreamCancelResponse:
+      name: ainm.stream.cancel.response
+      title: Stream Cancel Response
+      summary: Server confirms the stream cancellation was processed.
+      contentType: application/json
+
+    StreamErrorNotification:
+      name: ainm.stream.error
+      title: Stream Error
+      summary: Reports a streaming error that terminates the stream abnormally.
+      contentType: application/json
+      payload:
+        $ref: "schemas/streaming.schema.json#/$defs/StreamErrorNotification"
+
+    # --- Memory Messages ---
+    MemoryStoreRequest:
+      name: ainm.memory.store
+      title: Store Memory Fact Request
+      summary: Stores a structured fact in the participant's archival memory.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/MemoryStoreParams"
+
+    MemoryStoreResponse:
+      name: ainm.memory.store.response
+      title: Store Memory Fact Response
+      summary: Server confirms fact storage with assigned fact_id.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/ArchivalFact"
+
+    MemoryQueryRequest:
+      name: ainm.memory.query
+      title: Query Memory Request
+      summary: Queries conversation or archival memory with filters.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/MemoryQueryParams"
+
+    MemoryQueryResponse:
+      name: ainm.memory.query.response
+      title: Query Memory Response
+      summary: Returns matching memory results.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/MemoryQueryResult"
+
+    MemoryEvictRequest:
+      name: ainm.memory.evict
+      title: Evict Memory Fact Request
+      summary: Removes a fact from archival memory by fact_id or key.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/MemoryEvictParams"
+
+    MemoryEvictResponse:
+      name: ainm.memory.evict.response
+      title: Evict Memory Fact Response
+      summary: Server confirms fact eviction.
+      contentType: application/json
+
+    ContextFrameNotification:
+      name: ainm.context.frame
+      title: Context Frame Delivery
+      summary: >
+        Server delivers a structured context frame with active context,
+        conversation summary, archival facts, and participant list.
+      contentType: application/json
+      payload:
+        $ref: "schemas/memory.schema.json#/$defs/ContextFrame"
+
+    # --- Tool Event Messages ---
+    # Tool events are message types delivered via ainm.message.deliver,
+    # not separate JSON-RPC methods. They are documented here for completeness
+    # of the protocol's message catalog.
+    ToolCallStartedMessage:
+      name: tool.call.started
+      title: Tool Call Started
+      summary: Persistent signed message indicating an agent began a tool invocation.
+      contentType: application/json
+      payload:
+        $ref: "schemas/tool-visibility.schema.json#/$defs/ToolCallStarted"
+
+    ToolCallProgressMessage:
+      name: tool.call.progress
+      title: Tool Call Progress
+      summary: Optional progress update during a tool call execution.
+      contentType: application/json
+      payload:
+        $ref: "schemas/tool-visibility.schema.json#/$defs/ToolCallProgress"
+
+    ToolCallCompletedMessage:
+      name: tool.call.completed
+      title: Tool Call Completed
+      summary: Final event in a tool call lifecycle with success/error status.
+      contentType: application/json
+      payload:
+        $ref: "schemas/tool-visibility.schema.json#/$defs/ToolCallCompleted"
+
+    # --- Keepalive Messages ---
+    PingRequest:
+      name: ainm.ping
+      title: Keepalive Ping
+      summary: Client sends keepalive ping every 30 seconds during idle periods.
+      contentType: application/json
+
+    PongResponse:
+      name: ainm.pong
+      title: Keepalive Pong
+      summary: Server responds to keepalive ping.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/PingResult"
+
+    # --- Federation Messages ---
+    RelayRequest:
+      name: ainm.relay
+      title: Federation Relay Request
+      summary: >
+        Server-to-server relay carrying signed message envelopes with
+        server-level signature for cross-server delivery.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/RelayParams"
+
+    RelayResponse:
+      name: ainm.relay.response
+      title: Federation Relay Response
+      summary: Destination server confirms relay acceptance with counts.
+      contentType: application/json
+      payload:
+        $ref: "schemas/transport.schema.json#/$defs/RelayResult"
