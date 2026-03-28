@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/agent-card.schema.json",
+  "title": "AINM Protocol - Agent Card Schema",
+  "description": "JSON Schema for AINM Agent Cards. A2A-compatible superset with AINM extensions under the ainm namespace. See agent-card.md.",
+  "$defs": {
+    "AgentCapabilities": {
+      "type": "object",
+      "description": "A2A-compatible capabilities object declaring high-level agent features. See agent-card.md Section 5.2.",
+      "required": ["streaming", "pushNotifications"],
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Whether the agent supports streaming responses."
+        },
+        "pushNotifications": {
+          "type": "boolean",
+          "description": "Whether the agent supports push notifications for asynchronous task updates."
+        }
+      }
+    },
+    "AgentSkill": {
+      "type": "object",
+      "description": "A named capability or area of expertise the agent can perform. See agent-card.md Section 5.3.",
+      "required": ["id", "name", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the skill within this Agent Card. Alphanumeric with hyphens."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable skill name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of what the skill does."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Categorization tags for search and filtering."
+        }
+      }
+    },
+    "AgentTool": {
+      "type": "object",
+      "description": "A discrete function an agent can invoke. Exposed in the ainm.tools array with name, description, and JSON Schema input. See agent-card.md Section 6.2.",
+      "required": ["name", "description", "inputSchema"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Tool name. MUST be unique within the ainm.tools array. Alphanumeric with underscores and hyphens."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what the tool does."
+        },
+        "inputSchema": {
+          "type": "object",
+          "description": "JSON Schema (Draft 2020-12) describing the tool's input parameters. MUST be a valid JSON Schema object with type: 'object'."
+        }
+      }
+    },
+    "AINMStreamingCapability": {
+      "type": "object",
+      "description": "AINM-specific streaming capability details. See agent-card.md Section 6.2.",
+      "required": ["supported", "parallelBlocks", "preferredChunkSize"],
+      "properties": {
+        "supported": {
+          "type": "boolean",
+          "description": "Whether the agent supports AINM streaming (start/delta/end lifecycle)."
+        },
+        "parallelBlocks": {
+          "type": "boolean",
+          "description": "Whether the agent can stream into multiple content blocks simultaneously."
+        },
+        "preferredChunkSize": {
+          "type": "string",
+          "enum": ["token", "sentence"],
+          "description": "Preferred delta granularity. 'token' = lowest latency, 'sentence' = fewer events."
+        }
+      }
+    },
+    "AINMThreadingCapability": {
+      "type": "object",
+      "description": "AINM-specific threading capability details. See agent-card.md Section 6.2.",
+      "required": ["subThreads", "maxConcurrentThreads"],
+      "properties": {
+        "subThreads": {
+          "type": "boolean",
+          "description": "Whether the agent supports participating in sub-threads."
+        },
+        "maxConcurrentThreads": {
+          "type": ["integer", "null"],
+          "description": "Maximum concurrent threads the agent can participate in. null means unlimited."
+        }
+      }
+    },
+    "AINMMemoryCapability": {
+      "type": "object",
+      "description": "AINM-specific memory capability details. See agent-card.md Section 6.2.",
+      "required": ["archivalSupported", "contextFramePreferred"],
+      "properties": {
+        "archivalSupported": {
+          "type": "boolean",
+          "description": "Whether the agent supports archival memory operations."
+        },
+        "contextFramePreferred": {
+          "type": "boolean",
+          "description": "Whether the agent prefers structured context frames over raw message history on thread join."
+        }
+      }
+    },
+    "AINMExtensions": {
+      "type": "object",
+      "description": "AINM-specific extension fields under the ainm namespace. A2A validators skip this object. See agent-card.md Section 6.",
+      "required": ["protocolVersion", "address", "contentTypes", "streaming", "threading", "memory", "tools"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "description": "AINM protocol version this agent supports (semver). Distinct from A2A protocolVersion."
+        },
+        "address": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The agent's AINM address (name@provider)."
+        },
+        "type": {
+          "type": "string",
+          "const": "agent",
+          "description": "Participant type. Always 'agent' for Agent Card holders."
+        },
+        "contentTypes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Content block types the agent can produce. Core: text, code, image, file. Interactive: button, form, table, approval. Extension types allowed."
+        },
+        "streaming": {
+          "$ref": "#/$defs/AINMStreamingCapability"
+        },
+        "threading": {
+          "$ref": "#/$defs/AINMThreadingCapability"
+        },
+        "memory": {
+          "$ref": "#/$defs/AINMMemoryCapability"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AgentTool" },
+          "description": "Array of tools the agent can invoke. Empty array if the agent has no tools."
+        },
+        "bridgeType": {
+          "type": "string",
+          "description": "Bridge type identifier. 'mcp' for MCP bridges, 'a2a' for A2A bridges. Present only for bridge proxy participants."
+        },
+        "bridgeTarget": {
+          "type": "string",
+          "description": "External service identifier for bridge participants. MCP server name or A2A agent URL."
+        }
+      }
+    },
+    "AgentCard": {
+      "type": "object",
+      "description": "Full AINM Agent Card document. A2A-compatible superset: top-level fields match A2A Agent Card, AINM extensions under ainm namespace. See agent-card.md Section 5.",
+      "required": ["name", "description", "url", "version", "protocolVersion", "capabilities", "skills", "ainm"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Agent display name. Human-readable, suitable for UI display."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Brief summary of what the agent does."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Agent's primary URL. For AINM agents, should be the identity resolution URL."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Agent Card version in semver format. Incremented by the agent operator on changes."
+        },
+        "protocolVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A2A protocol version for A2A client compatibility."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/AgentCapabilities"
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AgentSkill" },
+          "description": "Array of skill objects describing what the agent can do."
+        },
+        "defaultInputModes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "MIME types the agent accepts as input. Default: ['text/plain']."
+        },
+        "defaultOutputModes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "MIME types the agent produces as output. Default: ['text/plain']."
+        },
+        "ainm": {
+          "$ref": "#/$defs/AINMExtensions",
+          "description": "AINM protocol extensions. Contains all AINM-specific capability and tool information."
+        }
+      }
+    },
+    "AgentCardErrorCodes": {
+      "type": "object",
+      "description": "Agent Card error codes in the range -32060 to -32069. See agent-card.md Section 8.",
+      "properties": {
+        "codes": {
+          "type": "object",
+          "properties": {
+            "-32060": {
+              "const": "Agent Card Not Found",
+              "description": "The agent_card_url returned HTTP 404."
+            },
+            "-32061": {
+              "const": "Invalid Agent Card Format",
+              "description": "Response body is not valid JSON or missing required fields."
+            },
+            "-32062": {
+              "const": "Agent Card Version Mismatch",
+              "description": "The ainm.protocolVersion is incompatible with the client's supported version range."
+            }
+          }
+        }
+      }
+    }
+  }
+}

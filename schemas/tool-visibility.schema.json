@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/tool-visibility.schema.json",
+  "title": "AINM Protocol - Tool Visibility Schemas",
+  "description": "JSON Schema definitions for tool call transparency events: ToolCallStarted, ToolCallProgress, ToolCallCompleted. Tool events are persistent signed thread messages. See tool-visibility.md.",
+  "$defs": {
+    "ToolCallStarted": {
+      "type": "object",
+      "description": "Emitted when an agent begins invoking a tool. First event in the tool call lifecycle. Message type: 'tool.call.started'. Delivered as a persistent signed thread message using MessageEnvelope. See tool-visibility.md Section 3.1.",
+      "required": ["call_id", "name", "input", "thread_id", "from", "timestamp"],
+      "properties": {
+        "call_id": {
+          "type": "string",
+          "description": "Unique identifier for this tool call. UUIDv7 (RFC 9562), optionally prefixed with 'tc-'. All lifecycle events share the same call_id."
+        },
+        "name": {
+          "type": "string",
+          "description": "Tool name. MUST match the tool's name in the agent's Agent Card ainm.tools[] array."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this specific invocation is doing. More specific than the Agent Card tool description."
+        },
+        "input": {
+          "type": "object",
+          "description": "Input parameters passed to the tool. Visible to all thread participants. Structure should conform to the tool's inputSchema from the Agent Card."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread where this tool event is posted."
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the agent invoking the tool."
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Time when the tool call started."
+        }
+      }
+    },
+    "ToolCallProgress": {
+      "type": "object",
+      "description": "Emitted during tool execution to report intermediate status. Zero or more progress events per tool call. Message type: 'tool.call.progress'. Persistent signed thread message. See tool-visibility.md Section 3.2.",
+      "required": ["call_id", "progress", "thread_id", "timestamp"],
+      "properties": {
+        "call_id": {
+          "type": "string",
+          "description": "References the call_id from the ToolCallStarted event. MUST exactly match."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread where this progress event is posted."
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Time of this progress update."
+        },
+        "progress": {
+          "type": "object",
+          "description": "Progress details. Determinate (current+total set) or indeterminate (total null/absent).",
+          "properties": {
+            "current": {
+              "type": ["integer", "null"],
+              "description": "Current progress count. null for indeterminate progress."
+            },
+            "total": {
+              "type": ["integer", "null"],
+              "description": "Total expected count. When both current and total are set, clients render a progress bar. null for indeterminate."
+            },
+            "detail": {
+              "type": "string",
+              "description": "Human-readable text describing the current progress state."
+            }
+          }
+        }
+      }
+    },
+    "ToolCallCompleted": {
+      "type": "object",
+      "description": "Emitted when a tool invocation finishes. Final event in the lifecycle. Exactly one per started event. Message type: 'tool.call.completed'. Persistent signed thread message. See tool-visibility.md Section 3.3.",
+      "required": ["call_id", "name", "result_summary", "duration_ms", "status", "thread_id", "from", "timestamp"],
+      "properties": {
+        "call_id": {
+          "type": "string",
+          "description": "References the call_id from the ToolCallStarted event."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread where this completion event is posted."
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the agent that invoked the tool."
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Time when the tool call completed."
+        },
+        "name": {
+          "type": "string",
+          "description": "Tool name. Repeated from started event for standalone readability."
+        },
+        "result_summary": {
+          "type": "string",
+          "description": "Brief text summary of the tool's result. Human-readable, suitable for collapsed indicator display."
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock execution time in milliseconds."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "error", "cancelled"],
+          "description": "Tool execution outcome. 'success' = completed without errors, 'error' = tool failed, 'cancelled' = tool was cancelled."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "Detailed error description. Present only when status is 'error'."
+        }
+      }
+    }
+  }
+}

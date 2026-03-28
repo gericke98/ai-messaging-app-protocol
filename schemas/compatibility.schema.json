@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/compatibility.schema.json",
+  "title": "AINM Protocol - Compatibility Bridge Schemas",
+  "description": "JSON Schema definitions for MCP and A2A compatibility bridges. Bridges are proxy participants that translate between external protocols and AINM threads. See compatibility.md.",
+  "$defs": {
+    "MCPToolMapping": {
+      "type": "object",
+      "description": "Maps an MCP tool definition to AINM Agent Card format. Tool names preserved verbatim from MCP server per Phase 2 decision. See compatibility.md Section 3.2.",
+      "required": ["mcp_tool_name", "ainm_tool_name"],
+      "properties": {
+        "mcp_tool_name": {
+          "type": "string",
+          "description": "Original tool name from the MCP server's tools/list response."
+        },
+        "ainm_tool_name": {
+          "type": "string",
+          "description": "Tool name in the AINM Agent Card ainm.tools[] array. Preserved verbatim from MCP server -- tool names are NOT modified or prefixed by the bridge."
+        },
+        "description": {
+          "type": "string",
+          "description": "Tool description from the MCP server. Preserved verbatim."
+        },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema for the tool's input parameters. Preserved verbatim from MCP inputSchema."
+        }
+      }
+    },
+    "MCPBridgeConfig": {
+      "type": "object",
+      "description": "Configuration for an MCP bridge instance. Each MCP server connection requires a separate bridge with its own AINM identity. See compatibility.md Section 3.",
+      "required": ["bridge_identity", "mcp_server_url", "tools"],
+      "properties": {
+        "bridge_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the bridge proxy participant. Convention: mcp-{server-name}@{provider}."
+        },
+        "mcp_server_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the MCP server to connect to."
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MCPToolMapping" },
+          "description": "Tool mappings discovered from MCP tools/list. Populated at bridge startup and updated on tools/list_changed notifications."
+        }
+      }
+    },
+    "A2ATaskMapping": {
+      "type": "object",
+      "description": "Maps an A2A task to an AINM sub-thread. A2A task states map to AINM thread events. See compatibility.md Section 4.2.",
+      "required": ["a2a_task_id", "ainm_thread_id"],
+      "properties": {
+        "a2a_task_id": {
+          "type": "string",
+          "description": "A2A task identifier from the external A2A agent."
+        },
+        "ainm_thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "AINM sub-thread UUIDv7 created for this A2A task."
+        },
+        "status_mapping": {
+          "type": "object",
+          "description": "Describes how A2A task states map to AINM events. submitted -> thread.create, working -> presence:processing, input-required -> FormBlock/ApprovalBlock, completed -> result message, failed -> error message, canceled -> thread.leave.",
+          "properties": {
+            "submitted": { "type": "string", "const": "ainm.thread.create" },
+            "working": { "type": "string", "const": "ainm.presence.update (status: processing)" },
+            "input-required": { "type": "string", "const": "FormBlock or ApprovalBlock message" },
+            "completed": { "type": "string", "const": "result content message" },
+            "failed": { "type": "string", "const": "error TextBlock message" },
+            "canceled": { "type": "string", "const": "ainm.thread.leave" }
+          }
+        }
+      }
+    },
+    "A2ABridgeConfig": {
+      "type": "object",
+      "description": "Configuration for an A2A bridge instance. Operates in outbound (AINM delegates to A2A) or inbound (A2A sends to AINM) modes. See compatibility.md Section 4.",
+      "required": ["bridge_identity", "a2a_agent_url"],
+      "properties": {
+        "bridge_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the bridge proxy participant. Convention: a2a-{agent-name}@{provider}."
+        },
+        "a2a_agent_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the external A2A agent."
+        }
+      }
+    },
+    "BridgeAgentCard": {
+      "type": "object",
+      "description": "Describes how bridge Agent Cards include bridgeType and bridgeTarget fields in the ainm extension object. Bridge Agent Cards follow agent-card.schema.json#/$defs/AgentCard with the ainm.bridgeType and ainm.bridgeTarget fields populated. See compatibility.md Section 3.5 and agent-card.schema.json#/$defs/AINMExtensions.",
+      "properties": {
+        "bridgeType": {
+          "type": "string",
+          "enum": ["mcp", "a2a"],
+          "description": "Bridge type. 'mcp' for MCP bridges, 'a2a' for A2A bridges. Declared in ainm.bridgeType."
+        },
+        "bridgeTarget": {
+          "type": "string",
+          "description": "External service identifier. Declared in ainm.bridgeTarget."
+        }
+      }
+    }
+  }
+}

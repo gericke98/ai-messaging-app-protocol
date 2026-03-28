@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/memory.schema.json",
+  "title": "AINM Protocol - Memory Management Schemas",
+  "description": "JSON Schema definitions for the three-tier memory model: context frames, memory store/query/evict operations, and archival facts. See memory.md.",
+  "$defs": {
+    "ArchivalFact": {
+      "type": "object",
+      "description": "A unit of archival memory. Structured key-value record with metadata. See memory.md Section 3.3.",
+      "required": ["fact_id", "key", "value", "stored_by", "stored_at"],
+      "properties": {
+        "fact_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Server-assigned unique identifier for this fact."
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Dot-namespaced identifier. Examples: 'user_preference.timezone', 'learned.coding_style'."
+        },
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object" }
+          ],
+          "description": "Fact content. May be a string or JSON object. Maximum 4KB when serialized."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 10,
+          "description": "Categorization tags for filtering during queries. Max 10 tags, each 1-64 characters."
+        },
+        "stored_by": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the participant who stored this fact. Set by server from authenticated session."
+        },
+        "stored_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Timestamp when the fact was stored. Set by server."
+        }
+      }
+    },
+    "ContextFrame": {
+      "type": "object",
+      "description": "Structured context payload delivered to a participant. Contains active context, conversation summary, archival facts, and participant list. Budget: 32KB max with 50/20/20/10 split (recent messages / summary / archival / participants). See memory.md Section 4.",
+      "required": ["thread_id", "frame"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread this context frame pertains to."
+        },
+        "frame": {
+          "type": "object",
+          "required": ["active_context", "conversation_summary", "archival_facts", "participants"],
+          "properties": {
+            "active_context": {
+              "type": "object",
+              "description": "Active context tier: recent messages + thread metadata. ~50% of context frame budget.",
+              "required": ["recent_messages", "window_start", "message_count"],
+              "properties": {
+                "recent_messages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "from", "timestamp", "summary"],
+                    "properties": {
+                      "id": { "$ref": "common.schema.json#/$defs/UUIDv7" },
+                      "from": { "$ref": "common.schema.json#/$defs/AINMAddress" },
+                      "timestamp": { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" },
+                      "summary": { "type": "string", "description": "Text excerpt or server-generated summary." }
+                    }
+                  },
+                  "description": "Recent message summaries ordered chronologically (oldest first)."
+                },
+                "window_start": {
+                  "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+                  "description": "Beginning of the active context window."
+                },
+                "message_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Total messages in the thread at frame assembly time."
+                }
+              }
+            },
+            "conversation_summary": {
+              "type": ["string", "null"],
+              "description": "Server-generated summary of conversation history beyond active context. null for new threads or if server does not support summarization. ~20% of budget."
+            },
+            "archival_facts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ArchivalFact" },
+              "description": "Relevant archival facts for the receiving participant. Only the participant's own facts. ~20% of budget."
+            },
+            "participants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["identity", "type", "presence"],
+                "properties": {
+                  "identity": { "$ref": "common.schema.json#/$defs/AINMAddress" },
+                  "type": {
+                    "type": "string",
+                    "enum": ["human", "agent"]
+                  },
+                  "presence": {
+                    "type": "string",
+                    "description": "Current thread-scoped presence status."
+                  }
+                }
+              },
+              "description": "Current thread participants with presence. ~10% of budget."
+            }
+          }
+        }
+      }
+    },
+    "MemoryStoreParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.store. Stores a fact in the authenticated participant's archival memory. Key collision = replacement. See memory.md Section 5.1.",
+      "required": ["thread_id", "tier", "fact"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread context for audit trail (archival facts persist across conversations)."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["archival"],
+          "description": "MUST be 'archival'. Active context and conversation memory are server-managed."
+        },
+        "fact": {
+          "type": "object",
+          "required": ["key", "value"],
+          "properties": {
+            "key": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "Dot-namespaced identifier for the fact."
+            },
+            "value": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "object" }
+              ],
+              "description": "Fact content. Maximum 4KB serialized."
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "maxItems": 10,
+              "description": "Categorization tags. Max 10, each 1-64 chars."
+            }
+          }
+        }
+      }
+    },
+    "MemoryQueryParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.query. Queries conversation memory or archival memory. See memory.md Section 5.2.",
+      "required": ["thread_id", "tier"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread to query."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["conversation", "archival"],
+          "description": "Memory tier to query."
+        },
+        "query": {
+          "type": "string",
+          "description": "Text search query. For conversation: searches message content. For archival: semantic search over fact values."
+        },
+        "key": {
+          "type": "string",
+          "description": "For archival tier: exact key or key prefix match."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "For archival tier: filter by tags."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of results to return."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of results to skip (for pagination)."
+        },
+        "time_range": {
+          "type": "object",
+          "properties": {
+            "start": { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" },
+            "end": { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" }
+          },
+          "description": "For conversation tier: filter messages by time range."
+        },
+        "from_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "For conversation tier: filter messages by sender."
+        }
+      }
+    },
+    "MemoryQueryResult": {
+      "type": "object",
+      "description": "Response for ainm.memory.query. See memory.md Section 5.2.",
+      "required": ["results"],
+      "properties": {
+        "results": {
+          "type": "array",
+          "description": "Query results. For archival tier: array of ArchivalFact. For conversation tier: array of message summaries."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True if more results exist beyond the limit."
+        }
+      }
+    },
+    "MemoryEvictParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.evict. Removes a fact from archival memory. See memory.md Section 5.3.",
+      "required": ["thread_id", "tier"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread context for audit trail."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["archival"],
+          "description": "MUST be 'archival'. Only archival facts can be evicted by participants."
+        },
+        "fact_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Server-assigned fact ID for targeted eviction."
+        },
+        "key": {
+          "type": "string",
+          "description": "Fact key for key-based eviction. Either fact_id or key must be provided."
+        }
+      }
+    },
+    "MemoryCapabilities": {
+      "type": "object",
+      "description": "Memory capabilities declared during ainm.initialize negotiation. See memory.md Section 6.",
+      "properties": {
+        "conversation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether conversation memory queries are supported."
+        },
+        "archival": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether archival memory operations are supported."
+        },
+        "maxContextFrameSize": {
+          "type": "integer",
+          "default": 32768,
+          "description": "Maximum context frame size in bytes. Recommended default: 32KB (32768 bytes)."
+        }
+      }
+    },
+    "MemoryErrorCodes": {
+      "type": "object",
+      "description": "Memory-specific JSON-RPC error codes in the range -32050 to -32055. See memory.md Section 8.",
+      "properties": {
+        "codes": {
+          "type": "object",
+          "properties": {
+            "-32050": {
+              "const": "Memory operation failed",
+              "description": "Generic memory operation failure."
+            },
+            "-32051": {
+              "const": "Invalid memory tier",
+              "description": "Attempted to write to conversation or active tier (only archival is writable)."
+            },
+            "-32052": {
+              "const": "Storage quota exceeded",
+              "description": "Participant's archival storage quota has been exceeded."
+            },
+            "-32053": {
+              "const": "Invalid fact format",
+              "description": "Fact object failed validation (key format, value size, tag constraints)."
+            },
+            "-32054": {
+              "const": "Fact not found",
+              "description": "Referenced fact_id or key does not exist in the participant's archival store."
+            },
+            "-32055": {
+              "const": "Context frame too large",
+              "description": "Assembled context frame exceeds max_context_frame_size. Server truncation failed."
+            }
+          }
+        }
+      }
+    }
+  }
+}
