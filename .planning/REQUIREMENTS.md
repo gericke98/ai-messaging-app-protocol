@@ -168,7 +168,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SECU-05 | Phase 1 | Complete |
 | STRM-01 | Phase 2, 4 | Complete |
 | STRM-02 | Phase 2 | Complete |
-| STRM-03 | Phase 2, 4 | Pending |
+| STRM-03 | Phase 2, 4 | Complete |
 | STRM-04 | Phase 2 | Complete |
 | CONT-01 | Phase 1 | Complete |
 | CONT-02 | Phase 1 | Complete |
@@ -176,9 +176,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | CONT-04 | Phase 2, 4 | Complete |
 | CONT-05 | Phase 2 | Complete |
 | THRD-01 | Phase 1 | Complete |
-| THRD-02 | Phase 1, 4 | Pending |
+| THRD-02 | Phase 1, 4 | Complete |
 | THRD-03 | Phase 1 | Complete |
-| THRD-04 | Phase 1, 4 | Pending |
+| THRD-04 | Phase 1, 4 | Complete |
 | MIXD-01 | Phase 1 | Complete |
 | MIXD-02 | Phase 1 | Complete |
 | MIXD-03 | Phase 1 | Complete |
@@ -188,9 +188,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
 | DISC-05 | Phase 2 | Complete |
-| TOOL-01 | Phase 2, 4 | Pending |
-| TOOL-02 | Phase 2, 4 | Pending |
-| TOOL-03 | Phase 2, 4 | Pending |
+| TOOL-01 | Phase 2, 4 | Complete |
+| TOOL-02 | Phase 2, 4 | Complete |
+| TOOL-03 | Phase 2, 4 | Complete |
 | TOOL-04 | Phase 2 | Complete |
 | TOOL-05 | Phase 2 | Complete |
 | MEMO-01 | Phase 2, 4 | Pending |
@@ -204,8 +204,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | COMP-03 | Phase 2, 4 | Pending |
 | COMP-04 | Phase 2, 4 | Pending |
 | SPEC-01 | Phase 3 | Complete |
-| SPEC-02 | Phase 3, 4 | Pending |
-| SPEC-03 | Phase 3, 4 | Pending |
+| SPEC-02 | Phase 3, 4 | Complete |
+| SPEC-03 | Phase 3, 4 | Complete |
 | SPEC-04 | Phase 3 | Complete |
 | SPEC-05 | Phase 3, 4 | Complete |
 
