@@ -11,6 +11,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
@@ -25,6 +26,8 @@ pub struct ServerState {
     pub to_human_tx: broadcast::Sender<String>,
     /// Active threads (thread_id list).
     pub threads: Arc<Mutex<Vec<String>>>,
+    /// In-memory archival fact store keyed by fact key.
+    pub archival_store: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
 /// Start the Axum WebSocket server on a random available port.
@@ -42,6 +45,7 @@ pub async fn start(
         to_agent_tx,
         to_human_tx,
         threads: Arc::new(Mutex::new(Vec::new())),
+        archival_store: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = Router::new()
@@ -130,7 +134,7 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
     let is_agent = from_addr.starts_with("helper");
 
     if is_agent {
-        handle_agent_connection(ws_sender, ws_receiver, state).await;
+        handle_agent_connection(ws_sender, ws_receiver, state, from_addr).await;
     } else {
         handle_human_connection(ws_sender, ws_receiver, state).await;
     }
@@ -141,10 +145,12 @@ async fn handle_agent_connection(
     ws_sender: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
     mut ws_receiver: futures_util::stream::SplitStream<WebSocket>,
     state: ServerState,
+    from_addr: String,
 ) {
     let mut from_human_rx = state.to_agent_tx.subscribe();
     let to_human_tx = state.to_human_tx.clone();
     let identity_store = state.identity_store.clone();
+    let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
 
     // Task: forward human messages to agent WebSocket
@@ -210,12 +216,179 @@ async fn handle_agent_connection(
                             }
                         }
                     }
+                    "ainm.memory.store" => {
+                        if let Some(params) = parsed.get("params") {
+                            let tier = params
+                                .get("tier")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
+                            let thread_id = params
+                                .get("thread_id")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            if tier != "archival" {
+                                // Error -32051: unsupported tier
+                                if has_id {
+                                    let err = protocol::new_error(
+                                        parsed.get("id").cloned().unwrap(),
+                                        -32051,
+                                        "Only archival tier is supported",
+                                    );
+                                    let mut sender = ws_sender.lock().await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&err).unwrap().into(),
+                                        ))
+                                        .await;
+                                }
+                            } else if let Some(fact) = params.get("fact") {
+                                let key = fact
+                                    .get("key")
+                                    .and_then(|k| k.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let value = fact.get("value").cloned().unwrap_or(serde_json::json!(""));
+                                let tags = fact
+                                    .get("tags")
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!([]));
+                                let fact_id = protocol::new_message_id();
+                                let stored_at = protocol::now_rfc3339();
+                                let from_identity = from_addr.clone();
+
+                                let archival_fact = serde_json::json!({
+                                    "fact_id": fact_id,
+                                    "key": key,
+                                    "value": value,
+                                    "tags": tags,
+                                    "stored_by": from_identity,
+                                    "stored_at": stored_at
+                                });
+
+                                // Store in archival_store
+                                archival_store.lock().await.insert(key.clone(), archival_fact.clone());
+
+                                // Send response
+                                if has_id {
+                                    let resp = protocol::new_response(
+                                        parsed.get("id").cloned().unwrap(),
+                                        archival_fact,
+                                    );
+                                    let mut sender = ws_sender.lock().await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&resp).unwrap().into(),
+                                        ))
+                                        .await;
+                                }
+
+                                // Forward the store result as a notification to human for rendering
+                                let store_notify = protocol::new_notification(
+                                    "ainm.memory.stored",
+                                    serde_json::json!({
+                                        "thread_id": thread_id,
+                                        "key": key,
+                                        "status": "stored"
+                                    }),
+                                );
+                                let _ = to_human_tx.send(serde_json::to_string(&store_notify).unwrap());
+                            }
+                        }
+                    }
+                    "ainm.memory.query" => {
+                        if let Some(params) = parsed.get("params") {
+                            let thread_id = params
+                                .get("thread_id")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let key_prefix = params
+                                .get("key")
+                                .and_then(|k| k.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let limit = params
+                                .get("limit")
+                                .and_then(|l| l.as_u64())
+                                .unwrap_or(10) as usize;
+
+                            let store = archival_store.lock().await;
+                            let results: Vec<serde_json::Value> = store
+                                .iter()
+                                .filter(|(k, _)| key_prefix.is_empty() || k.starts_with(&key_prefix))
+                                .take(limit)
+                                .map(|(_, v)| v.clone())
+                                .collect();
+
+                            let query_result = serde_json::json!({
+                                "results": results,
+                                "truncated": false
+                            });
+
+                            // Send query response
+                            if has_id {
+                                let resp = protocol::new_response(
+                                    parsed.get("id").cloned().unwrap(),
+                                    query_result.clone(),
+                                );
+                                let mut sender = ws_sender.lock().await;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&resp).unwrap().into(),
+                                    ))
+                                    .await;
+                            }
+
+                            // Forward query results to human for rendering
+                            let query_notify = protocol::new_notification(
+                                "ainm.memory.query.result",
+                                query_result,
+                            );
+                            let _ = to_human_tx.send(serde_json::to_string(&query_notify).unwrap());
+
+                            // Build and send ainm.context.frame notification
+                            let archival_facts: Vec<serde_json::Value> = store.values().cloned().collect();
+                            let now = protocol::now_rfc3339();
+                            let msg_id = protocol::new_message_id();
+
+                            let context_frame = protocol::new_notification(
+                                "ainm.context.frame",
+                                serde_json::json!({
+                                    "thread_id": thread_id,
+                                    "frame": {
+                                        "active_context": {
+                                            "recent_messages": [
+                                                {
+                                                    "id": msg_id,
+                                                    "from": "alice@demo.ainm.local",
+                                                    "timestamp": now,
+                                                    "summary": "User requested memory demo"
+                                                }
+                                            ],
+                                            "window_start": now,
+                                            "message_count": 1
+                                        },
+                                        "conversation_summary": "Demo thread exercising memory operations.",
+                                        "archival_facts": archival_facts,
+                                        "participants": [
+                                            { "identity": "alice@demo.ainm.local", "type": "human", "presence": "online" },
+                                            { "identity": "helper@demo.ainm.local", "type": "agent", "presence": "available" }
+                                        ]
+                                    }
+                                }),
+                            );
+                            let _ = to_human_tx.send(serde_json::to_string(&context_frame).unwrap());
+                        }
+                    }
                     "ainm.stream.start"
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
                     | "ainm.tool.call.started"
                     | "ainm.tool.call.progress"
-                    | "ainm.tool.call.completed" => {
+                    | "ainm.tool.call.completed"
+                    | "ainm.presence.update" => {
                         let _ = to_human_tx.send(text_str);
                     }
                     _ => {

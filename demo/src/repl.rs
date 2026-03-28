@@ -199,6 +199,38 @@ async fn handle_incoming(
                             render::render_tool_event("completed", params);
                         }
                     }
+                    "ainm.memory.stored" => {
+                        if let Some(params) = parsed.get("params") {
+                            render::render_memory_event("stored", params);
+                        }
+                    }
+                    "ainm.memory.query.result" => {
+                        if let Some(params) = parsed.get("params") {
+                            render::render_memory_event("query_result", params);
+                        }
+                    }
+                    "ainm.context.frame" => {
+                        if let Some(params) = parsed.get("params") {
+                            render::render_memory_event("context_frame", params);
+                        }
+                    }
+                    "ainm.presence.update" => {
+                        if let Some(params) = parsed.get("params") {
+                            let detail = params
+                                .get("detail")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or("");
+                            let status = params
+                                .get("status")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("");
+                            if status == "processing" {
+                                render::render_bridge_event("a2a_working", params);
+                            } else {
+                                println!("  Presence: {} - {}", status, detail);
+                            }
+                        }
+                    }
                     _ => {
                         // Ignore responses and other messages
                     }
@@ -245,6 +277,8 @@ fn run_repl_loop(
                         println!("    tool     - Tool visibility demo");
                         println!("    button   - ButtonBlock demo");
                         println!("    /card    - View Agent Card");
+                        println!("    /memory  - Demo memory store, query, and context frame operations");
+                        println!("    /bridge  - Demo MCP and A2A bridge compatibility mappings");
                         println!("    /help    - Show this help");
                         println!("    /quit    - Exit demo");
                         println!("    (any text) - Echo with streaming");
@@ -260,6 +294,88 @@ fn run_repl_loop(
                         match rt.block_on(fetch_agent_card(&url)) {
                             Ok(card) => render::render_agent_card(&card),
                             Err(e) => println!("  Failed to fetch Agent Card: {}", e),
+                        }
+                    }
+                    "/memory" => {
+                        println!("  Starting memory operations demo...");
+                        // Send /memory as a message to trigger agent handler
+                        let mut envelope = serde_json::json!({
+                            "id": protocol::new_message_id(),
+                            "from": identity.address,
+                            "thread_id": thread_id,
+                            "timestamp": protocol::now_rfc3339(),
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "version": "1.0",
+                                    "source": "user",
+                                    "text": "/memory",
+                                    "fallback": "/memory"
+                                }
+                            ]
+                        });
+
+                        if let Err(e) = signing::sign_envelope(&identity.key_pair, &mut envelope) {
+                            println!("  Signing error: {}", e);
+                            continue;
+                        }
+
+                        let req = protocol::new_request(
+                            "ainm.message.send",
+                            envelope,
+                            serde_json::json!(protocol::new_message_id()),
+                        );
+                        let text = serde_json::to_string(&req).unwrap();
+
+                        let rt = tokio::runtime::Handle::current();
+                        let sender = ws_sender.clone();
+                        if let Err(e) = rt.block_on(async {
+                            let mut s = sender.lock().await;
+                            s.send(Message::Text(text.into())).await
+                        }) {
+                            println!("  Send error: {}", e);
+                        }
+                    }
+                    "/bridge" => {
+                        println!("  Starting bridge compatibility demo...");
+                        // Send /bridge as a message to trigger agent handler
+                        let mut envelope = serde_json::json!({
+                            "id": protocol::new_message_id(),
+                            "from": identity.address,
+                            "thread_id": thread_id,
+                            "timestamp": protocol::now_rfc3339(),
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "version": "1.0",
+                                    "source": "user",
+                                    "text": "/bridge",
+                                    "fallback": "/bridge"
+                                }
+                            ]
+                        });
+
+                        if let Err(e) = signing::sign_envelope(&identity.key_pair, &mut envelope) {
+                            println!("  Signing error: {}", e);
+                            continue;
+                        }
+
+                        let req = protocol::new_request(
+                            "ainm.message.send",
+                            envelope,
+                            serde_json::json!(protocol::new_message_id()),
+                        );
+                        let text = serde_json::to_string(&req).unwrap();
+
+                        let rt = tokio::runtime::Handle::current();
+                        let sender = ws_sender.clone();
+                        if let Err(e) = rt.block_on(async {
+                            let mut s = sender.lock().await;
+                            s.send(Message::Text(text.into())).await
+                        }) {
+                            println!("  Send error: {}", e);
                         }
                     }
                     _ => {

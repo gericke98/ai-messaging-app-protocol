@@ -292,6 +292,120 @@ pub fn render_tool_event(event_type: &str, params: &serde_json::Value) {
     }
 }
 
+/// Render a memory operation event.
+pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
+    match event_type {
+        "stored" => {
+            let key = params
+                .get("key")
+                .and_then(|k| k.as_str())
+                .unwrap_or("unknown");
+            println!(
+                "  {}",
+                format!("Stored archival fact: {}", key).green()
+            );
+        }
+        "query_result" => {
+            if let Some(results) = params.get("results").and_then(|r| r.as_array()) {
+                if results.is_empty() {
+                    println!("  No archival facts found matching query.");
+                } else {
+                    println!("  Archival memory query results:");
+                    for fact in results {
+                        let key = fact
+                            .get("key")
+                            .and_then(|k| k.as_str())
+                            .unwrap_or("?");
+                        let value = fact
+                            .get("value")
+                            .map(|v| {
+                                if let Some(s) = v.as_str() {
+                                    format!("\"{}\"", s)
+                                } else {
+                                    v.to_string()
+                                }
+                            })
+                            .unwrap_or_default();
+                        println!(
+                            "    - {}: {}",
+                            key.yellow(),
+                            value
+                        );
+                    }
+                }
+            }
+        }
+        "context_frame" => {
+            println!(
+                "  {}",
+                "=== Context Frame Received ===".yellow().bold()
+            );
+            if let Some(frame) = params.get("frame") {
+                let sections = [
+                    "active_context",
+                    "conversation_summary",
+                    "archival_facts",
+                    "participants",
+                ];
+                for section in &sections {
+                    if let Some(val) = frame.get(*section) {
+                        let byte_count = serde_json::to_string(val)
+                            .map(|s| s.len())
+                            .unwrap_or(0);
+                        println!(
+                            "    [{}] {}",
+                            section.cyan(),
+                            format!("({} bytes)", byte_count).dimmed()
+                        );
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Render a bridge compatibility event.
+pub fn render_bridge_event(bridge_type: &str, params: &serde_json::Value) {
+    match bridge_type {
+        "mcp_header" => {
+            println!(
+                "  {}",
+                "--- MCP Bridge ---".cyan().bold()
+            );
+        }
+        "a2a_header" => {
+            println!(
+                "  {}",
+                "--- A2A Bridge ---".cyan().bold()
+            );
+        }
+        "a2a_submitted" => {
+            println!(
+                "  {}",
+                "A2A task submitted -> sub-thread created".yellow()
+            );
+        }
+        "a2a_working" => {
+            let detail = params
+                .get("detail")
+                .and_then(|d| d.as_str())
+                .unwrap_or("A2A task working -> agent processing");
+            println!(
+                "  {}",
+                detail.dimmed()
+            );
+        }
+        "a2a_completed" => {
+            println!(
+                "  {}",
+                "A2A task completed -> result delivered".green()
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Render an Agent Card in formatted display.
 pub fn render_agent_card(card: &serde_json::Value) {
     println!();

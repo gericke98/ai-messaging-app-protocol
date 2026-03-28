@@ -83,6 +83,10 @@ pub async fn run(
                             handle_tool(&mut ws_sender, &identity, &thread_id).await?;
                         } else if lower.contains("button") {
                             handle_button(&mut ws_sender, &identity, &thread_id).await?;
+                        } else if lower.starts_with("/memory") {
+                            handle_memory(&mut ws_sender, &identity, &thread_id).await?;
+                        } else if lower.starts_with("/bridge") {
+                            handle_bridge(&mut ws_sender, &identity, &thread_id).await?;
                         } else {
                             first_message = false;
                             handle_default(&mut ws_sender, &identity, &thread_id, &user_text)
@@ -387,6 +391,90 @@ async fn handle_button(
 
     signing::sign_envelope(&identity.key_pair, &mut envelope)?;
     send_message(ws_sender, &envelope).await
+}
+
+/// Scenario 6: Memory operations demo (store, query, context frame).
+async fn handle_memory(
+    ws_sender: &mut WsSender,
+    identity: &Identity,
+    thread_id: &str,
+) -> Result<()> {
+    // 1. Send explanatory text message
+    let mut intro = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Demonstrating AINM three-tier memory: store, query, and context frame delivery.",
+                "fallback": "Demonstrating AINM three-tier memory: store, query, and context frame delivery."
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut intro)?;
+    send_message(ws_sender, &intro).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // 2. Send ainm.memory.store request
+    let store_req = protocol::new_request(
+        "ainm.memory.store",
+        serde_json::json!({
+            "thread_id": thread_id,
+            "tier": "archival",
+            "fact": {
+                "key": "user_preference.demo",
+                "value": "Prefers streaming responses",
+                "tags": ["preference", "demo"]
+            }
+        }),
+        serde_json::json!(protocol::new_message_id()),
+    );
+    let store_text = serde_json::to_string(&store_req)?;
+    ws_sender
+        .send(Message::Text(store_text.into()))
+        .await
+        .map_err(|e| anyhow::anyhow!("send memory store: {}", e))?;
+
+    // Wait for store response
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // 3. Send ainm.memory.query request
+    let query_req = protocol::new_request(
+        "ainm.memory.query",
+        serde_json::json!({
+            "thread_id": thread_id,
+            "tier": "archival",
+            "key": "user_preference",
+            "limit": 5
+        }),
+        serde_json::json!(protocol::new_message_id()),
+    );
+    let query_text = serde_json::to_string(&query_req)?;
+    ws_sender
+        .send(Message::Text(query_text.into()))
+        .await
+        .map_err(|e| anyhow::anyhow!("send memory query: {}", e))?;
+
+    // 4. The server will automatically send ainm.context.frame after the query
+
+    Ok(())
+}
+
+/// Scenario 7: Bridge compatibility demo (MCP tool bridging + A2A task lifecycle).
+async fn handle_bridge(
+    ws_sender: &mut WsSender,
+    identity: &Identity,
+    thread_id: &str,
+) -> Result<()> {
+    // Placeholder -- implemented in Task 2
+    let text = "Bridge compatibility demo coming soon.";
+    streaming::send_streamed_response(ws_sender, identity, thread_id, text).await
 }
 
 /// Default scenario: echo back with streaming.
