@@ -22,6 +22,7 @@ const sidebars = {
         'spec/compatibility',
       ],
     },
+    'asyncapi',
     'demo',
     'changelog',
   ],

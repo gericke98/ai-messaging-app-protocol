@@ -63,3 +63,11 @@ if (fs.existsSync(schemasDir)) {
 } else {
   console.warn('Warning: schemas/ directory not found');
 }
+
+// Copy asyncapi.yaml to static for download
+const asyncapiSrc = path.join(__dirname, '../../asyncapi.yaml');
+const asyncapiDest = path.join(__dirname, '../static/asyncapi.yaml');
+if (fs.existsSync(asyncapiSrc)) {
+  fs.copyFileSync(asyncapiSrc, asyncapiDest);
+  console.log('Copied asyncapi.yaml to static/');
+}

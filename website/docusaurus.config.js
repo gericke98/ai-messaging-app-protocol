@@ -43,20 +43,6 @@ const config = {
         },
       }),
     ],
-    [
-      'docusaurus-asyncapi',
-      /** @type {any} */
-      ({
-        id: 'asyncapi',
-        spec: '../asyncapi.yaml',
-        route: '/asyncapi/',
-        config: {
-          show: {
-            sidebar: true,
-          },
-        },
-      }),
-    ],
   ],
 
   themeConfig:
@@ -74,7 +60,7 @@ const config = {
             position: 'left',
             label: 'Docs',
           },
-          {to: '/asyncapi', label: 'AsyncAPI', position: 'left'},
+          {to: '/asyncapi', label: 'Transport Bindings', position: 'left'},
           {
             href: 'https://github.com/gericke98/ai-native-messaging',
             label: 'GitHub',
