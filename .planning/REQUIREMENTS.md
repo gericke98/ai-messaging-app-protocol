@@ -48,17 +48,17 @@ Requirements for the initial protocol specification and working demo.
 
 ### Threading
 
-- [ ] **THRD-01**: Conversations are flat by default (single stream of messages)
-- [ ] **THRD-02**: Any participant can create a sub-thread from any message
-- [ ] **THRD-03**: Sub-threads inherit parent thread context
-- [ ] **THRD-04**: Agents can create sub-threads for side conversations (e.g., agent-to-agent coordination)
+- [x] **THRD-01**: Conversations are flat by default (single stream of messages)
+- [x] **THRD-02**: Any participant can create a sub-thread from any message
+- [x] **THRD-03**: Sub-threads inherit parent thread context
+- [x] **THRD-04**: Agents can create sub-threads for side conversations (e.g., agent-to-agent coordination)
 
 ### Mixed Threads
 
-- [ ] **MIXD-01**: Threads support any combination of human and agent participants as equals
-- [ ] **MIXD-02**: Thread participant interface is uniform regardless of participant type
-- [ ] **MIXD-03**: Presence semantics adapt per participant type (humans: online/offline; agents: available/busy/processing)
-- [ ] **MIXD-04**: @-mentions work across participant types (humans can @-mention agents and vice versa)
+- [x] **MIXD-01**: Threads support any combination of human and agent participants as equals
+- [x] **MIXD-02**: Thread participant interface is uniform regardless of participant type
+- [x] **MIXD-03**: Presence semantics adapt per participant type (humans: online/offline; agents: available/busy/processing)
+- [x] **MIXD-04**: @-mentions work across participant types (humans can @-mention agents and vice versa)
 
 ### Agent Discovery
 
@@ -175,14 +175,14 @@ Deferred to future release. Tracked but not in current roadmap.
 | CONT-03 | Phase 2 | Pending |
 | CONT-04 | Phase 2 | Pending |
 | CONT-05 | Phase 2 | Pending |
-| THRD-01 | Phase 1 | Pending |
-| THRD-02 | Phase 1 | Pending |
-| THRD-03 | Phase 1 | Pending |
-| THRD-04 | Phase 1 | Pending |
-| MIXD-01 | Phase 1 | Pending |
-| MIXD-02 | Phase 1 | Pending |
-| MIXD-03 | Phase 1 | Pending |
-| MIXD-04 | Phase 1 | Pending |
+| THRD-01 | Phase 1 | Complete |
+| THRD-02 | Phase 1 | Complete |
+| THRD-03 | Phase 1 | Complete |
+| THRD-04 | Phase 1 | Complete |
+| MIXD-01 | Phase 1 | Complete |
+| MIXD-02 | Phase 1 | Complete |
+| MIXD-03 | Phase 1 | Complete |
+| MIXD-04 | Phase 1 | Complete |
 | DISC-01 | Phase 2 | Pending |
 | DISC-02 | Phase 2 | Pending |
 | DISC-03 | Phase 2 | Pending |

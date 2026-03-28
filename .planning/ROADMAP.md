@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md -- Identity and Security specifications (address format, .well-known resolution, Ed25519 signing, trust annotations)
 - [x] 01-02-PLAN.md -- Content and Transport specifications (typed content blocks, WebSocket/HTTP bindings, JSON-RPC lifecycle)
-- [ ] 01-03-PLAN.md -- Threading specification with mixed participation (flat threads, sub-threads, presence, mentions)
+- [x] 01-03-PLAN.md -- Threading specification with mixed participation (flat threads, sub-threads, presence, mentions)
 
 ### Phase 2: Agent-Native Features
 **Goal**: The protocol specification is extended with every feature that makes it AI-native -- streaming responses, rich interactive UI, agent capability discovery, tool-use transparency, hierarchical memory, and bridges to MCP and A2A
