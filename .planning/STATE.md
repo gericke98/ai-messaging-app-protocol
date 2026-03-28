@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-03-28T21:16:49.866Z"
+status: verifying
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-03-28T21:30:50.312Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 
 Phase: 03 (specification-publication-working-demo) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 6min | 2 tasks | 7 files |
 | Phase 03 P03 | 5min | 2 tasks | 3 files |
 | Phase 03 P04 | 10min | 2 tasks | 10 files |
+| Phase 03 P05 | 9min | 3 tasks | 22 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Recent decisions affecting current work:
 - [Phase 03]: AsyncAPI channels organized by protocol domain (session, messaging, etc.) not WebSocket path; tool events in dedicated channel; keepalive as separate channel
 - [Phase 03]: Used concrete WebSocket types and StdRng (Send-safe) to avoid Send/Sync issues with tokio::spawn in demo
 - [Phase 03]: Broadcast channels for bidirectional message routing between human and agent WebSocket connections
+- [Phase 03]: Used markdown.format detect to handle spec files with JSON curly braces in Docusaurus MDX context
+- [Phase 03]: Spec files prebuild-copied (not symlinked) with Docusaurus frontmatter injection to keep original spec files clean
 
 ### Pending Todos
 
@@ -109,6 +112,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T21:16:49.864Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-03-28T21:30:50.310Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
