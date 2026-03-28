@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-27)
+See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 02 — agent-native-features
+**Current focus:** Phase 03 — specification-publication-&-working-demo
 
 ## Current Position
 
@@ -94,12 +94,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research flag]: AsyncAPI + Docusaurus integration is untested -- may need custom glue. Validate early in Phase 1.
-- [Research flag]: Agent Card schema needs careful design for A2A compatibility (Phase 2).
-- [Research flag]: Hierarchical memory at protocol level is novel -- no existing protocol does this. Letta/MemGPT is per-agent reference but needs original design work (Phase 2).
+- [Research flag]: AsyncAPI + Docusaurus integration is untested -- may need custom glue. Validate in Phase 3.
+- [Phase 2 note]: ChartBlock listed in REQUIREMENTS.md under CONT-03 but intentionally dropped from plan scope -- not a delivery gap, may revisit in future version.
 
 ## Session Continuity
 
-Last session: 2026-03-28T19:47:20.033Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-03-28T19:55:00.000Z
+Stopped at: Phase 2 complete, ready to plan Phase 3
 Resume file: None
