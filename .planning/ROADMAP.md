@@ -27,12 +27,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A developer can read the security spec and produce a canonically-signed message (RFC 8785 + Ed25519) that another implementation can independently verify, including trust annotations distinguishing user/agent/system content
   3. A developer can read the transport spec and implement a WebSocket client-to-server connection and an HTTP server-to-server relay, both using JSON-RPC 2.0 framing over TLS 1.3, with dual delivery modes (streaming and store-and-forward)
   4. A developer can read the content and threading specs and construct a flat conversation with typed content blocks (text/markdown, code, image, file) that supports sub-threading, context inheritance, and mixed human-agent participation with uniform interfaces and adapted presence semantics
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md -- Identity and Security specifications (address format, .well-known resolution, Ed25519 signing, trust annotations)
+- [ ] 01-02-PLAN.md -- Content and Transport specifications (typed content blocks, WebSocket/HTTP bindings, JSON-RPC lifecycle)
+- [ ] 01-03-PLAN.md -- Threading specification with mixed participation (flat threads, sub-threads, presence, mentions)
 
 ### Phase 2: Agent-Native Features
 **Goal**: The protocol specification is extended with every feature that makes it AI-native -- streaming responses, rich interactive UI, agent capability discovery, tool-use transparency, hierarchical memory, and bridges to MCP and A2A
