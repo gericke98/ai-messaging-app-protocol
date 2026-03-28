@@ -22,11 +22,11 @@ pub async fn run(
         "ainm.initialize",
         serde_json::json!({
             "identity": identity.address,
-            "protocol_version": "0.1.0",
+            "protocolVersion": "0.1.0",
             "capabilities": {
                 "streaming": true,
-                "interactive": true,
-                "tool_visibility": true
+                "contentTypes": ["text", "code", "button", "form", "table", "approval", "action"],
+                "toolVisibility": true
             }
         }),
         serde_json::json!(2),

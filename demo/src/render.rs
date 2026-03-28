@@ -128,7 +128,7 @@ pub fn render_content_block(block: &serde_json::Value) {
         }
         "approval" => {
             let prompt = block
-                .get("prompt")
+                .get("title")
                 .and_then(|p| p.as_str())
                 .unwrap_or("Approval needed");
             let status = block

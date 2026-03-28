@@ -54,7 +54,6 @@ pub async fn send_streamed_response(
 
     // 2. Split text into word-sized chunks and send deltas
     let words: Vec<&str> = text.split_inclusive(' ').collect();
-    let mut sequence = 0u64;
     let mut chunk = String::new();
     let mut word_count = 0;
 
@@ -70,8 +69,7 @@ pub async fn send_streamed_response(
                 serde_json::json!({
                     "stream_id": stream_id,
                     "block_index": 0,
-                    "delta": chunk,
-                    "sequence": sequence
+                    "delta": chunk
                 }),
             );
             let delta_text = serde_json::to_string(&delta)?;
@@ -84,7 +82,6 @@ pub async fn send_streamed_response(
             let delay_ms = rng.gen_range(30..=80);
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
-            sequence += 1;
             chunk.clear();
             word_count = 0;
         }
@@ -97,8 +94,7 @@ pub async fn send_streamed_response(
             serde_json::json!({
                 "stream_id": stream_id,
                 "block_index": 0,
-                "delta": chunk,
-                "sequence": sequence
+                "delta": chunk
             }),
         );
         let delta_text = serde_json::to_string(&delta)?;

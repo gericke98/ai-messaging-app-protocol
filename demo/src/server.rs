@@ -103,13 +103,17 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
     let init_response = protocol::new_response(
         req_id,
         serde_json::json!({
-            "protocol_version": "0.1.0",
-            "server_identity": "server@demo.ainm.local",
+            "protocolVersion": "0.1.0",
+            "serverInfo": {
+                "name": "demo.ainm.local",
+                "version": "0.1.0"
+            },
             "capabilities": {
                 "streaming": true,
-                "interactive": true,
-                "tool_visibility": true
-            }
+                "subThreads": true,
+                "storeAndForward": false
+            },
+            "nonce": protocol::new_message_id()
         }),
     );
     {

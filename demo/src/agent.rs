@@ -31,11 +31,11 @@ pub async fn run(
         "ainm.initialize",
         serde_json::json!({
             "identity": identity.address,
-            "protocol_version": "0.1.0",
+            "protocolVersion": "0.1.0",
             "capabilities": {
                 "streaming": true,
-                "interactive": true,
-                "tool_visibility": true
+                "contentTypes": ["text", "code", "button", "form", "table", "approval", "action"],
+                "toolVisibility": true
             }
         }),
         serde_json::json!(1),
@@ -208,10 +208,10 @@ async fn handle_approval(
                 "version": "1.0",
                 "source": "agent",
                 "action_id": "demo-approval",
-                "prompt": "Deploy v0.1.0 to production?",
+                "title": "Deploy v0.1.0 to production?",
                 "options": [
-                    {"option_id": "approve", "label": "Approve", "style": "primary"},
-                    {"option_id": "reject", "label": "Reject", "style": "danger"}
+                    {"value": "approve", "label": "Approve", "style": "primary"},
+                    {"value": "reject", "label": "Reject", "style": "danger"}
                 ],
                 "status": "pending",
                 "fallback": "[Approval: Deploy v0.1.0 to production?]"
