@@ -49,8 +49,8 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md -- Streaming specification (start/delta/end lifecycle, parallel multi-block, cancellation, collapse semantics)
 - [x] 02-02-PLAN.md -- Interactive content specification (ButtonBlock, FormBlock, TableBlock, ApprovalBlock, ActionBlock)
-- [ ] 02-03-PLAN.md -- Agent Card discovery and Tool Visibility specifications (A2A-compatible cards, tool event lifecycle)
-- [ ] 02-04-PLAN.md -- Memory management specification (three-tier memory, context frames, store/query/evict)
+- [x] 02-03-PLAN.md -- Agent Card discovery and Tool Visibility specifications (A2A-compatible cards, tool event lifecycle)
+- [x] 02-04-PLAN.md -- Memory management specification (three-tier memory, context frames, store/query/evict)
 - [ ] 02-05-PLAN.md -- Compatibility bridges (MCP/A2A mapping) and Phase 1 spec updates (transport + threading extensions)
 
 ### Phase 3: Specification Publication & Working Demo

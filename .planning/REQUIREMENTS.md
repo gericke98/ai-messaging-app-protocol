@@ -62,28 +62,28 @@ Requirements for the initial protocol specification and working demo.
 
 ### Agent Discovery
 
-- [ ] **DISC-01**: Agents publish capability cards (Agent Cards) as JSON at a well-known endpoint
-- [ ] **DISC-02**: Agent Cards are discoverable by resolving the `@provider` portion of an agent's identity
-- [ ] **DISC-03**: Agent Cards include: name, description, supported content types, streaming capabilities, threading preferences, tools available
-- [ ] **DISC-04**: Agent Cards are compatible with A2A Agent Card format (extend, don't reinvent)
-- [ ] **DISC-05**: Agent Cards are cacheable with explicit versioning
+- [x] **DISC-01**: Agents publish capability cards (Agent Cards) as JSON at a well-known endpoint
+- [x] **DISC-02**: Agent Cards are discoverable by resolving the `@provider` portion of an agent's identity
+- [x] **DISC-03**: Agent Cards include: name, description, supported content types, streaming capabilities, threading preferences, tools available
+- [x] **DISC-04**: Agent Cards are compatible with A2A Agent Card format (extend, don't reinvent)
+- [x] **DISC-05**: Agent Cards are cacheable with explicit versioning
 
 ### Tool Visibility
 
-- [ ] **TOOL-01**: Protocol defines ToolCallStarted event (tool name, description)
-- [ ] **TOOL-02**: Protocol defines ToolCallProgress event (intermediate results)
-- [ ] **TOOL-03**: Protocol defines ToolCallCompleted event (result summary)
-- [ ] **TOOL-04**: Tool events are visible to all thread participants
-- [ ] **TOOL-05**: Clients render tool events as collapsible activity indicators
+- [x] **TOOL-01**: Protocol defines ToolCallStarted event (tool name, description)
+- [x] **TOOL-02**: Protocol defines ToolCallProgress event (intermediate results)
+- [x] **TOOL-03**: Protocol defines ToolCallCompleted event (result summary)
+- [x] **TOOL-04**: Tool events are visible to all thread participants
+- [x] **TOOL-05**: Clients render tool events as collapsible activity indicators
 
 ### Memory
 
-- [ ] **MEMO-01**: Protocol defines three memory tiers: active context, conversation memory, archival memory
-- [ ] **MEMO-02**: Active context includes current thread + recent messages, always available to agents
-- [ ] **MEMO-03**: Conversation memory is the full thread history, queryable by participants
-- [ ] **MEMO-04**: Archival memory stores cross-conversation knowledge, user preferences, long-term facts
-- [ ] **MEMO-05**: Agents receive structured context payloads, not raw message dumps
-- [ ] **MEMO-06**: Memory is conversation-scoped and shared across all participants in a thread
+- [x] **MEMO-01**: Protocol defines three memory tiers: active context, conversation memory, archival memory
+- [x] **MEMO-02**: Active context includes current thread + recent messages, always available to agents
+- [x] **MEMO-03**: Conversation memory is the full thread history, queryable by participants
+- [x] **MEMO-04**: Archival memory stores cross-conversation knowledge, user preferences, long-term facts
+- [x] **MEMO-05**: Agents receive structured context payloads, not raw message dumps
+- [x] **MEMO-06**: Memory is conversation-scoped and shared across all participants in a thread
 
 ### Compatibility
 
@@ -183,22 +183,22 @@ Deferred to future release. Tracked but not in current roadmap.
 | MIXD-02 | Phase 1 | Complete |
 | MIXD-03 | Phase 1 | Complete |
 | MIXD-04 | Phase 1 | Complete |
-| DISC-01 | Phase 2 | Pending |
-| DISC-02 | Phase 2 | Pending |
-| DISC-03 | Phase 2 | Pending |
-| DISC-04 | Phase 2 | Pending |
-| DISC-05 | Phase 2 | Pending |
-| TOOL-01 | Phase 2 | Pending |
-| TOOL-02 | Phase 2 | Pending |
-| TOOL-03 | Phase 2 | Pending |
-| TOOL-04 | Phase 2 | Pending |
-| TOOL-05 | Phase 2 | Pending |
-| MEMO-01 | Phase 2 | Pending |
-| MEMO-02 | Phase 2 | Pending |
-| MEMO-03 | Phase 2 | Pending |
-| MEMO-04 | Phase 2 | Pending |
-| MEMO-05 | Phase 2 | Pending |
-| MEMO-06 | Phase 2 | Pending |
+| DISC-01 | Phase 2 | Complete |
+| DISC-02 | Phase 2 | Complete |
+| DISC-03 | Phase 2 | Complete |
+| DISC-04 | Phase 2 | Complete |
+| DISC-05 | Phase 2 | Complete |
+| TOOL-01 | Phase 2 | Complete |
+| TOOL-02 | Phase 2 | Complete |
+| TOOL-03 | Phase 2 | Complete |
+| TOOL-04 | Phase 2 | Complete |
+| TOOL-05 | Phase 2 | Complete |
+| MEMO-01 | Phase 2 | Complete |
+| MEMO-02 | Phase 2 | Complete |
+| MEMO-03 | Phase 2 | Complete |
+| MEMO-04 | Phase 2 | Complete |
+| MEMO-05 | Phase 2 | Complete |
+| MEMO-06 | Phase 2 | Complete |
 | COMP-01 | Phase 2 | Pending |
 | COMP-02 | Phase 2 | Pending |
 | COMP-03 | Phase 2 | Pending |

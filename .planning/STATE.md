@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-03-28T19:34:42.227Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-03-28T19:36:00.982Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 7
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 02 (agent-native-features) — EXECUTING
-Plan: 3 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -57,6 +57,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-protocol-kernel P03 | 5min | 2 tasks | 1 files |
 | Phase 02 P01 | 4min | 1 tasks | 1 files |
 | Phase 02 P02 | 5min | 1 tasks | 1 files |
+| Phase 02 P03 | 5min | 2 tasks | 2 files |
+| Phase 02 P04 | 5min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -79,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 02]: ActionBlocks are full signed messages visible to all thread participants (transparency by design)
 - [Phase 02]: Interactive blocks use 3 semantic styles (primary/secondary/danger); clients map to own design system
 - [Phase 02]: ApprovalBlock uses server-enforced state machine with immutable terminal states; error code -32071 for already-resolved
+- [Phase 02]: AINM Agent Cards are A2A superset with AINM extensions under namespaced ainm object; tool events are persistent signed thread messages
+- [Phase 02]: Agent Card error codes -32060 to -32069; tool visibility reuses transport error codes; tool call_id uses UUIDv7 with tc- prefix
+- [Phase 02]: Memory operations are private JSON-RPC exchanges (not thread messages); archival facts use key collision replacement; context frames limited to 32KB with 50/20/20/10 budget split
 
 ### Pending Todos
 
@@ -92,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T19:34:42.223Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-03-28T19:36:00.979Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
