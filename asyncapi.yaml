@@ -65,8 +65,8 @@ channels:
   threading:
     address: /
     description: >
-      Thread management: creating threads and sub-threads, joining, and leaving.
-      Threads are flat conversations with optional one-level sub-threading.
+      Thread management: creating threads and sub-threads (via optional parent_thread_id),
+      joining, and leaving. Threads are flat conversations with optional one-level sub-threading.
     servers:
       - $ref: "#/servers/client-server"
     messages:
@@ -82,10 +82,6 @@ channels:
         $ref: "#/components/messages/ThreadLeaveRequest"
       threadLeaveResponse:
         $ref: "#/components/messages/ThreadLeaveResponse"
-      subThreadCreateRequest:
-        $ref: "#/components/messages/SubThreadCreateRequest"
-      subThreadCreateResponse:
-        $ref: "#/components/messages/SubThreadCreateResponse"
 
   presence:
     address: /
@@ -272,7 +268,8 @@ operations:
       $ref: "#/channels/threading"
     summary: "Client creates a thread via ainm.thread.create request"
     description: >
-      Creates a new thread with a client-generated UUIDv7 thread_id.
+      Creates a new thread or sub-thread with a client-generated UUIDv7 thread_id.
+      For sub-threads, include optional parent_thread_id and parent_message_id fields.
       The creator is automatically added as a participant with the creator role.
     messages:
       - $ref: "#/channels/threading/messages/threadCreateRequest"
@@ -313,23 +310,6 @@ operations:
         $ref: "#/channels/threading"
       messages:
         - $ref: "#/channels/threading/messages/threadLeaveResponse"
-
-  sendSubThreadCreate:
-    action: send
-    channel:
-      $ref: "#/channels/threading"
-    summary: "Client creates a sub-thread via ainm.sub_thread.create request"
-    description: >
-      Creates a one-level nested sub-thread under a parent thread.
-      Inherits the parent's participant list and context lineage.
-      Nested sub-threads (sub-thread of a sub-thread) are rejected.
-    messages:
-      - $ref: "#/channels/threading/messages/subThreadCreateRequest"
-    reply:
-      channel:
-        $ref: "#/channels/threading"
-      messages:
-        - $ref: "#/channels/threading/messages/subThreadCreateResponse"
 
   # --- Presence ---
   sendPresenceUpdate:
@@ -613,7 +593,7 @@ components:
     ThreadCreateRequest:
       name: ainm.thread.create
       title: Create Thread Request
-      summary: Client creates a new thread with a UUIDv7 thread_id.
+      summary: Client creates a new thread (or sub-thread via optional parent_thread_id) with a UUIDv7 thread_id.
       contentType: application/json
       payload:
         $ref: "schemas/transport.schema.json#/$defs/ThreadCreateParams"
@@ -657,22 +637,6 @@ components:
       contentType: application/json
       payload:
         $ref: "schemas/transport.schema.json#/$defs/ThreadLeaveResult"
-
-    SubThreadCreateRequest:
-      name: ainm.sub_thread.create
-      title: Create Sub-Thread Request
-      summary: Creates a one-level nested sub-thread under a parent thread.
-      contentType: application/json
-      payload:
-        $ref: "schemas/threading.schema.json#/$defs/SubThreadCreateParams"
-
-    SubThreadCreateResponse:
-      name: ainm.sub_thread.create.response
-      title: Create Sub-Thread Response
-      summary: Server confirms sub-thread creation. Uses same result type as thread creation.
-      contentType: application/json
-      payload:
-        $ref: "schemas/transport.schema.json#/$defs/ThreadCreateResult"
 
     # --- Presence Messages ---
     PresenceUpdateNotification:
@@ -736,7 +700,7 @@ components:
       summary: Reports a streaming error that terminates the stream abnormally.
       contentType: application/json
       payload:
-        $ref: "schemas/streaming.schema.json#/$defs/StreamingErrorCodes"
+        $ref: "schemas/streaming.schema.json#/$defs/StreamErrorNotification"
 
     # --- Memory Messages ---
     MemoryStoreRequest:

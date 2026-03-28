@@ -111,6 +111,29 @@
         }
       }
     },
+    "StreamErrorNotification": {
+      "type": "object",
+      "description": "Reports a streaming error that terminates the stream abnormally. Sent as ainm.stream.error JSON-RPC notification. See streaming.md Section 6.",
+      "required": ["stream_id", "code", "message", "partial_preserved"],
+      "properties": {
+        "stream_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The stream_id of the affected stream."
+        },
+        "code": {
+          "type": "integer",
+          "description": "Error code from the streaming error range (-32040 to -32049)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error description."
+        },
+        "partial_preserved": {
+          "type": "boolean",
+          "description": "Whether partial content accumulated before the error is preserved as a permanent message."
+        }
+      }
+    },
     "StreamingErrorCodes": {
       "type": "object",
       "description": "Streaming-specific JSON-RPC error codes in the range -32040 to -32044. See streaming.md Section 6.",
