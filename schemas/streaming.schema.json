@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/streaming.schema.json",
+  "title": "AINM Protocol - Streaming Schemas",
+  "description": "JSON Schema definitions for the streaming lifecycle: StreamStart, StreamDelta, StreamEnd, CancelStream. See streaming.md.",
+  "$defs": {
+    "BlockLayoutEntry": {
+      "type": "object",
+      "description": "Declares a content block's type, version, and source within the stream-start block layout. Layout is immutable after stream-start. See streaming.md Section 3.1.",
+      "required": ["type", "version", "source"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["text", "code"],
+          "description": "Content block type. In v1, only 'text' and 'code' blocks are streamable."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Block type schema version in MAJOR.MINOR format."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["user", "agent", "system"],
+          "description": "Trust annotation indicating content origin."
+        }
+      }
+    },
+    "StreamStart": {
+      "type": "object",
+      "description": "Initiates a new stream and declares the complete block layout upfront. Delivered as ainm.stream.start JSON-RPC notification. See streaming.md Section 3.1.",
+      "required": ["stream_id", "message_id", "from", "thread_id", "timestamp", "blocks"],
+      "properties": {
+        "stream_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Unique identifier for this stream. All subsequent events reference this stream_id."
+        },
+        "message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Pre-assigned message ID for the collapsed permanent message."
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "Sender's AINM address (the generating agent)."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Target thread. All stream events are scoped to this thread."
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Time the stream was initiated."
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BlockLayoutEntry" },
+          "minItems": 1,
+          "description": "Ordered array of block layout declarations. Immutable for the duration of the stream. Per Phase 2 decision: block layout immutable after stream-start."
+        }
+      }
+    },
+    "StreamDelta": {
+      "type": "object",
+      "description": "Delivers incremental content tokens to a specific block. Ephemeral JSON-RPC notification, session-authenticated, not individually signed. See streaming.md Section 3.2.",
+      "required": ["stream_id", "block_index", "delta"],
+      "properties": {
+        "stream_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "References the stream_id from the corresponding StreamStart."
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based index into the blocks array from stream-start. Identifies which block this delta appends to."
+        },
+        "delta": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Incremental content to append. Typically 1 to a few tokens. MUST NOT be empty."
+        },
+        "language": {
+          "type": "string",
+          "description": "Programming language identifier for code blocks. Included on the first delta for a code block to enable syntax highlighting."
+        }
+      }
+    },
+    "StreamEnd": {
+      "type": "object",
+      "description": "Terminates a stream and triggers collapse into a permanent signed message. See streaming.md Section 3.3 and Section 4.",
+      "required": ["stream_id", "status"],
+      "properties": {
+        "stream_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "References the stream_id from the corresponding StreamStart."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "cancelled"],
+          "description": "Terminal status of the stream. 'completed' triggers full collapse; 'cancelled' triggers partial collapse."
+        }
+      }
+    },
+    "CancelStream": {
+      "type": "object",
+      "description": "Client-initiated request to cancel a stream. Sent as ainm.stream.cancel JSON-RPC request. See streaming.md Section 5.",
+      "required": ["stream_id"],
+      "properties": {
+        "stream_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The stream_id of the stream to cancel."
+        }
+      }
+    },
+    "StreamingErrorCodes": {
+      "type": "object",
+      "description": "Streaming-specific JSON-RPC error codes in the range -32040 to -32044. See streaming.md Section 6.",
+      "properties": {
+        "codes": {
+          "type": "object",
+          "description": "Error code definitions for streaming errors.",
+          "properties": {
+            "-32040": {
+              "const": "Stream not found",
+              "description": "The referenced stream_id does not correspond to an active stream."
+            },
+            "-32041": {
+              "const": "Invalid block index",
+              "description": "A delta referenced a block_index outside the declared block layout range."
+            },
+            "-32042": {
+              "const": "Stream already ended",
+              "description": "A delta or cancel was received for a stream that has already terminated."
+            },
+            "-32043": {
+              "const": "Non-streamable block type",
+              "description": "A delta targeted a block type that is not streamable in v1 (only text and code are streamable)."
+            },
+            "-32044": {
+              "const": "Streaming not supported",
+              "description": "The server or client does not support streaming (streaming capability not negotiated during initialize)."
+            }
+          }
+        }
+      }
+    }
+  }
+}

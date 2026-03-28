@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/threading.schema.json",
+  "title": "AINM Protocol - Threading Schemas",
+  "description": "JSON Schema definitions for thread management: creation, sub-threading, participants, presence, and mentions. See threading.md.",
+  "$defs": {
+    "ThreadCreateParams": {
+      "type": "object",
+      "description": "Parameters for ainm.thread.create. Creates a root thread or sub-thread. See threading.md Section 3.4.",
+      "required": ["thread_id", "participants"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 identifying the thread. Generated client-side by the creator. Server validates uniqueness."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable thread title. Informational only -- not used for routing or identification."
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/AINMAddress"
+          },
+          "minItems": 1,
+          "description": "Array of AINM addresses for initial thread participants. MUST include the creator's own address."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional extensible metadata for the thread."
+        }
+      }
+    },
+    "ThreadMetadata": {
+      "type": "object",
+      "description": "Thread metadata structure. Every thread carries this data. See threading.md Section 3.3.",
+      "required": ["thread_id", "created_at", "created_by", "participants"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 identifying the thread."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable thread title."
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "RFC 3339 timestamp (UTC) of when the thread was created. Set by the server."
+        },
+        "created_by": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the thread creator."
+        },
+        "parent_thread_id": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/UUIDv7" },
+            { "type": "null" }
+          ],
+          "description": "UUIDv7 of the parent thread. null for root threads, non-null for sub-threads."
+        },
+        "parent_message_id": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/UUIDv7" },
+            { "type": "null" }
+          ],
+          "description": "UUIDv7 of the parent message from which this sub-thread branches. null for root threads."
+        },
+        "participants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ThreadParticipant" },
+          "description": "Array of participant records with identity, type, joined_at, and role."
+        }
+      }
+    },
+    "ThreadParticipant": {
+      "type": "object",
+      "description": "A participant record within a thread. See threading.md Section 3.3.",
+      "required": ["identity", "type", "joined_at", "role"],
+      "properties": {
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The participant's AINM address."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["human", "agent"],
+          "description": "Participant type. Resolved from the identity record (identity.md Section 4.3)."
+        },
+        "joined_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "RFC 3339 timestamp (UTC) of when the participant joined the thread."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["creator", "member"],
+          "description": "Thread role. 'creator' for the thread creator (exactly one per thread), 'member' for all others. Both roles have equal messaging capabilities."
+        }
+      }
+    },
+    "SubThreadCreateParams": {
+      "type": "object",
+      "description": "Parameters for creating a sub-thread. Uses ainm.thread.create with parent references. One-level nesting only. See threading.md Section 4.",
+      "required": ["thread_id", "parent_thread_id", "parent_message_id", "participants"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 for the new sub-thread."
+        },
+        "parent_thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 of the parent root thread. MUST reference a root thread (not a sub-thread). Per Phase 1 decision: one-level nesting only."
+        },
+        "parent_message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 of the message in the parent thread from which this sub-thread branches."
+        },
+        "title": {
+          "type": "string",
+          "description": "Sub-thread title."
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/AINMAddress"
+          },
+          "minItems": 1,
+          "description": "Initial sub-thread participants. MUST include the creator's address. Participants must be members of the parent thread or new invitees."
+        }
+      }
+    },
+    "PresenceUpdate": {
+      "type": "object",
+      "description": "Presence update for a participant within a thread. Thread-scoped -- a participant has independent presence per thread. See threading.md Section 8.",
+      "required": ["thread_id", "identity", "status"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread this presence update applies to. Per Phase 1 decision: thread-scoped presence."
+        },
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The participant whose presence is being updated."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["online", "offline", "available", "busy", "processing"],
+          "description": "Presence status. Human states: online, offline, away, dnd. Agent states: available, busy, processing, offline. Combined enum for schema validation."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Optional human-readable detail about the presence state (e.g., 'Analyzing code for potential bugs')."
+        }
+      }
+    },
+    "MentionEvent": {
+      "type": "object",
+      "description": "Notification that a participant was @-mentioned in a thread message. See threading.md Section 9.",
+      "required": ["thread_id", "message_id", "mentioned", "by"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread containing the mention."
+        },
+        "message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The message containing the mention."
+        },
+        "mentioned": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The participant who was mentioned."
+        },
+        "by": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The participant who sent the message containing the mention."
+        }
+      }
+    },
+    "ThreadErrorCodes": {
+      "type": "object",
+      "description": "Thread-specific JSON-RPC error codes in the range -32030 to -32039. See threading.md Section 10.",
+      "properties": {
+        "codes": {
+          "type": "object",
+          "description": "Error code definitions for threading errors.",
+          "properties": {
+            "-32030": {
+              "const": "Thread creation failed",
+              "description": "Thread creation failed. Used for duplicate thread_id, nested sub-thread attempt, or invalid parent references."
+            },
+            "-32031": {
+              "const": "Already a participant",
+              "description": "The identity is already a member of the thread."
+            },
+            "-32024": {
+              "const": "Thread not found",
+              "description": "The referenced thread does not exist."
+            },
+            "-32025": {
+              "const": "Not a thread participant",
+              "description": "The identity is not a member of the thread."
+            }
+          }
+        }
+      }
+    }
+  }
+}

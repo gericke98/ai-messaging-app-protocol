@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/interactive.schema.json",
+  "title": "AINM Protocol - Interactive Content Schemas",
+  "description": "JSON Schema definitions for interactive content blocks: ButtonBlock, FormBlock, TableBlock, ApprovalBlock, and ActionBlock. See interactive.md.",
+  "$defs": {
+    "ButtonBlock": {
+      "description": "Clickable action trigger. Renders a button that sends an ActionBlock when clicked. See interactive.md Section 4.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" },
+        {
+          "type": "object",
+          "required": ["label", "action_id"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "button"
+            },
+            "label": {
+              "type": "string",
+              "description": "Text displayed on the button. Primary affordance telling the user what action the button performs."
+            },
+            "action_id": {
+              "type": "string",
+              "description": "Unique identifier for this interactive element within the message. Referenced by the ActionBlock on click. MUST be unique within the message's content[] array."
+            },
+            "style": {
+              "type": "string",
+              "enum": ["primary", "secondary", "danger"],
+              "default": "primary",
+              "description": "Semantic style token communicating the intent of the action. Clients map to their own design system. See interactive.md Section 3.2."
+            },
+            "disabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, button is rendered in a disabled state and is not clickable. No ActionBlock is sent for disabled buttons."
+            },
+            "confirmation": {
+              "type": ["string", "null"],
+              "default": null,
+              "description": "If non-null, a confirmation prompt displayed before sending the ActionBlock. Provides a safety gate for destructive or irreversible actions."
+            }
+          }
+        }
+      ]
+    },
+    "FormField": {
+      "type": "object",
+      "description": "A single input element within a FormBlock's fields array. See interactive.md Section 5.3.",
+      "required": ["name", "label", "field_type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Field identifier. Used as the key in the ActionBlock's data object on form submission. MUST be unique within the FormBlock's fields array."
+        },
+        "label": {
+          "type": "string",
+          "description": "Display label rendered next to the field input."
+        },
+        "field_type": {
+          "type": "string",
+          "enum": ["text", "textarea", "number", "select", "multiselect", "checkbox", "date", "datetime"],
+          "description": "Determines the input type and rendering. See interactive.md Section 5.4 for type-specific behavior."
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, field must have a non-empty value before form submission."
+        },
+        "default": {
+          "description": "Default value for the field. Type must match the field_type."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Hint text displayed inside empty text, textarea, and number fields."
+        },
+        "validation": {
+          "type": "string",
+          "description": "Regular expression pattern for client-side validation (ECMAScript syntax). Tested against the complete field value."
+        },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Available choices for select and multiselect field types. REQUIRED for select and multiselect. Each string is both the display label and submitted value."
+        }
+      }
+    },
+    "FormBlock": {
+      "description": "Structured data input form with typed fields. Collects multiple data points from the user. See interactive.md Section 5.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" },
+        {
+          "type": "object",
+          "required": ["action_id", "fields"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "form"
+            },
+            "action_id": {
+              "type": "string",
+              "description": "Unique identifier for this form within the message. Referenced by the ActionBlock on submission."
+            },
+            "title": {
+              "type": "string",
+              "description": "Form heading displayed above the fields. Helps the user understand the form's purpose."
+            },
+            "fields": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/FormField" },
+              "minItems": 1,
+              "description": "Array of form field objects. Rendered in array order (top to bottom). MUST contain at least one field."
+            },
+            "submit_label": {
+              "type": "string",
+              "default": "Submit",
+              "description": "Text displayed on the form's submit button. Allows context-specific button text."
+            }
+          }
+        }
+      ]
+    },
+    "TableColumn": {
+      "type": "object",
+      "description": "Column definition for a TableBlock. See interactive.md Section 6.3.",
+      "required": ["key", "label"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Key used to extract this column's value from each row object."
+        },
+        "label": {
+          "type": "string",
+          "description": "Column header text displayed to the user."
+        },
+        "sortable": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, client allows sorting by this column. Sorting is client-side only."
+        },
+        "align": {
+          "type": "string",
+          "enum": ["left", "right", "center"],
+          "default": "left",
+          "description": "Text alignment for this column's header and data cells."
+        }
+      }
+    },
+    "RowAction": {
+      "type": "object",
+      "description": "Action button rendered alongside each table row. See interactive.md Section 6.5.",
+      "required": ["action_id", "label"],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "description": "Identifier referenced by the ActionBlock when the user clicks this row action."
+        },
+        "label": {
+          "type": "string",
+          "description": "Button text for the row action."
+        },
+        "style": {
+          "type": "string",
+          "enum": ["primary", "secondary", "danger"],
+          "default": "primary",
+          "description": "Semantic style. See interactive.md Section 3.2."
+        }
+      }
+    },
+    "TableBlock": {
+      "description": "Tabular data display with optional per-row action buttons and client-side sorting. See interactive.md Section 6.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" },
+        {
+          "type": "object",
+          "required": ["columns", "rows"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "table"
+            },
+            "columns": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/TableColumn" },
+              "minItems": 1,
+              "description": "Column definitions. Rendered in array order (left to right). MUST contain at least one column."
+            },
+            "rows": {
+              "type": "array",
+              "items": { "type": "object" },
+              "description": "Array of row objects. Keys correspond to column key values. MAY be empty."
+            },
+            "title": {
+              "type": "string",
+              "description": "Table heading displayed above the table."
+            },
+            "row_actions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/RowAction" },
+              "description": "Action buttons rendered for each row. When clicked, ActionBlock includes full row data."
+            }
+          }
+        }
+      ]
+    },
+    "ApprovalOption": {
+      "type": "object",
+      "description": "An option in an ApprovalBlock representing a possible approval decision.",
+      "required": ["value", "label"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The option value submitted in the ActionBlock's data field. Should match a valid terminal state."
+        },
+        "label": {
+          "type": "string",
+          "description": "Display text for this option."
+        },
+        "style": {
+          "type": "string",
+          "enum": ["primary", "secondary", "danger"],
+          "default": "primary",
+          "description": "Semantic style for this option's button."
+        }
+      }
+    },
+    "ApprovalBlock": {
+      "description": "Approval workflow with server-enforced state machine. Used when an agent requests explicit human authorization. See interactive.md Section 7.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" },
+        {
+          "type": "object",
+          "required": ["action_id", "title", "status", "options"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "approval"
+            },
+            "action_id": {
+              "type": "string",
+              "description": "Unique identifier for this approval within the message."
+            },
+            "title": {
+              "type": "string",
+              "description": "Concise description of what is being approved."
+            },
+            "description": {
+              "type": "string",
+              "description": "Additional details about the approval. Provides context for the approver."
+            },
+            "status": {
+              "type": "string",
+              "enum": ["pending", "approved", "rejected", "changes_requested"],
+              "description": "Current approval state. Initial value MUST be 'pending'. Terminal states (approved, rejected, changes_requested) are immutable once set. Server-enforced state machine."
+            },
+            "options": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ApprovalOption" },
+              "minItems": 1,
+              "description": "Available approval decisions. MUST contain at least one option."
+            },
+            "resolved_by": {
+              "$ref": "common.schema.json#/$defs/AINMAddress",
+              "description": "The AINM address of the participant who resolved this approval. Set by server when status transitions to a terminal state."
+            },
+            "resolved_at": {
+              "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+              "description": "Timestamp when the approval was resolved. Set by server."
+            },
+            "resolution_comment": {
+              "type": "string",
+              "description": "Optional comment provided by the resolver when making the approval decision."
+            }
+          }
+        }
+      ]
+    },
+    "ActionBlock": {
+      "type": "object",
+      "description": "User response to any interactive block. ActionBlocks are full signed messages visible to all thread participants. NOT a content block (does not extend ContentBlockBase). See interactive.md Section 8.",
+      "required": ["ref_message_id", "ref_block_index", "action_id", "data"],
+      "properties": {
+        "ref_message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The ID of the message containing the interactive block being responded to."
+        },
+        "ref_block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based index into the referenced message's content[] array, identifying the specific interactive block."
+        },
+        "action_id": {
+          "type": "string",
+          "description": "The action_id of the interactive block being responded to. Must match the action_id on the target block."
+        },
+        "data": {
+          "type": "object",
+          "description": "The user's interaction data. Structure depends on the source block type: button click data, form field values, table row action data, or approval option selection."
+        }
+      }
+    }
+  }
+}
