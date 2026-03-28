@@ -228,7 +228,14 @@ The initialization handshake establishes the session, authenticates the client, 
     "capabilities": {
       "streaming": true,
       "subThreads": true,
-      "contentTypes": ["text", "code", "image", "file"]
+      "contentTypes": ["text", "code", "image", "file", "button", "form", "table", "approval", "action"],
+      "parallelStreaming": false,
+      "toolVisibility": true,
+      "memory": {
+        "conversation": true,
+        "archival": true,
+        "maxContextFrameSize": 32768
+      }
     }
   }
 }
@@ -241,7 +248,13 @@ The initialization handshake establishes the session, authenticates the client, 
 - `capabilities` (object, REQUIRED): Client capabilities.
   - `streaming` (boolean): Whether the client supports streaming message delivery.
   - `subThreads` (boolean): Whether the client supports sub-thread operations.
-  - `contentTypes` (array of strings): Content block types the client can render.
+  - `contentTypes` (array of strings): Content block types the client can render. Phase 1 types: `"text"`, `"code"`, `"image"`, `"file"`. Phase 2 types: `"button"`, `"form"`, `"table"`, `"approval"`, `"action"` (see interactive.md).
+  - `parallelStreaming` (boolean, Phase 2): Whether the client supports receiving multi-block streaming where deltas for different block indices arrive interleaved (see streaming.md). Default `false`.
+  - `toolVisibility` (boolean, Phase 2): Whether the client supports rendering tool call events (`tool.call.started`, `tool.call.progress`, `tool.call.completed`) as collapsible activity indicators (see tool-visibility.md). Default `false`.
+  - `memory` (object, Phase 2): Memory tier support capabilities.
+    - `memory.conversation` (boolean): Client/server supports conversation memory queries via `ainm.memory.query` (see memory.md). Default `false`.
+    - `memory.archival` (boolean): Client/server supports archival memory operations (`ainm.memory.store`, `ainm.memory.query`, `ainm.memory.evict`) (see memory.md). Default `false`.
+    - `memory.maxContextFrameSize` (integer): Maximum context frame size in bytes that the client can accept. Recommended default: `32768` (32 KB). See memory.md Section 4.2 for budget allocation.
 
 **Response (success):**
 
@@ -788,7 +801,108 @@ The initialization handshake (`ainm.initialize`) requires the client to provide 
 - **Replay attacks:** The server-generated nonce ensures initialization signatures cannot be reused.
 - **Identity spoofing:** The server verifies the identity claim against the resolved public key during initialization.
 
-## 9. Examples
+## 9. Phase 2 Extensions
+
+This section documents protocol extensions introduced in Phase 2 (agent-native features). Phase 2 adds new JSON-RPC methods for streaming, memory, and context management, as well as new error code ranges for Phase 2 features. All Phase 2 methods follow the existing `ainm.{domain}.{action}` naming convention (Section 3.5) and use the same JSON-RPC 2.0 framing.
+
+### 9.1 Phase 2 Method Registry
+
+The following methods are defined by Phase 2 specifications. Each method's full definition (parameters, responses, constraints) is in the referenced spec file.
+
+| Method | Type | Direction | Spec | Description |
+|--------|------|-----------|------|-------------|
+| `ainm.stream.start` | Notification | Server -> Client | streaming.md | Declares a new stream and its block layout. Initiates progressive content delivery. |
+| `ainm.stream.delta` | Notification | Server -> Client | streaming.md | Delivers incremental content tokens to a specific block within a stream. |
+| `ainm.stream.end` | Notification | Server -> Client | streaming.md | Terminates a stream. Triggers collapse into a permanent signed message. |
+| `ainm.stream.cancel` | Request | Client -> Server | streaming.md | Client requests cancellation of an active stream. |
+| `ainm.stream.error` | Notification | Server -> Client | streaming.md | Reports a streaming error. Terminates the stream abnormally. |
+| `ainm.memory.store` | Request | Client -> Server | memory.md | Stores a structured fact in the authenticated participant's archival memory. |
+| `ainm.memory.query` | Request | Client -> Server | memory.md | Queries conversation memory (thread history) or archival memory (cross-conversation facts). |
+| `ainm.memory.evict` | Request | Client -> Server | memory.md | Removes a fact from the authenticated participant's archival memory. |
+| `ainm.context.frame` | Notification | Server -> Client | memory.md | Delivers a structured context frame to a participant on thread join or context refresh. |
+
+**Availability:** Phase 2 methods are available only when both client and server declare support during capability negotiation (Section 4.3). Specifically:
+
+- Streaming methods (`ainm.stream.*`) require `streaming: true` on both sides.
+- Memory methods (`ainm.memory.*`, `ainm.context.frame`) require the corresponding `memory.*` capability flags.
+- Tool call events (`tool.call.started`, `tool.call.progress`, `tool.call.completed`) are message types (not methods) delivered via `ainm.message.deliver`. They require `toolVisibility: true` on the client for collapsible rendering; clients without this capability still receive the events but render them via TextBlock fallback.
+
+### 9.2 Phase 2 Error Code Ranges
+
+Phase 2 specifications define error codes in the following ranges. Each range is owned by the referenced spec file, which provides the normative definition of each error code.
+
+| Range | Domain | Spec | Description |
+|-------|--------|------|-------------|
+| `-32040` to `-32049` | Streaming errors | streaming.md | Errors during stream lifecycle: invalid stream_id (`-32040`), invalid block_index (`-32041`), delta after stream end (`-32042`), stream not found for cancel (`-32043`), stream already ended (`-32044`). |
+| `-32050` to `-32059` | Memory errors | memory.md | Errors during memory operations: fact not found (`-32050`), storage quota exceeded (`-32051`), invalid memory query (`-32052`), archival memory not supported (`-32053`), context frame too large (`-32054`). |
+| `-32060` to `-32069` | Agent Card errors | agent-card.md | Errors during Agent Card discovery: card not found (`-32060`), invalid card format (`-32061`), version mismatch (`-32062`). |
+| `-32070` to `-32079` | Interactive content errors | interactive.md | Errors during interactive block processing: invalid action_id (`-32070`), approval already resolved (`-32071`), form validation failed (`-32072`). |
+
+These ranges are reserved and MUST NOT be used by implementations for custom error codes. Custom server-specific error codes SHOULD use the range `-32000` to `-32099` outside of the reserved ranges listed above and in Section 3.6.
+
+### 9.3 Phase 2 Capability Negotiation Example
+
+A client supporting all Phase 2 features negotiates with a server:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "ainm.initialize",
+  "params": {
+    "protocolVersion": "0.1.0",
+    "identity": "alice@messaging.example.com",
+    "signature": "aW5pdC1zaWduYXR1cmU...",
+    "capabilities": {
+      "streaming": true,
+      "subThreads": true,
+      "contentTypes": ["text", "code", "image", "file", "button", "form", "table", "approval", "action"],
+      "parallelStreaming": true,
+      "toolVisibility": true,
+      "memory": {
+        "conversation": true,
+        "archival": true,
+        "maxContextFrameSize": 65536
+      }
+    }
+  }
+}
+```
+
+Server response with Phase 2 capabilities:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "0.1.0",
+    "serverInfo": {
+      "name": "messaging.example.com",
+      "version": "0.2.0"
+    },
+    "capabilities": {
+      "streaming": true,
+      "subThreads": true,
+      "storeAndForward": true,
+      "maxContentBlocks": 50,
+      "maxMessageSize": 1048576,
+      "parallelStreaming": true,
+      "toolVisibility": true,
+      "memory": {
+        "conversation": true,
+        "archival": true,
+        "maxContextFrameSize": 32768
+      }
+    },
+    "nonce": "c2VydmVyLW5vbmNl..."
+  }
+}
+```
+
+The effective session capabilities are the intersection: both sides support streaming, parallelStreaming, toolVisibility, and memory. The effective `maxContextFrameSize` is `min(65536, 32768) = 32768` bytes (the more restrictive value).
+
+## 10. Examples
 
 ### Example 1: Full WebSocket Session
 
@@ -1085,4 +1199,4 @@ Step 7: Normal streaming mode resumes.
 ---
 
 *AI-Native Messaging Protocol -- Transport Specification v0.1.0*
-*Cross-references: security.md (message signing, identity verification), content.md (content blocks), identity.md (address resolution, server discovery), threading.md (thread semantics)*
+*Cross-references: security.md (message signing, identity verification), content.md (content blocks), identity.md (address resolution, server discovery), threading.md (thread semantics), streaming.md (Phase 2 streaming methods), memory.md (Phase 2 memory methods), agent-card.md (Phase 2 Agent Card errors), tool-visibility.md (Phase 2 tool events), interactive.md (Phase 2 interactive content errors), compatibility.md (Phase 2 bridge integration)*

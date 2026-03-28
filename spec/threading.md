@@ -1064,6 +1064,49 @@ sequenceDiagram
     S->>A: ainm.presence.notify (code-bot: offline)
 ```
 
+## Phase 2 Extensions
+
+This section documents threading-related extensions introduced in Phase 2 (agent-native features). Phase 2 adds new message types that are delivered to threads and new event categories that affect thread state. All Phase 2 message types use the same message envelope structure (security.md Section 3.1) and the same thread-addressed delivery mechanism (Section 3.2).
+
+### Phase 2 Message Types
+
+Phase 2 introduces four new message type values for the `type` field in the message envelope. These extend the Phase 1 message type registry defined in security.md Section 3.3.
+
+| Type Value | Description | Spec |
+|-----------|-------------|------|
+| `"tool.call.started"` | An agent began invoking a tool. Contains a `tool` object with `call_id`, `name`, `description`, and `input`. Delivered as a persistent signed message visible to all thread participants. | tool-visibility.md Section 3.1 |
+| `"tool.call.progress"` | An intermediate progress update for an active tool call. Contains a `tool` object with `call_id` and `progress` sub-object. Zero or more progress messages may occur between started and completed. | tool-visibility.md Section 3.2 |
+| `"tool.call.completed"` | A tool invocation finished (success or error). Contains a `tool` object with `call_id`, `name`, `result_summary`, `duration_ms`, `status`, and optional `error_message`. Exactly one completed message is expected for every started message. | tool-visibility.md Section 3.3 |
+| `"action"` | A user interaction with an interactive block (button click, form submission, approval decision). Contains an ActionBlock in the `content[]` array that references the original interactive block via `ref_message_id` and `action_id`. | interactive.md Section 8 |
+
+**Combined Phase 1 + Phase 2 Message Type Registry:**
+
+| Type Value | Phase | Description |
+|-----------|-------|-------------|
+| `"message"` | 1 | A standard message containing one or more content blocks. |
+| `"thread.create"` | 1 | Creates a new thread or sub-thread. |
+| `"thread.join"` | 1 | A participant joins an existing thread. |
+| `"thread.leave"` | 1 | A participant leaves a thread. |
+| `"presence.update"` | 1 | Updates the sender's presence status within a thread. |
+| `"tool.call.started"` | 2 | Agent began a tool invocation (tool-visibility.md). |
+| `"tool.call.progress"` | 2 | Intermediate tool execution update (tool-visibility.md). |
+| `"tool.call.completed"` | 2 | Tool invocation finished (tool-visibility.md). |
+| `"action"` | 2 | User interaction with an interactive block (interactive.md). |
+
+All message types use the same envelope structure and the same signing procedure. The `type` field determines how servers and clients process the message, but the cryptographic handling is uniform across all types.
+
+### Phase 2 Thread-Scoped Events
+
+Phase 2 introduces new categories of events that are scoped to threads:
+
+**Tool call events** (`tool.call.started`, `tool.call.progress`, `tool.call.completed`) are thread-visible persistent messages. They flow through the same `ainm.message.deliver` notification mechanism and are signed with Ed25519 per security.md Section 4. All thread participants receive tool events and can see what tools agents are invoking, with what parameters, and what results they produce. Tool events are part of the thread's cryptographic audit trail. See tool-visibility.md for the full specification.
+
+**Action events** (`"action"` type) are thread-visible persistent messages sent when a user interacts with an interactive block (button, form, approval). ActionBlock messages are signed by the user who performed the action and delivered to all thread participants. This makes user interactions transparent to all participants, including agents that need to observe and respond to user actions. See interactive.md Section 8 for the full specification.
+
+**Memory operations** (`ainm.memory.store`, `ainm.memory.query`, `ainm.memory.evict`) and **context frames** (`ainm.context.frame`) are NOT thread messages. They are private JSON-RPC exchanges between a participant and the server, transmitted over the WebSocket connection but not delivered to other thread participants. When an agent queries conversation memory or looks up archival facts, those queries are invisible to other participants. See memory.md for the full specification.
+
+**Streaming events** (`ainm.stream.start`, `ainm.stream.delta`, `ainm.stream.end`, `ainm.stream.error`) are ephemeral JSON-RPC notifications scoped to a thread via the `thread_id` field. They are NOT persistent signed messages -- they are session-authenticated WebSocket notifications that are collapsed into a permanent signed message at stream-end. See streaming.md for the full specification.
+
 ## Error Code Summary
 
 This section summarizes the error codes normatively defined by this specification.
@@ -1081,6 +1124,11 @@ Error codes in the `-32024` to `-32025` range (thread not found, not a participa
 - **AINM Security Specification** (`security.md`) -- Message envelope structure, signing/verification, trust annotations (source field), message types
 - **AINM Content Specification** (`content.md`) -- Content block schema, TextBlock mentions array, core block types
 - **AINM Transport Specification** (`transport.md`) -- JSON-RPC methods for thread operations (create, join, leave), presence methods (update, notify), message delivery
+- **AINM Tool Visibility Specification** (`tool-visibility.md`) -- Phase 2 tool call events (started, progress, completed) as thread-visible messages
+- **AINM Interactive Content Specification** (`interactive.md`) -- Phase 2 interactive blocks (ButtonBlock, FormBlock, TableBlock, ApprovalBlock) and ActionBlock response messages
+- **AINM Streaming Specification** (`streaming.md`) -- Phase 2 streaming events (ephemeral, collapsed into permanent messages)
+- **AINM Memory Management Specification** (`memory.md`) -- Phase 2 memory operations (private exchanges, not thread messages) and context frames
+- **AINM Compatibility Bridge Specification** (`compatibility.md`) -- Phase 2 MCP and A2A bridge participants in threads
 - **RFC 9562** -- Universally Unique Identifiers (UUIDs), specifically UUIDv7 for thread_id and message_id
 - **RFC 3339** -- Date and Time on the Internet: Timestamps (used for created_at, joined_at, timestamp fields)
 - **RFC 2778** -- A Model for Presence and Instant Messaging (adapted for human/agent presence states)
@@ -1088,4 +1136,4 @@ Error codes in the `-32024` to `-32025` range (thread not found, not a participa
 ---
 
 *AI-Native Messaging Protocol -- Threading Specification v0.1.0*
-*Cross-references: identity.md (participant identity, type resolution), security.md (message signing, trust annotations), content.md (content blocks, mentions), transport.md (thread operations, presence methods, message delivery)*
+*Cross-references: identity.md (participant identity, type resolution), security.md (message signing, trust annotations), content.md (content blocks, mentions), transport.md (thread operations, presence methods, message delivery), tool-visibility.md (Phase 2 tool events), interactive.md (Phase 2 interactive blocks), streaming.md (Phase 2 streaming), memory.md (Phase 2 memory operations), compatibility.md (Phase 2 bridges)*
