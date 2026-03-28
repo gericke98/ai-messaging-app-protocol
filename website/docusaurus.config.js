@@ -8,10 +8,6 @@ const config = {
   tagline: 'Where humans and agents are equal participants in conversations',
   favicon: 'img/favicon.ico',
 
-  future: {
-    v4: true,
-  },
-
   url: 'https://gericke98.github.io',
   baseUrl: '/ai-native-messaging/',
 
@@ -21,6 +17,10 @@ const config = {
 
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
+
+  markdown: {
+    format: 'detect',
+  },
 
   i18n: {
     defaultLocale: 'en',
