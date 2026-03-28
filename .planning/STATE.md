@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-03-28T08:32:15.482Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-03-28T08:32:51.700Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 3
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 01 (protocol-kernel) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01 P01 | 6min | 2 tasks | 2 files |
+| Phase 01-protocol-kernel P02 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Used RFC 8032 Section 7.1 test vector 1 as published test key pair for implementer conformance testing
 - [Phase 01]: 24-hour overlap period for key rotation grace, balancing security vs in-flight message verification
 - [Phase 01]: JSON-RPC error code ranges: -32001 to -32007 for identity, -32010 to -32013 for security errors
+- [Phase 01-protocol-kernel]: Content blocks use mandatory fallback field on every block for graceful degradation; extension blocks use reverse-domain namespacing
+- [Phase 01-protocol-kernel]: WebSocket lifecycle follows MCP pattern (initialize/initialized/shutdown); server-to-server relay uses triple-layer validation (mTLS + server sig + message sig)
 
 ### Pending Todos
 
@@ -80,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T08:32:15.478Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-03-28T08:32:51.696Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None

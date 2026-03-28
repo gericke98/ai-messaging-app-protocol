@@ -9,11 +9,11 @@ Requirements for the initial protocol specification and working demo.
 
 ### Transport
 
-- [ ] **TRNS-01**: Protocol defines WebSocket transport binding for client-to-server real-time communication
-- [ ] **TRNS-02**: Protocol defines HTTP transport binding for server-to-server message relay
-- [ ] **TRNS-03**: All transport bindings require TLS 1.3 minimum
-- [ ] **TRNS-04**: Protocol uses JSON-RPC 2.0 as the message framing format
-- [ ] **TRNS-05**: Protocol supports dual delivery modes: streaming (foreground) and store-and-forward (background/offline)
+- [x] **TRNS-01**: Protocol defines WebSocket transport binding for client-to-server real-time communication
+- [x] **TRNS-02**: Protocol defines HTTP transport binding for server-to-server message relay
+- [x] **TRNS-03**: All transport bindings require TLS 1.3 minimum
+- [x] **TRNS-04**: Protocol uses JSON-RPC 2.0 as the message framing format
+- [x] **TRNS-05**: Protocol supports dual delivery modes: streaming (foreground) and store-and-forward (background/offline)
 
 ### Identity
 
@@ -40,8 +40,8 @@ Requirements for the initial protocol specification and working demo.
 
 ### Content
 
-- [ ] **CONT-01**: Messages are composed of typed content blocks with declared schemas
-- [ ] **CONT-02**: Protocol defines core block types: TextBlock (markdown), CodeBlock (language, content), ImageBlock, FileBlock (MIME type, digest)
+- [x] **CONT-01**: Messages are composed of typed content blocks with declared schemas
+- [x] **CONT-02**: Protocol defines core block types: TextBlock (markdown), CodeBlock (language, content), ImageBlock, FileBlock (MIME type, digest)
 - [ ] **CONT-03**: Protocol defines interactive block types: ButtonBlock, FormBlock, TableBlock, ChartBlock, ApprovalBlock
 - [ ] **CONT-04**: Interactive blocks use declarative component model (UI as data, not code) — agents reference a client-controlled component catalog
 - [ ] **CONT-05**: No arbitrary payload size limits at the protocol level
@@ -151,11 +151,11 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | Phase 1 | Pending |
-| TRNS-02 | Phase 1 | Pending |
-| TRNS-03 | Phase 1 | Pending |
-| TRNS-04 | Phase 1 | Pending |
-| TRNS-05 | Phase 1 | Pending |
+| TRNS-01 | Phase 1 | Complete |
+| TRNS-02 | Phase 1 | Complete |
+| TRNS-03 | Phase 1 | Complete |
+| TRNS-04 | Phase 1 | Complete |
+| TRNS-05 | Phase 1 | Complete |
 | IDNT-01 | Phase 1 | Complete |
 | IDNT-02 | Phase 1 | Complete |
 | IDNT-03 | Phase 1 | Complete |
@@ -170,8 +170,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | STRM-02 | Phase 2 | Pending |
 | STRM-03 | Phase 2 | Pending |
 | STRM-04 | Phase 2 | Pending |
-| CONT-01 | Phase 1 | Pending |
-| CONT-02 | Phase 1 | Pending |
+| CONT-01 | Phase 1 | Complete |
+| CONT-02 | Phase 1 | Complete |
 | CONT-03 | Phase 2 | Pending |
 | CONT-04 | Phase 2 | Pending |
 | CONT-05 | Phase 2 | Pending |
