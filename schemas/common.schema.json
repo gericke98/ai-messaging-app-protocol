@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/common.schema.json",
+  "title": "AINM Protocol - Common Definitions",
+  "description": "Shared type definitions for the AI-Native Messaging Protocol v0.1.0. All domain schemas reference these definitions via $ref.",
+  "$defs": {
+    "AINMAddress": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$",
+      "description": "AINM address in the format name@provider. Name: 1-64 chars, starts with alphanumeric, may contain alphanumeric/dot/underscore/hyphen. Provider: valid domain name. See identity.md Section 3.",
+      "examples": [
+        "alice@messaging.example.com",
+        "weather-bot@agents.example.com"
+      ]
+    },
+    "UUIDv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUIDv7 (RFC 9562) providing time-ordered unique identifiers. Used for message IDs, thread IDs, and stream IDs.",
+      "examples": [
+        "019580a1-7b3e-7000-8000-abcdef123456"
+      ]
+    },
+    "RFC3339Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp with millisecond precision and UTC timezone. Example: 2026-03-28T12:34:56.789Z",
+      "examples": [
+        "2026-03-28T12:34:56.789Z"
+      ]
+    },
+    "Ed25519Signature": {
+      "type": "string",
+      "description": "Base64url-encoded Ed25519 signature (64 bytes raw, 86 characters encoded) without padding per RFC 4648 Section 5.",
+      "examples": [
+        "dGhpcyBpcyBhIGJhc2U2NHVybCBlbmNvZGVkIGVkMjU1MTkgc2lnbmF0dXJl"
+      ]
+    },
+    "Ed25519PublicKey": {
+      "type": "string",
+      "description": "Base64url-encoded Ed25519 public key (32 bytes raw, 43 characters encoded) without padding per RFC 4648 Section 5.",
+      "examples": [
+        "11qYAYKxCrfVS_7TyWQHOg7hcvPao_ShiEawuNGD-OM"
+      ]
+    },
+    "ContentBlockBase": {
+      "type": "object",
+      "description": "Base schema shared by all content blocks. Every content block must include these four fields. See content.md Section 3.",
+      "required": ["type", "version", "source", "fallback"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Block type identifier. Core types: text, code, image, file. Extension types use reverse-domain namespacing (e.g., com.example.weather-card)."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version of this block type in MAJOR.MINOR format. Independent of protocol version."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["user", "agent", "system"],
+          "description": "Trust annotation indicating content origin. user = human-authored, agent = AI-generated, system = protocol/server-generated. Covered by message signature."
+        },
+        "fallback": {
+          "type": "string",
+          "description": "Plain text or Markdown representation for graceful degradation when the block type or version is not recognized by the client."
+        }
+      }
+    },
+    "MessageEnvelope": {
+      "type": "object",
+      "description": "The fundamental unit of communication in AINM. Every message uses this envelope structure and is cryptographically signed. See security.md Section 3.",
+      "required": ["id", "from", "thread_id", "timestamp", "type", "content", "signature"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/UUIDv7",
+          "description": "Message identifier. MUST be a UUIDv7 (RFC 9562) for time-ordering and deduplication."
+        },
+        "from": {
+          "$ref": "#/$defs/AINMAddress",
+          "description": "Sender's AINM address. Used to resolve public key for signature verification."
+        },
+        "thread_id": {
+          "$ref": "#/$defs/UUIDv7",
+          "description": "Target thread UUIDv7. Messages are addressed to threads, not individual participants."
+        },
+        "timestamp": {
+          "$ref": "#/$defs/RFC3339Timestamp",
+          "description": "Message creation time. MUST be RFC 3339 with millisecond precision and UTC timezone."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["message", "thread.create", "thread.join", "thread.leave", "presence.update"],
+          "description": "Message type discriminator. Determines how the message is processed."
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ContentBlockBase"
+          },
+          "description": "Ordered array of typed content blocks. Each block has its own type, version, source, and fallback."
+        },
+        "signature": {
+          "$ref": "#/$defs/Ed25519Signature",
+          "description": "Ed25519 signature over the RFC 8785 canonical form of the message with this field removed."
+        },
+        "parent_id": {
+          "$ref": "#/$defs/UUIDv7",
+          "description": "Optional parent message ID for sub-threading. See threading.md."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional extensible metadata object."
+        }
+      }
+    },
+    "JsonRpcRequest": {
+      "type": "object",
+      "description": "JSON-RPC 2.0 request. Expects a response correlated by the id field. See transport.md Section 3.1.",
+      "required": ["jsonrpc", "method", "id"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "description": "Method name using ainm.{domain}.{action} namespace."
+        },
+        "id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "integer" }
+          ],
+          "description": "Request identifier for response correlation."
+        },
+        "params": {
+          "type": "object",
+          "description": "Method-specific parameters."
+        }
+      }
+    },
+    "JsonRpcResponse": {
+      "type": "object",
+      "description": "JSON-RPC 2.0 response. Contains either result (success) or error (failure), never both. See transport.md Section 3.2-3.3.",
+      "required": ["jsonrpc", "id"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "integer" },
+            { "type": "null" }
+          ],
+          "description": "Request identifier matching the original request. Null for errors that cannot be correlated."
+        },
+        "result": {
+          "description": "Success result. Present on success, absent on error."
+        },
+        "error": {
+          "$ref": "#/$defs/JsonRpcError",
+          "description": "Error object. Present on failure, absent on success."
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["result"],
+          "not": { "required": ["error"] }
+        },
+        {
+          "required": ["error"],
+          "not": { "required": ["result"] }
+        }
+      ]
+    },
+    "JsonRpcError": {
+      "type": "object",
+      "description": "JSON-RPC 2.0 error object. See transport.md Section 3.3.",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "description": "Error code. Standard JSON-RPC codes (-32700 to -32603), AINM identity codes (-32001 to -32007), security codes (-32010 to -32013), transport codes (-32020 to -32025), thread codes (-32030 to -32031)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message."
+        },
+        "data": {
+          "description": "Optional additional error data with diagnostic information."
+        }
+      }
+    },
+    "JsonRpcNotification": {
+      "type": "object",
+      "description": "JSON-RPC 2.0 notification. Has no id field -- no response is expected. See transport.md Section 3.4.",
+      "required": ["jsonrpc", "method"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "description": "Method name using ainm.{domain}.{action} namespace."
+        },
+        "params": {
+          "type": "object",
+          "description": "Method-specific parameters."
+        }
+      },
+      "not": {
+        "required": ["id"]
+      }
+    }
+  }
+}
