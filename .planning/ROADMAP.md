@@ -30,8 +30,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Identity and Security specifications (address format, .well-known resolution, Ed25519 signing, trust annotations)
-- [ ] 01-02-PLAN.md -- Content and Transport specifications (typed content blocks, WebSocket/HTTP bindings, JSON-RPC lifecycle)
+- [x] 01-01-PLAN.md -- Identity and Security specifications (address format, .well-known resolution, Ed25519 signing, trust annotations)
+- [x] 01-02-PLAN.md -- Content and Transport specifications (typed content blocks, WebSocket/HTTP bindings, JSON-RPC lifecycle)
 - [ ] 01-03-PLAN.md -- Threading specification with mixed participation (flat threads, sub-threads, presence, mentions)
 
 ### Phase 2: Agent-Native Features

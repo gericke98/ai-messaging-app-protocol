@@ -17,19 +17,19 @@ Requirements for the initial protocol specification and working demo.
 
 ### Identity
 
-- [ ] **IDNT-01**: Humans and agents use email-like addresses (`name@provider`)
-- [ ] **IDNT-02**: Identity format is uniform — no distinction between human and agent addresses at the protocol level
-- [ ] **IDNT-03**: Identity is cryptographically bound to a signing key pair
-- [ ] **IDNT-04**: Protocol defines identity registration and resolution via the `@provider` portion
-- [ ] **IDNT-05**: Protocol defines key rotation mechanism for identities
+- [x] **IDNT-01**: Humans and agents use email-like addresses (`name@provider`)
+- [x] **IDNT-02**: Identity format is uniform — no distinction between human and agent addresses at the protocol level
+- [x] **IDNT-03**: Identity is cryptographically bound to a signing key pair
+- [x] **IDNT-04**: Protocol defines identity registration and resolution via the `@provider` portion
+- [x] **IDNT-05**: Protocol defines key rotation mechanism for identities
 
 ### Security
 
-- [ ] **SECU-01**: Every message is signed with Ed25519 by the sender
-- [ ] **SECU-02**: Signatures use a canonical signing format (deterministic field ordering per RFC 8785)
-- [ ] **SECU-03**: Receivers can verify message authenticity and integrity via signature validation
-- [ ] **SECU-04**: Protocol defines trust annotations on message content blocks (user-generated vs agent-generated vs system)
-- [ ] **SECU-05**: Content and instructions are structurally separated at the protocol message level (anti-prompt-injection)
+- [x] **SECU-01**: Every message is signed with Ed25519 by the sender
+- [x] **SECU-02**: Signatures use a canonical signing format (deterministic field ordering per RFC 8785)
+- [x] **SECU-03**: Receivers can verify message authenticity and integrity via signature validation
+- [x] **SECU-04**: Protocol defines trust annotations on message content blocks (user-generated vs agent-generated vs system)
+- [x] **SECU-05**: Content and instructions are structurally separated at the protocol message level (anti-prompt-injection)
 
 ### Streaming
 
@@ -156,16 +156,16 @@ Deferred to future release. Tracked but not in current roadmap.
 | TRNS-03 | Phase 1 | Pending |
 | TRNS-04 | Phase 1 | Pending |
 | TRNS-05 | Phase 1 | Pending |
-| IDNT-01 | Phase 1 | Pending |
-| IDNT-02 | Phase 1 | Pending |
-| IDNT-03 | Phase 1 | Pending |
-| IDNT-04 | Phase 1 | Pending |
-| IDNT-05 | Phase 1 | Pending |
-| SECU-01 | Phase 1 | Pending |
-| SECU-02 | Phase 1 | Pending |
-| SECU-03 | Phase 1 | Pending |
-| SECU-04 | Phase 1 | Pending |
-| SECU-05 | Phase 1 | Pending |
+| IDNT-01 | Phase 1 | Complete |
+| IDNT-02 | Phase 1 | Complete |
+| IDNT-03 | Phase 1 | Complete |
+| IDNT-04 | Phase 1 | Complete |
+| IDNT-05 | Phase 1 | Complete |
+| SECU-01 | Phase 1 | Complete |
+| SECU-02 | Phase 1 | Complete |
+| SECU-03 | Phase 1 | Complete |
+| SECU-04 | Phase 1 | Complete |
+| SECU-05 | Phase 1 | Complete |
 | STRM-01 | Phase 2 | Pending |
 | STRM-02 | Phase 2 | Pending |
 | STRM-03 | Phase 2 | Pending |

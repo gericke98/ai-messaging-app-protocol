@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-28T07:52:25.605Z"
-last_activity: 2026-03-27 -- Roadmap created
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-03-28T08:32:15.482Z"
+last_activity: 2026-03-28
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 2
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 1 - Protocol Kernel
+**Current focus:** Phase 01 — protocol-kernel
 
 ## Current Position
 
-Phase: 1 of 3 (Protocol Kernel)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-27 -- Roadmap created
+Phase: 01 (protocol-kernel) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-03-28
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01 P01 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Protocol-first approach -- complete spec before reference implementation. v1 = published spec + working demo, iOS app deferred to v2.
 - [Roadmap]: 3-phase structure (kernel -> agent-native -> publication + demo) derived from 57 requirements at COARSE granularity.
 - [Roadmap]: Federation and E2E encryption explicitly deferred to v2.
+- [Phase 01]: Used RFC 8032 Section 7.1 test vector 1 as published test key pair for implementer conformance testing
+- [Phase 01]: 24-hour overlap period for key rotation grace, balancing security vs in-flight message verification
+- [Phase 01]: JSON-RPC error code ranges: -32001 to -32007 for identity, -32010 to -32013 for security errors
 
 ### Pending Todos
 
@@ -76,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T07:52:25.601Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-protocol-kernel/01-CONTEXT.md
+Last session: 2026-03-28T08:32:15.478Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
