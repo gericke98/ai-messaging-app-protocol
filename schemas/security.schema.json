@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/security.schema.json",
+  "title": "AINM Protocol - Security Schema",
+  "description": "Security domain types for the AI-Native Messaging Protocol v0.1.0. Covers message signing, verification, trust annotations, and deduplication. See spec/security.md.",
+  "$defs": {
+    "SignedMessage": {
+      "type": "object",
+      "description": "A message envelope with Ed25519 signature. The signing input is constructed by: (1) removing the signature field, (2) canonicalizing per RFC 8785, (3) encoding as UTF-8 bytes, (4) signing with Ed25519. See security.md Section 4.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/MessageEnvelope" }
+      ]
+    },
+    "CanonicalSigningInput": {
+      "type": "object",
+      "description": "Describes the construction of the signing input for Ed25519 signatures. The process: clone the message envelope, remove the 'signature' field, apply RFC 8785 JSON Canonicalization Scheme (sort keys lexicographically by UTF-16 code units, remove whitespace, serialize numbers per ECMAScript rules), encode canonical JSON string as UTF-8 bytes. See security.md Section 4.1.",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "const": [
+            "Construct message without signature field",
+            "Canonicalize using RFC 8785 (JCS): sort keys, remove whitespace, normalize numbers",
+            "Encode canonical JSON string as UTF-8 bytes",
+            "Sign UTF-8 bytes with Ed25519 private key (RFC 8032)",
+            "Encode 64-byte signature as base64url without padding"
+          ]
+        }
+      }
+    },
+    "TrustAnnotation": {
+      "type": "object",
+      "description": "Trust annotation model for content blocks. The source field on each content block identifies content origin and is covered by the message signature. Cross-checking source against sender type from identity resolution detects misattribution. See security.md Section 6.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["user", "agent", "system"],
+          "description": "Content origin: user = human-authored, agent = AI-generated, system = protocol/server-generated."
+        },
+        "cross_check_rules": {
+          "type": "object",
+          "description": "Recommended cross-check: if sender type is 'agent' but source is 'user', content may be misattributed. If sender type is 'human' but source is 'system', content may be misattributed. Clients SHOULD flag mismatches.",
+          "properties": {
+            "agent_sender_user_source": {
+              "type": "string",
+              "const": "suspicious - agent claiming user content"
+            },
+            "human_sender_system_source": {
+              "type": "string",
+              "const": "suspicious - human claiming system content"
+            }
+          }
+        }
+      }
+    },
+    "VerificationResult": {
+      "type": "object",
+      "description": "Result of verifying a message's Ed25519 signature. See security.md Section 5.",
+      "required": ["valid", "signer", "key_id", "timestamp"],
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "description": "Whether the signature verification succeeded."
+        },
+        "signer": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The AINM address of the message sender whose key was used for verification."
+        },
+        "key_id": {
+          "type": "string",
+          "description": "Identifier of the key used for verification (current key or a historical key ID)."
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Timestamp of the verification."
+        }
+      }
+    },
+    "DeduplicationPolicy": {
+      "type": "object",
+      "description": "Deduplication policy for at-least-once delivery. Implementations track message IDs to discard duplicates. See security.md Section 7.",
+      "properties": {
+        "window_size": {
+          "type": "integer",
+          "minimum": 10000,
+          "description": "Minimum number of message IDs to track. SHOULD be at least 10,000."
+        },
+        "window_duration_hours": {
+          "type": "integer",
+          "minimum": 24,
+          "description": "Minimum time window for message ID retention. SHOULD be at least 24 hours."
+        },
+        "mechanism": {
+          "type": "string",
+          "enum": ["uuid_set", "time_bucketed_set", "bloom_filter"],
+          "description": "Recommended deduplication mechanism. UUIDv7's time-ordered structure enables efficient sliding-window deduplication."
+        }
+      }
+    },
+    "SecurityErrorCodes": {
+      "type": "object",
+      "description": "Security-related JSON-RPC error codes. Range: -32010 to -32013. See security.md Section 8.1.",
+      "properties": {
+        "codes": {
+          "type": "array",
+          "const": [
+            { "code": -32010, "name": "InvalidSignature", "description": "Ed25519 signature verification failed against all candidate keys (current and historical)" },
+            { "code": -32011, "name": "UnknownSender", "description": "Sender address could not be resolved via identity resolution" },
+            { "code": -32012, "name": "RevokedKey", "description": "Message signed with a key that has revocation_reason: compromised" },
+            { "code": -32013, "name": "MalformedMessage", "description": "Message missing required fields or contains invalid field formats" }
+          ]
+        }
+      }
+    },
+    "ReplayProtection": {
+      "type": "object",
+      "description": "Replay attack mitigation parameters. See security.md Section 9.1.",
+      "properties": {
+        "max_future_drift_seconds": {
+          "type": "integer",
+          "const": 300,
+          "description": "Reject messages with timestamps more than 5 minutes in the future."
+        },
+        "max_past_drift_hours": {
+          "type": "integer",
+          "const": 24,
+          "description": "Reject messages with timestamps more than 24 hours in the past."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/identity.schema.json",
+  "title": "AINM Protocol - Identity Schema",
+  "description": "Identity domain types for the AI-Native Messaging Protocol v0.1.0. Covers participant identity records, registration, key rotation, and well-known endpoints. See spec/identity.md.",
+  "$defs": {
+    "IdentityRecord": {
+      "type": "object",
+      "description": "The JSON document returned by a provider when an identity is resolved via GET https://{provider}/.well-known/ainm/{name}. See identity.md Section 4.2.",
+      "required": ["id", "public_key", "server", "type", "key_history"],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "Full AINM address. MUST match {name}@{provider} from the request URL."
+        },
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/Ed25519PublicKey",
+          "description": "Current Ed25519 public key, base64url-encoded without padding."
+        },
+        "server": {
+          "type": "string",
+          "format": "uri",
+          "description": "WebSocket endpoint URL for the participant's home server. MUST use wss:// scheme.",
+          "pattern": "^wss://"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["human", "agent"],
+          "description": "Participant type. The protocol treats both equally; clients MAY adapt UI presentation."
+        },
+        "agent_card_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to an A2A-compatible Agent Card (JSON). Present when type is 'agent', omitted when type is 'human'."
+        },
+        "key_history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KeyRotationRecord"
+          },
+          "description": "Array of previous key records, ordered from most recent to oldest. May be empty if never rotated."
+        }
+      }
+    },
+    "RegistrationRequest": {
+      "type": "object",
+      "description": "Request body for POST https://{provider}/.well-known/ainm/register. See identity.md Section 5.2.",
+      "required": ["name", "public_key", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$",
+          "description": "Desired name. MUST conform to identity.md Section 3.2 name rules."
+        },
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/Ed25519PublicKey",
+          "description": "Ed25519 public key, base64url-encoded without padding."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["human", "agent"],
+          "description": "Participant type."
+        }
+      }
+    },
+    "RegistrationResponse": {
+      "type": "object",
+      "description": "Successful registration response (HTTP 201). Returns the full identity record. See identity.md Section 5.3.",
+      "required": ["id", "public_key", "server", "type", "key_history"],
+      "$ref": "#/$defs/IdentityRecord"
+    },
+    "KeyRotationRecord": {
+      "type": "object",
+      "description": "A historical key entry in the key_history array. See identity.md Section 6.5.",
+      "required": ["public_key", "valid_from", "valid_until", "revocation_reason"],
+      "properties": {
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/Ed25519PublicKey",
+          "description": "The historical Ed25519 public key, base64url-encoded without padding."
+        },
+        "valid_from": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "RFC 3339 timestamp (UTC) when this key was activated."
+        },
+        "valid_until": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "RFC 3339 timestamp (UTC) when this key was replaced."
+        },
+        "revocation_reason": {
+          "type": "string",
+          "enum": ["scheduled_rotation", "compromised", "administrative"],
+          "description": "Reason for rotation. scheduled_rotation = routine, compromised = key exposed, administrative = provider-initiated."
+        }
+      }
+    },
+    "KeyRotationRequest": {
+      "type": "object",
+      "description": "Request body for POST https://{provider}/.well-known/ainm/{name}/rotate. See identity.md Section 6.2.",
+      "required": ["new_public_key", "proof"],
+      "properties": {
+        "new_public_key": {
+          "$ref": "common.schema.json#/$defs/Ed25519PublicKey",
+          "description": "The new Ed25519 public key, base64url-encoded without padding."
+        },
+        "proof": {
+          "$ref": "common.schema.json#/$defs/Ed25519Signature",
+          "description": "Base64url-encoded Ed25519 signature of the new_public_key string (UTF-8 bytes), signed with the current private key."
+        }
+      }
+    },
+    "WellKnownAINMConfig": {
+      "type": "object",
+      "description": "The .well-known/ainm/server configuration document for server/federation discovery. See transport.md Section 5.2.",
+      "required": ["server_id", "public_key", "relay_endpoint", "supported_versions"],
+      "properties": {
+        "server_id": {
+          "type": "string",
+          "description": "Server identifier, typically the domain name."
+        },
+        "public_key": {
+          "$ref": "common.schema.json#/$defs/Ed25519PublicKey",
+          "description": "Server's Ed25519 public key for verifying server-level relay signatures."
+        },
+        "relay_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Full URL of the relay endpoint for federation."
+        },
+        "tls_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 fingerprint of the server's TLS certificate."
+        },
+        "supported_versions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Protocol versions this server supports."
+        }
+      }
+    },
+    "IdentityErrorCodes": {
+      "type": "object",
+      "description": "Identity-related JSON-RPC error codes. Range: -32001 to -32007. See identity.md Section 4.6, 5.4, 6.9.",
+      "properties": {
+        "codes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "integer" },
+              "name": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "default": [
+            { "code": -32001, "name": "IdentityNotFound", "description": "Identity not found (HTTP 404)" },
+            { "code": -32002, "name": "IdentityRevoked", "description": "Identity has been revoked (HTTP 410)" },
+            { "code": -32003, "name": "RateLimited", "description": "Too many identity resolution requests (HTTP 429)" },
+            { "code": -32004, "name": "NameTaken", "description": "Registration name already taken (HTTP 409)" },
+            { "code": -32005, "name": "InvalidPublicKey", "description": "Invalid public key format" },
+            { "code": -32006, "name": "InvalidName", "description": "Name does not match required format" },
+            { "code": -32007, "name": "InvalidProof", "description": "Key rotation proof signature verification failed" }
+          ]
+        }
+      }
+    }
+  }
+}

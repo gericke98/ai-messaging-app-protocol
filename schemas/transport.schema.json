@@ -1,0 +1,420 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/transport.schema.json",
+  "title": "AINM Protocol - Transport Schema",
+  "description": "Transport domain types for the AI-Native Messaging Protocol v0.1.0. Covers the initialize/initialized handshake, capability negotiation, all JSON-RPC method parameters, and error codes. See spec/transport.md.",
+  "$defs": {
+    "InitializeParams": {
+      "type": "object",
+      "description": "Parameters for the ainm.initialize request (client -> server). First message after WebSocket upgrade. See transport.md Section 4.3.",
+      "required": ["protocolVersion", "identity", "signature", "capabilities"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Protocol version the client supports. Semantic versioning (MAJOR.MINOR.PATCH)."
+        },
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "Client's AINM address."
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Ed25519Signature",
+          "description": "Base64url-encoded Ed25519 signature of an initialization nonce for client authentication."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ClientCapabilities"
+        }
+      }
+    },
+    "InitializeResult": {
+      "type": "object",
+      "description": "Response to ainm.initialize (server -> client). See transport.md Section 4.3.",
+      "required": ["protocolVersion", "serverInfo", "capabilities", "nonce"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Protocol version the server will use for this session."
+        },
+        "serverInfo": {
+          "$ref": "#/$defs/ServerInfo"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ServerCapabilities"
+        },
+        "nonce": {
+          "type": "string",
+          "description": "Server-generated nonce for client authentication verification."
+        }
+      }
+    },
+    "ServerInfo": {
+      "type": "object",
+      "description": "Server identification returned during initialization.",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Server hostname or display name."
+        },
+        "version": {
+          "type": "string",
+          "description": "Server software version."
+        }
+      }
+    },
+    "ClientCapabilities": {
+      "type": "object",
+      "description": "Client capabilities declared during ainm.initialize. Only features declared by both client and server are available. See transport.md Section 4.3.",
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Whether the client supports streaming message delivery."
+        },
+        "subThreads": {
+          "type": "boolean",
+          "description": "Whether the client supports sub-thread operations."
+        },
+        "contentTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Content block types the client can render. Phase 1: text, code, image, file. Phase 2: button, form, table, approval, action."
+        },
+        "parallelStreaming": {
+          "type": "boolean",
+          "default": false,
+          "description": "Phase 2: Whether the client supports multi-block interleaved streaming deltas. Default false."
+        },
+        "toolVisibility": {
+          "type": "boolean",
+          "default": false,
+          "description": "Phase 2: Whether the client supports rendering tool call events as collapsible activity indicators."
+        },
+        "memory": {
+          "$ref": "#/$defs/MemoryCapabilities",
+          "description": "Phase 2: Memory tier support capabilities."
+        }
+      }
+    },
+    "ServerCapabilities": {
+      "type": "object",
+      "description": "Server capabilities returned during ainm.initialize. See transport.md Section 4.3.",
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Server supports streaming delivery."
+        },
+        "subThreads": {
+          "type": "boolean",
+          "description": "Server supports sub-thread operations."
+        },
+        "storeAndForward": {
+          "type": "boolean",
+          "description": "Server queues messages for offline recipients."
+        },
+        "maxContentBlocks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of content blocks per message."
+        },
+        "maxMessageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum message payload size in bytes."
+        }
+      }
+    },
+    "MemoryCapabilities": {
+      "type": "object",
+      "description": "Phase 2 memory tier support. See memory.md.",
+      "properties": {
+        "conversation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Supports conversation memory queries via ainm.memory.query."
+        },
+        "archival": {
+          "type": "boolean",
+          "default": false,
+          "description": "Supports archival memory operations (store, query, evict)."
+        },
+        "maxContextFrameSize": {
+          "type": "integer",
+          "default": 32768,
+          "description": "Maximum context frame size in bytes. Recommended default: 32768 (32 KB)."
+        }
+      }
+    },
+    "MessageSendParams": {
+      "type": "object",
+      "description": "Parameters for ainm.message.send (client -> server). The signed message envelope. See transport.md Section 4.4.",
+      "required": ["id", "from", "thread_id", "timestamp", "type", "content", "signature"],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/AINMAddress"
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        },
+        "type": {
+          "type": "string"
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/ContentBlockBase"
+          }
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Ed25519Signature"
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Optional parent message ID for sub-threading."
+        }
+      }
+    },
+    "MessageSendResult": {
+      "type": "object",
+      "description": "Response to ainm.message.send. See transport.md Section 4.4.",
+      "required": ["accepted", "server_timestamp"],
+      "properties": {
+        "accepted": {
+          "type": "boolean",
+          "description": "Whether the server accepted the message for delivery."
+        },
+        "server_timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "Server-assigned authoritative ordering timestamp."
+        }
+      }
+    },
+    "MessageDeliverNotification": {
+      "type": "object",
+      "description": "Parameters for ainm.message.deliver (server -> client notification). Delivers a signed message envelope. See transport.md Section 4.4.",
+      "$ref": "common.schema.json#/$defs/MessageEnvelope"
+    },
+    "ThreadCreateParams": {
+      "type": "object",
+      "description": "Parameters for ainm.thread.create (client -> server). See transport.md Section 4.4.",
+      "required": ["thread_id", "participants"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "UUIDv7 for the new thread. Generated by the client."
+        },
+        "parent_thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Optional parent thread UUIDv7 for creating sub-threads."
+        },
+        "parent_message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Optional message UUIDv7 indicating the branching point for sub-threads."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional human-readable thread title."
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/AINMAddress"
+          },
+          "minItems": 1,
+          "description": "Initial participant addresses. The creator MUST be included."
+        }
+      }
+    },
+    "ThreadCreateResult": {
+      "type": "object",
+      "description": "Response to ainm.thread.create.",
+      "required": ["thread_id", "created_at"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        }
+      }
+    },
+    "ThreadJoinParams": {
+      "type": "object",
+      "description": "Parameters for ainm.thread.join (client -> server). See transport.md Section 4.4.",
+      "required": ["thread_id", "identity"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread to join."
+        },
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the participant joining."
+        }
+      }
+    },
+    "ThreadJoinResult": {
+      "type": "object",
+      "description": "Response to ainm.thread.join.",
+      "required": ["joined"],
+      "properties": {
+        "joined": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ThreadLeaveParams": {
+      "type": "object",
+      "description": "Parameters for ainm.thread.leave (client -> server). See transport.md Section 4.4.",
+      "required": ["thread_id", "identity"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "The thread to leave."
+        },
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the participant leaving."
+        }
+      }
+    },
+    "ThreadLeaveResult": {
+      "type": "object",
+      "description": "Response to ainm.thread.leave.",
+      "required": ["left"],
+      "properties": {
+        "left": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PresenceUpdateParams": {
+      "type": "object",
+      "description": "Parameters for ainm.presence.update (client -> server notification). See transport.md Section 4.4.",
+      "required": ["identity", "status"],
+      "properties": {
+        "identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "Participant's AINM address."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["online", "offline", "away", "dnd", "available", "busy", "processing"],
+          "description": "Presence status. Human: online, offline, away, dnd. Agent: available, busy, processing, offline."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Optional thread-scoped presence. Omit for global status."
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "description": "Optional human-readable status detail (e.g., 'Fetching weather data from API')."
+        }
+      }
+    },
+    "PingResult": {
+      "type": "object",
+      "description": "Response to ainm.ping keepalive. See transport.md Section 4.4.",
+      "required": ["timestamp"],
+      "properties": {
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        }
+      }
+    },
+    "ShutdownParams": {
+      "type": "object",
+      "description": "Parameters for ainm.shutdown notification (client -> server). See transport.md Section 4.4.",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Optional human-readable reason for disconnection."
+        }
+      }
+    },
+    "RelayParams": {
+      "type": "object",
+      "description": "Parameters for ainm.relay (server -> server via HTTP POST). See transport.md Section 5.3.",
+      "required": ["messages", "from_server", "server_signature"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/MessageEnvelope"
+          },
+          "minItems": 1,
+          "description": "Array of signed message envelopes to relay."
+        },
+        "from_server": {
+          "type": "string",
+          "description": "Originating server identifier (matches server_id in server identity response)."
+        },
+        "server_signature": {
+          "$ref": "common.schema.json#/$defs/Ed25519Signature",
+          "description": "Server-level Ed25519 signature of the relay payload (JCS-canonicalized params without this field)."
+        }
+      }
+    },
+    "RelayResult": {
+      "type": "object",
+      "description": "Response to ainm.relay. See transport.md Section 5.3.",
+      "required": ["accepted", "rejected", "errors"],
+      "properties": {
+        "accepted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of messages accepted for delivery."
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of messages rejected."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["message_id", "reason"],
+            "properties": {
+              "message_id": {
+                "$ref": "common.schema.json#/$defs/UUIDv7"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Error details for rejected messages."
+        }
+      }
+    },
+    "TransportErrorCodes": {
+      "type": "object",
+      "description": "Transport-related JSON-RPC error codes. See transport.md Section 3.6 and Section 7.",
+      "properties": {
+        "codes": {
+          "type": "array",
+          "const": [
+            { "code": -32020, "name": "UnsupportedProtocolVersion", "description": "Client and server protocol versions are incompatible" },
+            { "code": -32021, "name": "NotInitialized", "description": "Method called before initialization handshake completed" },
+            { "code": -32022, "name": "RateLimited", "description": "Too many requests from client or relay source" },
+            { "code": -32023, "name": "ServerUnavailable", "description": "Relay target server unreachable" },
+            { "code": -32024, "name": "ThreadNotFound", "description": "Specified thread does not exist" },
+            { "code": -32025, "name": "NotAParticipant", "description": "Sender is not a member of the specified thread" },
+            { "code": -32030, "name": "ThreadCreationFailed", "description": "Thread could not be created" },
+            { "code": -32031, "name": "AlreadyAParticipant", "description": "Identity is already a member of the thread" }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/content.schema.json",
+  "title": "AINM Protocol - Content Schema",
+  "description": "Content block types for the AI-Native Messaging Protocol v0.1.0. Defines the four core block types (text, code, image, file) and the extension block pattern. See spec/content.md.",
+  "$defs": {
+    "TextBlock": {
+      "type": "object",
+      "description": "Text content block with Markdown formatting and optional mention annotations. The most common block type. See content.md Section 4.1.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" }
+      ],
+      "required": ["type", "version", "source", "fallback", "text"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "text"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "text": {
+          "type": "string",
+          "description": "Markdown-formatted text content. Supports CommonMark syntax. Raw text -- no HTML allowed."
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MentionAnnotation"
+          },
+          "description": "Optional array of mention annotations referencing participant addresses."
+        }
+      }
+    },
+    "MentionAnnotation": {
+      "type": "object",
+      "description": "An @-mention annotation within a TextBlock. Links a text range to a participant address. See content.md Section 4.1.",
+      "required": ["address", "offset", "length"],
+      "properties": {
+        "address": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "Full AINM address of the mentioned participant."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based character offset in the text field where the mention display text begins."
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Length of the mention display text in characters."
+        }
+      }
+    },
+    "CodeBlock": {
+      "type": "object",
+      "description": "Source code content block with language identification and optional filename. See content.md Section 4.2.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" }
+      ],
+      "required": ["type", "version", "source", "fallback", "language", "code"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "code"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "language": {
+          "type": "string",
+          "description": "Programming language identifier for syntax highlighting. Common values: python, javascript, typescript, rust, swift, json, yaml, bash, sql, html, css, go, java, plaintext."
+        },
+        "code": {
+          "type": "string",
+          "description": "Source code content. Raw code -- no Markdown wrapping, no code fences. Whitespace and newlines preserved."
+        },
+        "filename": {
+          "type": "string",
+          "description": "Optional suggested filename for display and download."
+        }
+      }
+    },
+    "ImageBlock": {
+      "type": "object",
+      "description": "Image content block referencing an HTTPS image resource with metadata. See content.md Section 4.3.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" }
+      ],
+      "required": ["type", "version", "source", "fallback", "url", "mime_type", "alt"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "image"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "HTTPS URL to the image resource. HTTP URLs MUST be rejected."
+        },
+        "mime_type": {
+          "type": "string",
+          "enum": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"],
+          "description": "IANA media type of the image. Implementations MUST support at least image/png and image/jpeg."
+        },
+        "alt": {
+          "type": "string",
+          "description": "Alternative text description for accessibility. Describes what the image shows."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional image width in pixels for layout hints."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional image height in pixels for layout hints."
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional file size in bytes for download warnings."
+        }
+      }
+    },
+    "FileBlock": {
+      "type": "object",
+      "description": "File content block referencing an HTTPS file resource with integrity verification. See content.md Section 4.4.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" }
+      ],
+      "required": ["type", "version", "source", "fallback", "url", "mime_type", "filename", "size_bytes", "digest"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "file"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "HTTPS URL to the file resource. HTTP URLs MUST be rejected."
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "IANA media type of the file (e.g., application/pdf, text/csv, application/zip)."
+        },
+        "filename": {
+          "type": "string",
+          "description": "Original filename for display and download."
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "File size in bytes."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Content hash for integrity verification. Format: sha256:{hex-encoded-hash}. Clients SHOULD verify downloaded file hash matches."
+        }
+      }
+    },
+    "ExtensionBlock": {
+      "type": "object",
+      "description": "Extension content block using reverse-domain namespacing for third-party block types. Clients render the fallback when the type is unrecognized. See content.md Section 5.",
+      "allOf": [
+        { "$ref": "common.schema.json#/$defs/ContentBlockBase" }
+      ],
+      "required": ["type", "version", "source", "fallback", "data"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+          "description": "Extension type identifier using reverse-domain format: {reversed-domain}.{block-name}. Examples: com.example.weather-card, io.mycompany.approval-form."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$"
+        },
+        "data": {
+          "type": "object",
+          "description": "Extension-specific data. Structure defined by the extension author."
+        }
+      }
+    }
+  }
+}
