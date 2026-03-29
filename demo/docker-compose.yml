@@ -1,0 +1,66 @@
+services:
+  server-a:
+    build: .
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./certs:/certs:ro
+    command:
+      - "--mode"
+      - "human"
+      - "--port"
+      - "8080"
+      - "--federation-port"
+      - "8443"
+      - "--identity"
+      - "server-a.local"
+      - "--cert"
+      - "/certs/server-a.pem"
+      - "--key"
+      - "/certs/server-a-key.pem"
+      - "--ca-cert"
+      - "/certs/ca.pem"
+      - "--remote"
+      - "server-b:9443"
+    networks:
+      federation:
+        aliases:
+          - server-a.local
+    stdin_open: true
+    tty: true
+
+  server-b:
+    build: .
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+    volumes:
+      - ./certs:/certs:ro
+    command:
+      - "--mode"
+      - "agent"
+      - "--port"
+      - "9080"
+      - "--federation-port"
+      - "9443"
+      - "--identity"
+      - "server-b.local"
+      - "--cert"
+      - "/certs/server-b.pem"
+      - "--key"
+      - "/certs/server-b-key.pem"
+      - "--ca-cert"
+      - "/certs/ca.pem"
+      - "--remote"
+      - "server-a:8443"
+    networks:
+      federation:
+        aliases:
+          - server-b.local
+    depends_on:
+      - server-a
+
+networks:
+  federation:
+    driver: bridge
