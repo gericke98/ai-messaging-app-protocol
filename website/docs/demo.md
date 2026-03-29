@@ -50,7 +50,7 @@ Type these commands to see different protocol features in action:
 
 The demo is a single Rust binary with these components:
 
-- **Axum WebSocket server** on `127.0.0.1:9090`
+- **Axum WebSocket server** on `127.0.0.1:0` (random available port, printed at startup)
 - **Mock agent** connected via tokio-tungstenite as an in-process WebSocket client
 - **Terminal REPL** using rustyline for human input
 - **Ed25519 signing** via the `ring` crate with RFC 8785 canonical JSON
