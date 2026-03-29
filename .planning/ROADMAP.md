@@ -60,7 +60,12 @@ Plans:
   2. When an agent on server B executes a tool call, the started/progress/completed events are visible to all thread participants on server A in real-time
   3. When an agent joins a federated thread, it receives accumulated memory context (active context frames, relevant conversation history) from the origin server
   4. An agent on server B streams a response token-by-token and a human on server A sees it render in real-time across the federation boundary — proven in the docker-compose demo
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 09-00-PLAN.md — Protocol spec for ainm.context-push (transport.md, JSON Schema, AsyncAPI)
+- [ ] 09-01-PLAN.md — Agent card discovery, streaming/tool event relay, /discover command
+- [ ] 09-02-PLAN.md — Memory context propagation via ainm.context-push
+- [ ] 09-03-PLAN.md — Full-featured headless agent and comprehensive demo script
 
 ## Progress
 
