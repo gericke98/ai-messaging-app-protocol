@@ -87,3 +87,88 @@ pub fn verify_signature(
         Err(_) => Ok(false),
     }
 }
+
+/// Sign relay params with server-level Ed25519 key (FAUT-03).
+///
+/// Similar to `sign_envelope` but uses the `server_signature` field name.
+/// The server signature covers the entire relay params object (including the
+/// `messages` array), proving the sending server authorized this relay.
+///
+/// 1. Clone params, remove `server_signature` field from the clone
+/// 2. Canonicalize with RFC 8785 (JCS)
+/// 3. Sign canonical bytes with Ed25519
+/// 4. Encode as base64url (URL_SAFE_NO_PAD)
+/// 5. Insert `server_signature` into the original params
+pub fn sign_relay_params(
+    key_pair: &Ed25519KeyPair,
+    params: &mut serde_json::Value,
+) -> Result<String> {
+    // 1. Clone and remove server_signature for signing input
+    let mut signing_input = params.clone();
+    if let Some(obj) = signing_input.as_object_mut() {
+        obj.remove("server_signature");
+    }
+
+    // 2. Canonicalize per RFC 8785
+    let canonical = canonicalize(&signing_input)
+        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+
+    // 3. Sign the canonical UTF-8 bytes
+    let sig = key_pair.sign(canonical.as_bytes());
+
+    // 4. Encode as base64url without padding
+    let sig_str = URL_SAFE_NO_PAD.encode(sig.as_ref());
+
+    // 5. Insert server_signature into params
+    if let Some(obj) = params.as_object_mut() {
+        obj.insert(
+            "server_signature".to_string(),
+            serde_json::Value::String(sig_str.clone()),
+        );
+    }
+
+    Ok(sig_str)
+}
+
+/// Verify a relay params object's server-level signature (FAUT-03).
+///
+/// Similar to `verify_signature` but uses the `server_signature` field name.
+///
+/// 1. Clone params, extract `server_signature` value
+/// 2. Remove `server_signature` from the clone
+/// 3. Canonicalize with RFC 8785
+/// 4. Decode signature from base64url
+/// 5. Verify with Ed25519 public key
+pub fn verify_relay_signature(
+    public_key_bytes: &[u8],
+    params: &serde_json::Value,
+) -> Result<bool> {
+    // 1. Clone and extract server_signature
+    let mut signing_input = params.clone();
+    let sig_str = signing_input
+        .get("server_signature")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing server_signature field"))?
+        .to_string();
+
+    // 2. Remove server_signature field
+    if let Some(obj) = signing_input.as_object_mut() {
+        obj.remove("server_signature");
+    }
+
+    // 3. Canonicalize
+    let canonical = canonicalize(&signing_input)
+        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+
+    // 4. Decode signature
+    let sig_bytes = URL_SAFE_NO_PAD
+        .decode(&sig_str)
+        .map_err(|e| anyhow!("base64url decode failed: {}", e))?;
+
+    // 5. Verify
+    let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
+    match public_key.verify(canonical.as_bytes(), &sig_bytes) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
