@@ -128,7 +128,31 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
         }
     }
 
-    tracing::info!("Client connected: {}", from_addr);
+    // Wait for ainm.initialized notification before allowing any methods (transport.md Section 4.2)
+    loop {
+        match ws_receiver.next().await {
+            Some(Ok(Message::Text(text))) => {
+                let text_str = text.to_string();
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text_str) {
+                    let method = parsed.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                    if method == "ainm.initialized" {
+                        tracing::info!("Handshake complete for: {}", from_addr);
+                        break;
+                    }
+                    // Any other method before initialized -> -32021 (transport.md Section 7)
+                    if let Some(req_id) = parsed.get("id").cloned() {
+                        let err = protocol::new_error(req_id, -32021, "Not initialized");
+                        let mut sender = ws_sender.lock().await;
+                        let _ = sender.send(Message::Text(
+                            serde_json::to_string(&err).unwrap().into(),
+                        )).await;
+                    }
+                    // Notifications without id: silently drop per JSON-RPC spec
+                }
+            }
+            _ => return, // Connection closed or binary frame
+        }
+    }
 
     // Determine if this is the agent or the human based on address
     let is_agent = from_addr.starts_with("helper");
