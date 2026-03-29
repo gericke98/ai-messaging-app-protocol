@@ -53,6 +53,12 @@ struct Cli {
     /// Path to persistent data directory for redb
     #[arg(long, default_value = "./data")]
     data_dir: String,
+
+    /// Additional TLS fingerprint to include in .well-known during cert rotation.
+    /// When rotating certificates, pass the OLD certificate's fingerprint here
+    /// so that tls_fingerprints serves [new, old] enabling TOFU auto-update.
+    #[arg(long)]
+    additional_fingerprint: Option<String>,
 }
 
 #[tokio::main]
@@ -108,7 +114,11 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 3. Load TLS cert and compute fingerprint
     let cert_der = tls::load_cert_der(cert_path);
     let tls_fingerprint = tls::compute_cert_fingerprint(&cert_der);
-    let tls_fingerprints = vec![tls_fingerprint.clone()];
+    let mut tls_fingerprints = vec![tls_fingerprint.clone()];
+    if let Some(ref extra_fp) = cli.additional_fingerprint {
+        tls_fingerprints.push(extra_fp.clone());
+        tracing::info!("[identity] Cert rotation mode: serving tls_fingerprints = {:?}", tls_fingerprints);
+    }
 
     // 4. Build ServerIdentity
     let server_identity = Arc::new(identity::build_server_identity(

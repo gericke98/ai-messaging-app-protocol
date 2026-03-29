@@ -29,3 +29,22 @@ rm -f server-b.csr
 
 rm -f ca.srl
 echo "Done. Files: ca.pem ca-key.pem server-a.pem server-a-key.pem server-b.pem server-b-key.pem"
+
+# --- Certificate Rotation (for DEMO-04) ---
+# Generate a rotated certificate for server-b with a different key
+# This simulates a certificate rotation scenario.
+if [ "${1:-}" = "rotate-server-b" ]; then
+    echo "Generating rotated certificate for server-b..."
+    openssl genpkey -algorithm ED25519 -out server-b-rotated-key.pem
+    openssl req -new -key server-b-rotated-key.pem -out server-b-rotated.csr \
+      -subj "/CN=server-b.local/O=AINM Demo/C=US"
+    openssl x509 -req -in server-b-rotated.csr -CA ca.pem -CAkey ca-key.pem \
+      -CAcreateserial -out server-b-rotated.pem -days 365 \
+      -extfile <(printf "subjectAltName=DNS:server-b.local,DNS:server-b,DNS:localhost")
+    rm -f server-b-rotated.csr ca.srl
+    echo "Generated: server-b-rotated.pem, server-b-rotated-key.pem"
+    echo "Fingerprint (new):"
+    openssl x509 -in server-b-rotated.pem -outform DER | shasum -a 256 | awk '{print "sha256:" $1}'
+    echo "Fingerprint (current):"
+    openssl x509 -in server-b.pem -outform DER | shasum -a 256 | awk '{print "sha256:" $1}'
+fi
