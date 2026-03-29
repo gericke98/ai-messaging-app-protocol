@@ -31,21 +31,25 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ### Active
 
-- [ ] Federated architecture — full multi-server message routing, mutual TLS, backfill, offline queues, working demo
-- [ ] Native iOS app (SwiftUI) as reference client
+- [ ] Native iOS app (SwiftUI) as reference client — full AINM protocol implementation
 
-## Current Milestone: v3.2 Federation
+## Current Milestone: v3.3 iOS Reference Client
 
-**Goal:** Full multi-server federation with working demo — any AINM server can route messages to any other, with mutual TLS authentication, origin-server authority, selective backfill, and offline relay queues.
+**Goal:** A native SwiftUI iOS app that connects to the AINM Rust server and delivers a messaging experience built for agent interaction — rendering all protocol features (streaming, interactive blocks, tool calls, memory) as first-class native UI.
 
 **Target features:**
-- Server-to-server message routing with push-based federation model
-- Origin-server authority for thread state
-- Mutual TLS server-to-server authentication
-- Selective backfill for thread history across servers
-- Offline message relay queues
-- Working demo: 2+ federated servers exchanging messages via docker-compose
-- Updated JSON schemas and AsyncAPI definitions for federation
+- Full AINM protocol client — WebSocket connection to Rust server with JSON-RPC 2.0
+- Conversation list and message thread views with mixed human-agent participation
+- Native rendering of all content block types (text, code, image, file)
+- Interactive block rendering — forms, buttons, tables, approvals, action blocks
+- Real-time streaming with token-by-token rendering
+- Tool call transparency — visible started/progress/completed events
+- Memory context display (active context frames, conversation history)
+- Agent discovery — browse agent capabilities via Agent Cards
+- Simplified identity flow architected for full name@provider + Ed25519 Keychain storage
+- Ed25519 message signing via Apple CryptoKit
+- Local persistence via GRDB.swift for offline message access
+- iOS 18+ / SwiftUI / Swift Concurrency / MVVM + Repository
 
 ### Out of Scope
 
@@ -57,7 +61,7 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ## Context
 
-### Current State (v3.2 Phase 7 complete 2026-03-29)
+### Current State (v3.3 milestone start 2026-03-29)
 
 The v1 protocol specification is complete and published:
 - **11 prose spec documents** covering identity, security, transport, content, threading, streaming, interactive UI, agent discovery, tool visibility, memory, and compatibility
@@ -65,8 +69,8 @@ The v1 protocol specification is complete and published:
 - **AsyncAPI 3.1.0** transport bindings with 25 operations across 9 channels
 - **Rust CLI demo** (single-binary Axum server) proving the protocol end-to-end
 - **Docusaurus site** for spec publication with GitHub Pages deployment
-- **57/57 v1 requirements** satisfied across 6 phases
-- **Phase 7 complete:** Federation relay core — mTLS certificates, relay module (inbound/outbound with triple-layer validation), thread registry with origin-server routing, Docker Compose two-server demo
+- **57/57 v1 spec requirements** satisfied across 6 phases (v3.1)
+- **28/28 federation requirements** satisfied across 3 phases (v3.2) — mTLS relay, replay protection, persistent offline queues, backfill, AI-native features across federation, comprehensive Docker Compose demo
 
 Tech stack: Rust 1.85+ (Axum, Tokio, ring, serde), ~73K LOC across Rust, Markdown, JSON Schema, YAML, TypeScript.
 
@@ -144,4 +148,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after Phase 7 (federation-relay-core) completion*
+*Last updated: 2026-03-29 after milestone v3.3 iOS Reference Client initialization*

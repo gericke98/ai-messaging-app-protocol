@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v3.2
-milestone_name: Federation
-status: verifying
-stopped_at: "09-03-PLAN.md checkpoint:human-verify (Task 3)"
-last_updated: "2026-03-29T19:56:11.299Z"
+milestone: v3.3
+milestone_name: iOS Reference Client
+status: defining-requirements
+stopped_at: null
+last_updated: "2026-03-29"
 last_activity: 2026-03-29
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
-  percent: 30
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,47 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 08 — security-hardening-reliability-backfill
+**Current focus:** Defining requirements for v3.3 iOS Reference Client
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: Checkpoint — awaiting human verification
-Last activity: 2026-03-29
-
-Progress: [###░░░░░░░] 30%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-29 — Milestone v3.3 started
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 1 (v3.2 milestone)
+- Total plans completed: 0 (v3.3 milestone)
 - Average duration: -
 - Total execution time: 0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 07-federation-relay-core | 1 | 6min | 6min |
-
-**Recent Trend:**
-
-- Last 5 plans: n/a
-- Trend: n/a
-
-| Phase 07 P03 | 8min | 3 tasks | 5 files |
-| Phase 07 P04 | 8m | 3 tasks | 5 files |
-| Phase 07 P05 | 2min | 2 tasks | 4 files |
-| Phase 08 P01 | 10min | 2 tasks | 7 files |
-| Phase 08 P02 | 8min | 2 tasks | 4 files |
-| Phase 08 P03 | 4min | 2 tasks | 3 files |
-| Phase 08 P04 | 5min | 3 tasks | 2 files |
-| Phase 08 P05 | 4m40s | 3 tasks | 4 files |
-| Phase 09 P00 | 3min | 2 tasks | 3 files |
-| Phase 09 P01 | 3m43s | 3 tasks | 4 files |
-| Phase 09 P02 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -70,26 +45,10 @@ Progress: [###░░░░░░░] 30%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v3.2 Roadmap]: Origin-server authority (not DAG-based consistency) — simplicity over Matrix-level complexity
-- [v3.2 Roadmap]: Two-listener architecture — plain TCP for local WebSocket, TLS TCP for federation relay
-- [v3.2 Roadmap]: redb for persistent offline queue — pure Rust, ACID, no C dependency
-- [v3.2 Roadmap]: Security before reliability — replay protection and backfill auth before offline queues handle traffic
-- [Phase 07]: Relay handler validates FAUT-03 layers 2+3 inline; mTLS layer 1 deferred to Plan 04
-- [Phase 07]: Thread ID format {domain}:{uuidv7} enables O(1) origin extraction
-- [Phase 07]: Used HTTP participant key exchange instead of deterministic keypairs for cross-server identity pre-seeding
-- [Phase 07]: Headless agent subscribes to broadcast channel for relayed message delivery
-- [Phase 07]: Pre-populate thread registry at creation time for immediate relay to known remotes
-- [Phase 08]: Replay protection runs before signature verification to reject stale/duplicate payloads cheaply
-- [Phase 08]: Backoff state kept in-memory (resets on restart per D-14) while queue contents persist in redb
-- [Phase 08]: Batch drain of 100 messages per flush to balance throughput and memory
-- [Phase 08]: Used match dispatch in relay_handler for ainm.relay vs ainm.backfill method routing
-- [Phase 08]: Post-join visibility via max(after_sequence, join_seq) prevents pre-join history access
-- [Phase 08]: Added --additional-fingerprint CLI arg for dual-fingerprint rotation window during cert rotation
-- [Phase 09]: Context push uses Layer 2 validation only -- context frames are server-originated operational data
-- [Phase 09]: Tool call events relay via existing ainm.message.send path -- no separate relay needed for AINF-02
-- [Phase 09]: Stream-to-thread HashMap tracks stream_id->thread_id for delta/end relay (these lack thread_id)
-- [Phase 09]: Context-push uses same relay endpoint with method dispatch, not separate HTTP endpoint
-- [Phase 09]: Context frames delivered via broadcast channel using ainm.context.frame for uniform local delivery
+- [v3.3 Milestone]: iOS 18+ minimum target — access to latest SwiftUI, @Observable, ScrollView APIs
+- [v3.3 Milestone]: Single-server only — no federation UI in v1 iOS app
+- [v3.3 Milestone]: Simple identity flow first, architected for full name@provider + Ed25519
+- [v3.3 Milestone]: Full protocol coverage — all content blocks, streaming, interactive, tool calls, memory
 
 ### Pending Todos
 
@@ -97,12 +56,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research flag]: Partition behavior not fully specified — define during Phase 7 planning before relay implementation
-- [Resolved]: tls_fingerprints array format added to spec in Plan 08-01
-- [Resolved]: Backfill specification added to transport.md Section 5.5 in Plan 08-01
+None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:45:13Z
-Stopped at: 09-03-PLAN.md checkpoint:human-verify (Task 3)
+Last session: 2026-03-29
+Stopped at: Milestone initialization
 Resume file: None
