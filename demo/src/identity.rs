@@ -87,11 +87,6 @@ impl IdentityStore {
         record
     }
 
-    /// Resolve an identity by address.
-    pub fn resolve(&self, address: &str) -> Option<IdentityRecord> {
-        self.inner.lock().unwrap().get(address).cloned()
-    }
-
     /// Get the raw public key bytes for an address.
     pub fn get_public_key_bytes(&self, address: &str) -> Option<Vec<u8>> {
         self.inner.lock().unwrap().get(address).map(|r| {

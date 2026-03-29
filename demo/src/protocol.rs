@@ -80,54 +80,6 @@ pub fn new_notification(method: &str, params: serde_json::Value) -> JsonRpcNotif
     }
 }
 
-// --- AINM Message Envelope ---
-
-/// AINM message envelope per security.md Section 3.1.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageEnvelope {
-    pub id: String,
-    pub from: String,
-    pub thread_id: String,
-    pub timestamp: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub content: Vec<serde_json::Value>,
-    #[serde(default)]
-    pub signature: String,
-}
-
-impl MessageEnvelope {
-    /// Convert to a serde_json::Value for signing and transport.
-    pub fn to_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "id": self.id,
-            "from": self.from,
-            "thread_id": self.thread_id,
-            "timestamp": self.timestamp,
-            "type": self.type_,
-            "content": self.content,
-            "signature": self.signature,
-        })
-    }
-
-    /// Parse from a serde_json::Value.
-    pub fn from_value(v: &serde_json::Value) -> Option<Self> {
-        Some(MessageEnvelope {
-            id: v.get("id")?.as_str()?.to_string(),
-            from: v.get("from")?.as_str()?.to_string(),
-            thread_id: v.get("thread_id")?.as_str()?.to_string(),
-            timestamp: v.get("timestamp")?.as_str()?.to_string(),
-            type_: v.get("type")?.as_str()?.to_string(),
-            content: v.get("content")?.as_array()?.clone(),
-            signature: v
-                .get("signature")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string(),
-        })
-    }
-}
-
 // --- Helpers ---
 
 /// Generate a new UUIDv7 message ID.
