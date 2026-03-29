@@ -59,10 +59,27 @@ pub async fn run(
     let create_text = serde_json::to_string(&create_req)?;
     ws_sender.send(Message::Text(create_text.into())).await?;
 
-    // Wait for thread creation response
-    if let Some(Ok(Message::Text(_))) = ws_receiver.next().await {
-        tracing::info!("Thread created: {}", thread_id);
-    }
+    // Wait for thread creation response and extract server-assigned federation thread_id
+    let thread_id = if let Some(Ok(Message::Text(resp_text))) = ws_receiver.next().await {
+        let resp_str = resp_text.to_string();
+        if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&resp_str) {
+            resp.get("result")
+                .and_then(|r| r.get("thread_id"))
+                .and_then(|t| t.as_str())
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| {
+                    tracing::warn!("Thread create response missing thread_id, using local ID");
+                    thread_id
+                })
+        } else {
+            tracing::warn!("Failed to parse thread create response");
+            thread_id
+        }
+    } else {
+        tracing::warn!("No thread create response received");
+        thread_id
+    };
+    tracing::info!("Thread created: {}", thread_id);
 
     // Split: receiver task handles incoming messages, sender is used by REPL
     let ws_sender = std::sync::Arc::new(tokio::sync::Mutex::new(ws_sender));
