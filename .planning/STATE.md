@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-03-28T23:22:32.839Z"
-last_activity: 2026-03-28
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-29T00:08:18.463Z"
+last_activity: 2026-03-29
 progress:
-  total_phases: 4
+  total_phases: 6
   completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 18
+  completed_plans: 17
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 04 — protocol-conformance-polish
+**Current focus:** Phase 05 — demo-handshake-discovery-conformance
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-28
+Phase: 05 (demo-handshake-discovery-conformance) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P02 | 3min | 2 tasks | 7 files |
 | Phase 04 P01 | 3min | 2 tasks | 4 files |
 | Phase 04 P03 | 4min | 2 tasks | 4 files |
+| Phase 05 P01 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,7 @@ Recent decisions affecting current work:
 - [Phase 04]: Removed invented ainm.sub_thread.create method -- sub-threads use ainm.thread.create with parent_thread_id per spec
 - [Phase 04]: StreamErrorNotification is an event payload schema with 4 required fields, distinct from StreamingErrorCodes catalog
 - [Phase 04]: Memory store/query routed through server as JSON-RPC requests, bridges reuse existing message types
+- [Phase 05]: Handshake enforced per-connection inline with no ServerState additions
 
 ### Pending Todos
 
@@ -120,6 +122,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T23:16:32.630Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-03-29T00:08:18.460Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None

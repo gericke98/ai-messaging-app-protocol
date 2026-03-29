@@ -107,7 +107,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Handshake lifecycle (clients send ainm.initialized, server enforces -32021 before handshake)
+- [x] 05-01-PLAN.md -- Handshake lifecycle (clients send ainm.initialized, server enforces -32021 before handshake)
 - [ ] 05-02-PLAN.md -- Agent Card URL conformance (fix inverted path segments) + demo.md port fix
 
 ### Phase 6: Demo Feature Gaps & Code Cleanup

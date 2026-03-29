@@ -151,10 +151,10 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TRNS-01 | Phase 1, 4, 5 | Pending |
+| TRNS-01 | Phase 1, 4, 5 | Complete |
 | TRNS-02 | Phase 1 | Complete |
 | TRNS-03 | Phase 1 | Complete |
-| TRNS-04 | Phase 1, 5 | Pending |
+| TRNS-04 | Phase 1, 5 | Complete |
 | TRNS-05 | Phase 1 | Complete |
 | IDNT-01 | Phase 1 | Complete |
 | IDNT-02 | Phase 1 | Complete |
@@ -207,7 +207,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SPEC-02 | Phase 3, 4 | Complete |
 | SPEC-03 | Phase 3, 4 | Complete |
 | SPEC-04 | Phase 3 | Complete |
-| SPEC-05 | Phase 3, 4, 5, 6 | Pending |
+| SPEC-05 | Phase 3, 4, 5, 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 57 total
