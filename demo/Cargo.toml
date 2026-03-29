@@ -25,3 +25,19 @@ tracing-subscriber = "0.3"
 futures-util = "0.3"
 anyhow = "1"
 rand = "0.8"
+
+# Federation: HTTP client for server-to-server relay
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+
+# Federation: TLS configuration (direct dep for mTLS ServerConfig)
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+tokio-rustls = "0.26"
+rustls-pki-types = "1.14"
+
+# CLI argument parsing for federation mode
+clap = { version = "4.6", features = ["derive"] }
+
+# HTTP server for federation TLS listener (low-level hyper for axum TLS integration)
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+tower = "0.5"
