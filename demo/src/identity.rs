@@ -158,6 +158,20 @@ impl RemoteServerCache {
             .unwrap()
             .insert(identity.server_id.clone(), identity);
     }
+
+    /// Find a cached server identity by TLS certificate fingerprint.
+    ///
+    /// Used for FAUT-02 layer 1: verify that the peer certificate presented
+    /// during TLS handshake matches a known server identity.
+    /// O(n) scan but n is 1-2 for the Phase 7 demo.
+    pub fn find_by_fingerprint(&self, fingerprint: &str) -> Option<ServerIdentity> {
+        self.inner
+            .lock()
+            .unwrap()
+            .values()
+            .find(|id| id.tls_fingerprint == fingerprint)
+            .cloned()
+    }
 }
 
 /// Axum handler: `GET /.well-known/ainm/server`

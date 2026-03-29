@@ -1,5 +1,7 @@
+use crate::federation;
 use crate::identity::IdentityStore;
 use crate::protocol;
+use crate::relay;
 use crate::signing;
 use anyhow::Result;
 use axum::{
@@ -17,6 +19,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
+/// Federation-aware routing context.
+///
+/// When present, the server routes messages through federation relay
+/// for remote participants. When absent (legacy mode), all routing is local.
+#[derive(Clone)]
+pub struct FederationContext {
+    pub server_id: String,
+    pub thread_registry: federation::ThreadRegistry,
+    pub relay_sender: Arc<relay::RelaySender>,
+    pub local_delivery_tx: broadcast::Sender<String>,
+}
+
 /// Shared server state accessible by all handlers.
 #[derive(Clone)]
 pub struct ServerState {
@@ -30,9 +44,11 @@ pub struct ServerState {
     pub threads: Arc<Mutex<Vec<String>>>,
     /// In-memory archival fact store keyed by fact key.
     pub archival_store: Arc<Mutex<HashMap<String, serde_json::Value>>>,
+    /// Optional federation context for cross-server routing.
+    pub federation: Option<FederationContext>,
 }
 
-/// Start the Axum WebSocket server on a random available port.
+/// Start the Axum WebSocket server on a random available port (legacy mode).
 /// Returns the bound address and the server task handle.
 pub async fn start(
     identity_store: IdentityStore,
@@ -48,6 +64,7 @@ pub async fn start(
         to_human_tx,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
+        federation: None,
     };
 
     let app = Router::new()
@@ -59,6 +76,45 @@ pub async fn start(
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.ok();
+    });
+
+    Ok((addr, handle))
+}
+
+/// Start the Axum WebSocket server with federation support on a specified port.
+/// Returns the bound address and the server task handle.
+pub async fn start_federation(
+    identity_store: IdentityStore,
+    agent_card: serde_json::Value,
+    federation: Option<FederationContext>,
+    port: u16,
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let (to_agent_tx, _) = broadcast::channel::<String>(256);
+    let (to_human_tx, _) = broadcast::channel::<String>(256);
+
+    let state = ServerState {
+        identity_store,
+        agent_card,
+        to_agent_tx,
+        to_human_tx,
+        threads: Arc::new(Mutex::new(Vec::new())),
+        archival_store: Arc::new(Mutex::new(HashMap::new())),
+        federation,
+    };
+
+    let app = Router::new()
+        .route("/ws", get(ws_upgrade_handler))
+        .route(
+            "/.well-known/ainm/helper/agent-card.json",
+            get(agent_card_handler),
+        )
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
@@ -247,15 +303,42 @@ async fn handle_agent_connection(
                                 false
                             };
 
-                            let deliver = protocol::new_notification(
-                                "ainm.message.deliver",
-                                serde_json::json!({
-                                    "message": params,
-                                    "verified": verified,
-                                }),
-                            );
-                            let deliver_text = serde_json::to_string(&deliver).unwrap();
-                            let _ = to_human_tx.send(deliver_text);
+                            // Federation-aware routing for agent responses
+                            if let Some(ref fed) = state.federation {
+                                let thread_id = params
+                                    .get("thread_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
+                                let origin = federation::parse_origin_domain(thread_id)
+                                    .unwrap_or("");
+
+                                if origin != fed.server_id && !origin.is_empty() {
+                                    // Thread originated on remote server: relay response back
+                                    fed.relay_sender.enqueue(origin, params.clone());
+                                } else {
+                                    // Local thread: deliver to human locally
+                                    let deliver = protocol::new_notification(
+                                        "ainm.message.deliver",
+                                        serde_json::json!({
+                                            "message": params,
+                                            "verified": verified,
+                                        }),
+                                    );
+                                    let deliver_text = serde_json::to_string(&deliver).unwrap();
+                                    let _ = to_human_tx.send(deliver_text);
+                                }
+                            } else {
+                                // Legacy mode
+                                let deliver = protocol::new_notification(
+                                    "ainm.message.deliver",
+                                    serde_json::json!({
+                                        "message": params,
+                                        "verified": verified,
+                                    }),
+                                );
+                                let deliver_text = serde_json::to_string(&deliver).unwrap();
+                                let _ = to_human_tx.send(deliver_text);
+                            }
 
                             if has_id {
                                 let resp = protocol::new_response(
@@ -583,12 +666,21 @@ async fn handle_human_connection(
 
                 match method {
                     "ainm.thread.create" => {
-                        let thread_id = parsed
-                            .get("params")
-                            .and_then(|p| p.get("thread_id"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                        // In federation mode, use ThreadRegistry to create thread
+                        // with origin domain embedded per D-12
+                        let thread_id = if let Some(ref fed) = state.federation {
+                            let tid = fed.thread_registry.create_thread(&fed.server_id);
+                            // If there's a remote server, add it as participant
+                            // The remote will be discovered from relay messages
+                            tid
+                        } else {
+                            parsed
+                                .get("params")
+                                .and_then(|p| p.get("thread_id"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string()
+                        };
                         threads.lock().await.push(thread_id.clone());
                         let resp = protocol::new_response(
                             req_id,
@@ -618,15 +710,65 @@ async fn handle_human_connection(
                                 false
                             };
 
-                            let deliver = protocol::new_notification(
-                                "ainm.message.deliver",
-                                serde_json::json!({
-                                    "message": params,
-                                    "verified": verified,
-                                }),
-                            );
-                            let deliver_text = serde_json::to_string(&deliver).unwrap();
-                            let _ = to_agent_tx.send(deliver_text);
+                            // Federation-aware routing
+                            if let Some(ref fed) = state.federation {
+                                let thread_id = params
+                                    .get("thread_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
+                                let origin = federation::parse_origin_domain(thread_id)
+                                    .unwrap_or("");
+
+                                if origin == fed.server_id || origin.is_empty() {
+                                    // We are origin: deliver locally AND relay to remote servers
+                                    let deliver = protocol::new_notification(
+                                        "ainm.message.deliver",
+                                        serde_json::json!({
+                                            "message": params,
+                                            "verified": verified,
+                                        }),
+                                    );
+                                    let deliver_text = serde_json::to_string(&deliver).unwrap();
+                                    // Deliver locally (to agent if connected via WS)
+                                    let _ = to_agent_tx.send(deliver_text.clone());
+                                    // Also deliver via federation local_delivery_tx
+                                    let _ = fed.local_delivery_tx.send(deliver_text);
+
+                                    // Relay to all remote participating servers
+                                    if let Some((_, servers)) = fed.thread_registry.get_info(thread_id) {
+                                        for server in servers {
+                                            fed.relay_sender.enqueue(&server, params.clone());
+                                        }
+                                    }
+
+                                    // If we know the remote server, add it to thread
+                                    // and relay even if not yet registered
+                                    // For the demo, enqueue to all known remotes
+                                    // that aren't in the thread registry yet
+                                    let remote_domains: Vec<String> = {
+                                        // Simple approach: relay to any known remote
+                                        // The relay sender has the remote_cache
+                                        vec![]
+                                    };
+                                    for domain in remote_domains {
+                                        fed.relay_sender.enqueue(&domain, params.clone());
+                                    }
+                                } else {
+                                    // Thread originated on remote server: relay to origin
+                                    fed.relay_sender.enqueue(origin, params.clone());
+                                }
+                            } else {
+                                // Legacy mode: deliver locally
+                                let deliver = protocol::new_notification(
+                                    "ainm.message.deliver",
+                                    serde_json::json!({
+                                        "message": params,
+                                        "verified": verified,
+                                    }),
+                                );
+                                let deliver_text = serde_json::to_string(&deliver).unwrap();
+                                let _ = to_agent_tx.send(deliver_text);
+                            }
 
                             let resp = protocol::new_response(
                                 req_id,
