@@ -180,6 +180,76 @@ impl RemoteServerCache {
     }
 }
 
+/// Verify TOFU (Trust On First Use) for a peer certificate fingerprint.
+///
+/// Per FAUT-04 (D-05): First contact pins the fingerprint. Future connections must match.
+/// Per FAUT-06 (D-09): Auto-update pin on cert rotation when new fingerprint appears
+/// alongside the currently pinned one in the server's tls_fingerprints array.
+///
+/// Returns Ok(server_id) if verification passes, Err(reason) if rejected.
+pub fn verify_tofu(
+    persistence: &crate::persistence::PersistenceLayer,
+    remote_cache: &RemoteServerCache,
+    peer_fingerprint: &str,
+) -> Result<String, String> {
+    // 1. Look up which server this fingerprint belongs to
+    let server_identity = remote_cache
+        .find_by_fingerprint(peer_fingerprint)
+        .ok_or_else(|| {
+            format!(
+                "Peer fingerprint {} not in any known server's tls_fingerprints",
+                peer_fingerprint
+            )
+        })?;
+    let server_id = &server_identity.server_id;
+
+    // 2. Check TOFU pin
+    match persistence.get_tofu_pin(server_id)? {
+        None => {
+            // First contact: pin this fingerprint (D-05)
+            persistence.set_tofu_pin(server_id, peer_fingerprint)?;
+            tracing::info!(
+                "[tofu] First contact — pinned {} -> {}",
+                server_id,
+                peer_fingerprint
+            );
+            Ok(server_id.clone())
+        }
+        Some(pinned) if pinned == peer_fingerprint => {
+            // Exact match: OK
+            Ok(server_id.clone())
+        }
+        Some(pinned) => {
+            // Mismatch: check for cert rotation (D-09)
+            let published = &server_identity.tls_fingerprints;
+            if published.contains(&peer_fingerprint.to_string()) && published.contains(&pinned) {
+                // Both old and new fingerprints in published array = cert rotation
+                persistence.set_tofu_pin(server_id, peer_fingerprint)?;
+                tracing::info!(
+                    "[tofu] Cert rotation for {}: {} -> {}",
+                    server_id,
+                    pinned,
+                    peer_fingerprint
+                );
+                Ok(server_id.clone())
+            } else {
+                // Neither rotation nor match: potential MITM
+                tracing::warn!(
+                    "[tofu] REJECTED {}: pinned={}, peer={}, published={:?}",
+                    server_id,
+                    pinned,
+                    peer_fingerprint,
+                    published
+                );
+                Err(format!(
+                    "TOFU pin mismatch for {}: pinned={}, presented={}",
+                    server_id, pinned, peer_fingerprint
+                ))
+            }
+        }
+    }
+}
+
 /// Axum handler: `GET /.well-known/ainm/server`
 ///
 /// Returns this server's federation identity as JSON.

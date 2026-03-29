@@ -331,6 +331,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     let fed_addr = tls_listener.local_addr()?;
 
     let remote_cache_for_tls = remote_cache.clone();
+    let persistence_for_tls = persistence.clone();
     let fed_handle = tokio::spawn(async move {
         loop {
             match tls_listener.accept().await {
@@ -338,10 +339,11 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                     let acceptor = tls_acceptor.clone();
                     let app = fed_app.clone();
                     let cache = remote_cache_for_tls.clone();
+                    let persistence_conn = persistence_for_tls.clone();
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {
-                                // --- FAUT-02 Layer 1: TLS cert fingerprint verification ---
+                                // --- FAUT-02 Layer 1 + FAUT-04 TOFU verification ---
                                 let (_, server_conn) = tls_stream.get_ref();
                                 let peer_certs = server_conn.peer_certificates();
 
@@ -350,25 +352,28 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                         let peer_fingerprint =
                                             tls::compute_cert_fingerprint(first_cert.as_ref());
 
-                                        let fingerprint_valid =
-                                            cache.find_by_fingerprint(&peer_fingerprint).is_some();
-
-                                        if !fingerprint_valid {
-                                            tracing::error!(
-                                                "[federation] FAUT-02 layer 1 REJECTED: peer cert fingerprint {} from {} not in remote cache",
-                                                peer_fingerprint,
-                                                addr
-                                            );
-                                            return;
+                                        match identity::verify_tofu(
+                                            &persistence_conn,
+                                            &cache,
+                                            &peer_fingerprint,
+                                        ) {
+                                            Ok(server_id) => {
+                                                tracing::info!(
+                                                    "[federation] FAUT-02+FAUT-04 OK: {} (fingerprint {}) from {}",
+                                                    server_id, peer_fingerprint, addr
+                                                );
+                                            }
+                                            Err(reason) => {
+                                                tracing::error!(
+                                                    "[federation] FAUT-02+FAUT-04 REJECTED: {} from {}",
+                                                    reason, addr
+                                                );
+                                                return;
+                                            }
                                         }
-                                        tracing::info!(
-                                            "[federation] FAUT-02 layer 1 OK: peer cert fingerprint {} from {}",
-                                            peer_fingerprint,
-                                            addr
-                                        );
                                     } else {
                                         tracing::error!(
-                                            "[federation] No peer certificate presented from {}",
+                                            "[federation] No peer certificate from {}",
                                             addr
                                         );
                                         return;
@@ -380,7 +385,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                     );
                                     return;
                                 }
-                                // --- End FAUT-02 Layer 1 ---
+                                // --- End FAUT-02 + FAUT-04 ---
 
                                 // Serve the axum router over the verified TLS stream
                                 let io = hyper_util::rt::TokioIo::new(tls_stream);
