@@ -153,6 +153,7 @@ All AINM methods use the `ainm.` prefix to avoid collisions with other JSON-RPC 
 | `-32023` | Server unavailable | Relay target server is unreachable. |
 | `-32024` | Thread not found | The specified thread does not exist. |
 | `-32025` | Not a thread participant | The sender is not a member of the specified thread. |
+| `-32026` | Replay detected | Relay payload failed replay protection (stale timestamp or duplicate relay_id). |
 
 **AINM thread error codes** (normatively defined in threading.md):
 
@@ -605,7 +606,7 @@ Servers publish their identity at a well-known endpoint for federation discovery
   "server_id": "messaging.example.com",
   "public_key": "MCowBQYDK2VwAyEA6bR-Y57oVDQrVixqH_Zt6eGbamVR1N3gILEf0nG1I3U",
   "relay_endpoint": "https://messaging.example.com/ainm/v1/relay",
-  "tls_fingerprint": "sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  "tls_fingerprints": ["sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"],
   "supported_versions": ["0.1.0"]
 }
 ```
@@ -614,7 +615,7 @@ Servers publish their identity at a well-known endpoint for federation discovery
 - `server_id` (string): The server's identifier, typically its domain name.
 - `public_key` (string): Base64url-encoded Ed25519 public key for verifying server-level signatures on relay payloads.
 - `relay_endpoint` (string): Full URL of the relay endpoint.
-- `tls_fingerprint` (string): SHA-256 fingerprint of the server's TLS certificate in format `sha256:hex-encoded`. Used to verify the mTLS certificate during relay connections.
+- `tls_fingerprints` (array of strings): Array of SHA-256 fingerprints of the server's TLS certificates in format `sha256:hex-encoded`. Supports certificate rotation by including both current and previous fingerprints (max 2 entries). Receivers MUST accept a connection if the peer certificate matches ANY fingerprint in the array.
 - `supported_versions` (array of strings): Protocol versions this server supports.
 
 Implementations SHOULD cache server identity responses with appropriate TTL (from HTTP `Cache-Control` headers, or a default of 1 hour).
@@ -654,6 +655,8 @@ Content-Type: application/json
       }
     ],
     "from_server": "agents.example.com",
+    "relay_timestamp": "2026-03-28T12:34:56.789Z",
+    "relay_id": "019580a1-7b3e-7000-8000-ffffffffffff",
     "server_signature": "c2VydmVyLWxldmVsLXNpZ25hdHVyZS1vZi1yZWxheS1wYXlsb2Fk..."
   }
 }
@@ -662,7 +665,9 @@ Content-Type: application/json
 **Parameters:**
 - `messages` (array, REQUIRED): Array of signed message envelopes to relay. Each message carries the original sender's Ed25519 signature.
 - `from_server` (string, REQUIRED): The originating server's identifier (matches `server_id` in the server identity response).
-- `server_signature` (string, REQUIRED): Base64url-encoded Ed25519 signature of the relay payload by the originating server. The signed content is the JCS-canonicalized `params` object with the `server_signature` field removed.
+- `relay_timestamp` (string, REQUIRED): RFC 3339 timestamp of when the relay payload was created. Receivers MUST reject payloads where `relay_timestamp` is more than 5 minutes in the past or more than 1 minute in the future.
+- `relay_id` (string, REQUIRED): UUIDv7 identifier unique to this relay payload. Receivers MUST track seen `relay_id` values within the replay window and reject duplicates.
+- `server_signature` (string, REQUIRED): Base64url-encoded Ed25519 signature of the relay payload by the originating server. The signed content is the JCS-canonicalized `params` object with the `server_signature` field removed. Note that `relay_timestamp` and `relay_id` ARE included in the signed payload (only `server_signature` itself is excluded).
 
 **Response:**
 ```json
@@ -684,13 +689,56 @@ Content-Type: application/json
 
 ### 5.4 Relay Validation
 
-The receiving server performs three levels of validation on relay requests:
+The receiving server performs four levels of validation on relay requests:
 
-1. **mTLS certificate validation:** The originating server's TLS certificate fingerprint MUST match the `tls_fingerprint` from its server identity response at `/.well-known/ainm/server`.
+0. **Replay protection:** The `relay_timestamp` MUST be within 5 minutes of the receiver's current time. The `relay_id` MUST NOT have been seen before within the replay window. If either check fails, the relay is rejected with error code `-32026` (ReplayDetected).
+1. **mTLS certificate validation:** The originating server's TLS certificate fingerprint MUST match one of the entries in the `tls_fingerprints` array from its server identity response at `/.well-known/ainm/server`.
 2. **Server signature validation:** The `server_signature` is verified against the originating server's `public_key` from the server identity response.
 3. **Individual message signature validation:** Each message's `signature` is verified against the sender's public key (resolved via identity.md). This ensures end-to-end message integrity -- even if a relay server is compromised, it cannot forge messages from individual participants.
 
-If any validation level fails, the relay request is rejected with the appropriate error code (`-32010` for signature failures, `-32011` for unknown server identity).
+If any validation level fails, the relay request is rejected with the appropriate error code (`-32026` for replay detection, `-32010` for signature failures, `-32011` for unknown server identity).
+
+### 5.5 Backfill
+
+Remote servers can request thread message history from the origin server via the `ainm.backfill` method on the relay endpoint.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "ainm.backfill",
+  "params": {
+    "thread_id": "messaging.example.com:019580a0-1234-7000-8000-000000000001",
+    "after_sequence": 0,
+    "limit": 50
+  }
+}
+```
+
+**Parameters:**
+- `thread_id` (string, REQUIRED): Thread ID to backfill history for.
+- `after_sequence` (integer, optional): Sequence number cursor. Returns messages with sequence > `after_sequence`. Default 0 (from start).
+- `limit` (integer, optional): Maximum messages to return. Default 50, max 200.
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "messages": [...],
+    "has_more": true,
+    "next_cursor": 50
+  }
+}
+```
+
+**Authorization:** The requesting server MUST have at least one current participant in the thread. Requests from servers without a participant are rejected with error code `-32025` (NotAParticipant).
+
+**Visibility:** Backfill returns only messages with sequence numbers after the requesting server's earliest participant joined the thread. Pre-join history is not accessible.
+
+**Pagination:** Use `next_cursor` as the `after_sequence` value in subsequent requests when `has_more` is true.
 
 ## 6. Delivery Modes
 
@@ -739,6 +787,7 @@ The sending client does not need to know which mode the recipient is in. The ser
 | `-32023` | Server unavailable | During relay, the target server is unreachable or did not respond within the timeout. |
 | `-32024` | Thread not found | The `thread_id` in the request does not match any known thread. |
 | `-32025` | Not a thread participant | The sender is not a member of the specified thread and therefore cannot send messages or perform operations on it. |
+| `-32026` | Replay detected | Relay payload failed replay protection (stale `relay_timestamp` or duplicate `relay_id`). |
 
 ### Error Response Format
 
@@ -1050,7 +1099,7 @@ Step 2: Server A resolves Server B's federation identity
   "server_id": "messaging-b.example.com",
   "public_key": "MCowBQYDK2VwAyEAx9z2B3c4D5e6F7g8H9i0J1k2L3m4N5o6P7q8R9s0T1U",
   "relay_endpoint": "https://messaging-b.example.com/ainm/v1/relay",
-  "tls_fingerprint": "sha256:f1e2d3c4b5a6978869574a3b2c1d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9",
+  "tls_fingerprints": ["sha256:f1e2d3c4b5a6978869574a3b2c1d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9"],
   "supported_versions": ["0.1.0"]
 }
 ```
@@ -1083,13 +1132,16 @@ Step 3: Server A relays the message to Server B via HTTP POST (mTLS)
       }
     ],
     "from_server": "agents-a.example.com",
+    "relay_timestamp": "2026-03-28T12:34:57.000Z",
+    "relay_id": "019580a1-8c4f-7000-8000-aaaaaaaaaaaa",
     "server_signature": "c2VydmVyLWEtcmVsYXktc2lnbmF0dXJl..."
   }
 }
 ```
 ```
 Step 4: Server B validates and delivers
-  1. Verify mTLS certificate fingerprint matches agents-a.example.com server identity
+  0. Replay protection: verify relay_timestamp is within 5 minutes, relay_id not seen before
+  1. Verify mTLS certificate fingerprint matches one of agents-a.example.com tls_fingerprints
   2. Verify server_signature against agents-a.example.com public key
   3. Verify Alice's message signature against alice@agents-a.example.com public key
   4. If Bob is online: deliver via ainm.message.deliver (streaming mode)

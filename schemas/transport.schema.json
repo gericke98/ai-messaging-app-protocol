@@ -344,7 +344,7 @@
     "RelayParams": {
       "type": "object",
       "description": "Parameters for ainm.relay (server -> server via HTTP POST). See transport.md Section 5.3.",
-      "required": ["messages", "from_server", "server_signature"],
+      "required": ["messages", "from_server", "server_signature", "relay_timestamp", "relay_id"],
       "properties": {
         "messages": {
           "type": "array",
@@ -358,9 +358,18 @@
           "type": "string",
           "description": "Originating server identifier (matches server_id in server identity response)."
         },
+        "relay_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp when relay payload was created. Receivers reject if older than 5 minutes."
+        },
+        "relay_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Unique identifier for this relay payload. Used for replay deduplication."
+        },
         "server_signature": {
           "$ref": "common.schema.json#/$defs/Ed25519Signature",
-          "description": "Server-level Ed25519 signature of the relay payload (JCS-canonicalized params without this field)."
+          "description": "Server-level Ed25519 signature of the relay payload (JCS-canonicalized params without this field). relay_timestamp and relay_id are included in the signed payload."
         }
       }
     },
@@ -397,6 +406,53 @@
         }
       }
     },
+    "BackfillParams": {
+      "type": "object",
+      "description": "Parameters for ainm.backfill (server -> origin server via HTTP POST). See transport.md Section 5.5.",
+      "required": ["thread_id"],
+      "properties": {
+        "thread_id": {
+          "type": "string",
+          "description": "Thread ID to request history for."
+        },
+        "after_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Cursor: return messages with sequence > this value."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50,
+          "description": "Maximum messages to return per page."
+        }
+      }
+    },
+    "BackfillResult": {
+      "type": "object",
+      "description": "Response to ainm.backfill. See transport.md Section 5.5.",
+      "required": ["messages", "has_more"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/MessageEnvelope"
+          },
+          "description": "Array of message envelopes in sequence order."
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True if more messages exist after this page."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sequence number to use as after_sequence for next page. Present only when has_more is true."
+        }
+      }
+    },
     "TransportErrorCodes": {
       "type": "object",
       "description": "Transport-related JSON-RPC error codes. See transport.md Section 3.6 and Section 7.",
@@ -410,6 +466,7 @@
             { "code": -32023, "name": "ServerUnavailable", "description": "Relay target server unreachable" },
             { "code": -32024, "name": "ThreadNotFound", "description": "Specified thread does not exist" },
             { "code": -32025, "name": "NotAParticipant", "description": "Sender is not a member of the specified thread" },
+            { "code": -32026, "name": "ReplayDetected", "description": "Relay payload failed replay protection (stale timestamp or duplicate relay_id)" },
             { "code": -32030, "name": "ThreadCreationFailed", "description": "Thread could not be created" },
             { "code": -32031, "name": "AlreadyAParticipant", "description": "Identity is already a member of the thread" }
           ]
