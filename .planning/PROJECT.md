@@ -57,7 +57,7 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ## Context
 
-### Current State (v3.1 shipped 2026-03-29)
+### Current State (v3.2 Phase 7 complete 2026-03-29)
 
 The v1 protocol specification is complete and published:
 - **11 prose spec documents** covering identity, security, transport, content, threading, streaming, interactive UI, agent discovery, tool visibility, memory, and compatibility
@@ -66,6 +66,7 @@ The v1 protocol specification is complete and published:
 - **Rust CLI demo** (single-binary Axum server) proving the protocol end-to-end
 - **Docusaurus site** for spec publication with GitHub Pages deployment
 - **57/57 v1 requirements** satisfied across 6 phases
+- **Phase 7 complete:** Federation relay core — mTLS certificates, relay module (inbound/outbound with triple-layer validation), thread registry with origin-server routing, Docker Compose two-server demo
 
 Tech stack: Rust 1.85+ (Axum, Tokio, ring, serde), ~73K LOC across Rust, Markdown, JSON Schema, YAML, TypeScript.
 
@@ -143,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after v3.2 milestone start*
+*Last updated: 2026-03-29 after Phase 7 (federation-relay-core) completion*
