@@ -108,7 +108,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md -- Handshake lifecycle (clients send ainm.initialized, server enforces -32021 before handshake)
-- [ ] 05-02-PLAN.md -- Agent Card URL conformance (fix inverted path segments) + demo.md port fix
+- [x] 05-02-PLAN.md -- Agent Card URL conformance (fix inverted path segments) + demo.md port fix
 
 ### Phase 6: Demo Feature Gaps & Code Cleanup
 **Goal**: Demo exercises the memory evict operation, Agent Card responses include caching headers, and all cargo warnings and dead code are eliminated

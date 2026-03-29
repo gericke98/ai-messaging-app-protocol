@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-29T00:08:18.463Z"
+status: verifying
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-29T00:12:08.074Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 
 Phase: 05 (demo-handshake-discovery-conformance) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0%
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P01 | 3min | 2 tasks | 4 files |
 | Phase 04 P03 | 4min | 2 tasks | 4 files |
 | Phase 05 P01 | 4min | 2 tasks | 3 files |
+| Phase 05 P02 | 2min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,7 @@ Recent decisions affecting current work:
 - [Phase 04]: StreamErrorNotification is an event payload schema with 4 required fields, distinct from StreamingErrorCodes catalog
 - [Phase 04]: Memory store/query routed through server as JSON-RPC requests, bridges reuse existing message types
 - [Phase 05]: Handshake enforced per-connection inline with no ServerState additions
+- [Phase 05]: Used literal Agent Card path in Axum route (not parameterized :name) since demo has exactly one agent
 
 ### Pending Todos
 
@@ -122,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T00:08:18.460Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-29T00:12:08.072Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

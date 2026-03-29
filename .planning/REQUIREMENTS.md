@@ -183,8 +183,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | MIXD-02 | Phase 1 | Complete |
 | MIXD-03 | Phase 1 | Complete |
 | MIXD-04 | Phase 1 | Complete |
-| DISC-01 | Phase 2, 5 | Pending |
-| DISC-02 | Phase 2, 4, 5 | Pending |
+| DISC-01 | Phase 2, 5 | Complete |
+| DISC-02 | Phase 2, 4, 5 | Complete |
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
 | DISC-05 | Phase 2, 6 | Pending |
