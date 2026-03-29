@@ -104,7 +104,11 @@ Plans:
   2. Agent Card HTTP endpoint serves at `/.well-known/ainm/{name}/agent-card.json` matching the spec pattern
   3. `demo.md` documents the correct port binding behavior (random port, not hardcoded 9090)
   4. WebSocket connection lifecycle flow passes end-to-end (init → initialized → methods)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md -- Handshake lifecycle (clients send ainm.initialized, server enforces -32021 before handshake)
+- [ ] 05-02-PLAN.md -- Agent Card URL conformance (fix inverted path segments) + demo.md port fix
 
 ### Phase 6: Demo Feature Gaps & Code Cleanup
 **Goal**: Demo exercises the memory evict operation, Agent Card responses include caching headers, and all cargo warnings and dead code are eliminated
@@ -129,5 +133,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Agent-Native Features | 5/5 | Complete | 2026-03-28 |
 | 3. Spec Publication & Demo | 5/5 | Complete | 2026-03-28 |
 | 4. Protocol Conformance Polish | 0/3 | Planning complete | - |
-| 5. Demo Handshake & Discovery | - | Pending | - |
+| 5. Demo Handshake & Discovery | 0/2 | Planning complete | - |
 | 6. Demo Feature Gaps & Cleanup | - | Pending | - |
