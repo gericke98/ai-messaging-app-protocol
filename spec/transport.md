@@ -740,6 +740,55 @@ Remote servers can request thread message history from the origin server via the
 
 **Pagination:** Use `next_cursor` as the `after_sequence` value in subsequent requests when `has_more` is true.
 
+### 5.6 Context Push
+
+The origin server pushes active context frames to remote servers when a remote agent joins a federated thread, via the `ainm.context-push` method on the relay endpoint. This ensures agents receive memory context immediately without a cold start. See memory.md for context frame format.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "ainm.context-push",
+  "params": {
+    "thread_id": "messaging.example.com:019580a0-1234-7000-8000-000000000001",
+    "context_frames": [
+      {
+        "frame_type": "active_context",
+        "key": "user_preferences",
+        "data": { "language": "en", "timezone": "America/Los_Angeles" },
+        "timestamp": "2026-03-28T12:30:00.000Z"
+      }
+    ],
+    "from_server": "messaging.example.com",
+    "server_signature": "c2VydmVyLXNpZ25hdHVyZS1vZi1jb250ZXh0LXB1c2g..."
+  }
+}
+```
+
+**Parameters:**
+- `thread_id` (string, REQUIRED): Thread ID for which context frames are being pushed.
+- `context_frames` (array, REQUIRED): Array of active context frame objects. Each frame contains `frame_type` (string), `key` (string), `data` (object), and `timestamp` (string, RFC 3339).
+- `from_server` (string, REQUIRED): The originating server's identifier.
+- `server_signature` (string, REQUIRED): Base64url-encoded Ed25519 signature of the JCS-canonicalized `params` (with `server_signature` excluded). Same signing convention as ainm.relay.
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "accepted": true
+  }
+}
+```
+
+**Validation:** Context push requests are validated at Layer 2 only (server signature). Per-message signature validation (Layer 3) does not apply -- context frames are server-originated operational data, not participant messages. Replay protection (Layer 0) and mTLS (Layer 1) apply as with all relay endpoint methods.
+
+**Authorization:** The pushing server MUST be the origin server for the specified thread (determined by the domain prefix in `thread_id`). Requests from non-origin servers are rejected with error code `-32025` (NotAParticipant).
+
+**Triggering:** The origin server SHOULD push context frames when: (a) a remote server first participates in a thread, and (b) when new memory is stored in a federated thread. Only active context frames are pushed -- conversation history and archival data are available via `ainm.backfill`.
+
 ## 6. Delivery Modes
 
 AINM supports two delivery modes that operate automatically based on recipient connection status.
