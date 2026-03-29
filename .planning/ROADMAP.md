@@ -120,7 +120,11 @@ Plans:
   2. Agent Card HTTP handler returns ETag and honors If-None-Match for conditional requests
   3. `cargo build` produces zero warnings
   4. No dead code paths remain for `ainm.tool.call.*` raw dispatch
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md -- Memory evict end-to-end + Agent Card ETag caching
+- [ ] 06-02-PLAN.md -- Dead code removal + cargo warning elimination
 
 ## Progress
 
@@ -134,4 +138,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Spec Publication & Demo | 5/5 | Complete | 2026-03-28 |
 | 4. Protocol Conformance Polish | 0/3 | Planning complete | - |
 | 5. Demo Handshake & Discovery | 0/2 | Planning complete | - |
-| 6. Demo Feature Gaps & Cleanup | - | Pending | - |
+| 6. Demo Feature Gaps & Cleanup | 0/2 | Planning complete | - |
