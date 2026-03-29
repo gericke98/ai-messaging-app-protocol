@@ -48,7 +48,7 @@ Plans:
 - [x] 08-01-PLAN.md — Foundation: spec updates, redb persistence module, ServerIdentity fingerprint array migration
 - [x] 08-02-PLAN.md — Replay protection (relay_timestamp + relay_id) and TOFU key pinning with cert rotation
 - [ ] 08-03-PLAN.md — Persistent offline queue replacing in-memory VecDeque, background cleanup
-- [ ] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
+- [x] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
 - [ ] 08-05-PLAN.md — Demo scripts for partition healing (DEMO-03) and cert rotation (DEMO-04)
 
 ### Phase 9: AI-Native Federation & Full Demo
