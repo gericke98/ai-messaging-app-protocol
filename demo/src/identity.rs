@@ -107,13 +107,13 @@ impl IdentityStore {
 /// Server-level identity for federation (distinct from participant identity).
 ///
 /// Published at `GET /.well-known/ainm/server` so remote servers can discover
-/// this server's relay endpoint, public key, and TLS fingerprint (RELY-01).
+/// this server's relay endpoint, public key, and TLS fingerprints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerIdentity {
     pub server_id: String,
     pub public_key_b64: String,
     pub relay_endpoint: String,
-    pub tls_fingerprint: String,
+    pub tls_fingerprints: Vec<String>,
     pub supported_versions: Vec<String>,
 }
 
@@ -122,13 +122,13 @@ pub fn build_server_identity(
     server_id: &str,
     server_keypair: &Identity,
     federation_port: u16,
-    tls_fingerprint: &str,
+    tls_fingerprints: Vec<String>,
 ) -> ServerIdentity {
     ServerIdentity {
         server_id: server_id.to_string(),
         public_key_b64: server_keypair.public_key_b64(),
         relay_endpoint: format!("https://{}:{}/ainm/v1/relay", server_id, federation_port),
-        tls_fingerprint: tls_fingerprint.to_string(),
+        tls_fingerprints,
         supported_versions: vec!["0.1.0".to_string()],
     }
 }
@@ -169,7 +169,7 @@ impl RemoteServerCache {
             .lock()
             .unwrap()
             .values()
-            .find(|id| id.tls_fingerprint == fingerprint)
+            .find(|id| id.tls_fingerprints.iter().any(|fp| fp == fingerprint))
             .cloned()
     }
 
@@ -191,7 +191,7 @@ pub async fn server_identity_handler(
         "server_id": identity.server_id,
         "public_key": identity.public_key_b64,
         "relay_endpoint": identity.relay_endpoint,
-        "tls_fingerprint": identity.tls_fingerprint,
+        "tls_fingerprints": identity.tls_fingerprints,
         "supported_versions": identity.supported_versions,
     });
     (

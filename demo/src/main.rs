@@ -1,6 +1,7 @@
 mod agent;
 mod federation;
 mod identity;
+mod persistence;
 mod protocol;
 mod relay;
 mod render;
@@ -48,6 +49,10 @@ struct Cli {
     /// Remote server to federate with (e.g., server-b.local:8443)
     #[arg(long)]
     remote: Option<String>,
+
+    /// Path to persistent data directory for redb
+    #[arg(long, default_value = "./data")]
+    data_dir: String,
 }
 
 #[tokio::main]
@@ -103,14 +108,23 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 3. Load TLS cert and compute fingerprint
     let cert_der = tls::load_cert_der(cert_path);
     let tls_fingerprint = tls::compute_cert_fingerprint(&cert_der);
+    let tls_fingerprints = vec![tls_fingerprint.clone()];
 
     // 4. Build ServerIdentity
     let server_identity = Arc::new(identity::build_server_identity(
         server_id,
         &server_keypair,
         cli.federation_port,
-        &tls_fingerprint,
+        tls_fingerprints,
     ));
+
+    // 4b. Initialize persistent storage (redb)
+    let data_dir = &cli.data_dir;
+    std::fs::create_dir_all(data_dir).expect("failed to create data directory");
+    let persistence = persistence::PersistenceLayer::open(
+        &format!("{}/ainm.redb", data_dir),
+    )
+    .expect("failed to open redb database");
 
     // 5. Build mTLS HTTP client and RelaySender
     let http_client = tls::build_mtls_client(ca_cert_path, cert_path, key_path);
@@ -271,6 +285,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         remote_cache: remote_cache.clone(),
         relay_sender: Some(relay_sender.clone()),
         local_delivery_tx: local_delivery_tx.clone(),
+        persistence: persistence.clone(),
     };
 
     // 10. Start Listener 1: Plain TCP (local WebSocket)
@@ -582,11 +597,15 @@ async fn resolve_remote_identity(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        tls_fingerprint: body
-            .get("tls_fingerprint")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+        tls_fingerprints: body
+            .get("tls_fingerprints")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
         supported_versions: body
             .get("supported_versions")
             .and_then(|v| v.as_array())

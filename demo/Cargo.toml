@@ -37,6 +37,9 @@ rustls-pki-types = { version = "1.14", features = ["std"] }
 # CLI argument parsing for federation mode
 clap = { version = "4.6", features = ["derive"] }
 
+# Persistent embedded storage for offline queue, dedup cache, TOFU pins, thread messages
+redb = "3.1"
+
 # HTTP server for federation TLS listener (low-level hyper for axum TLS integration)
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }

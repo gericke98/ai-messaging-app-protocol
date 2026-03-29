@@ -133,6 +133,8 @@ pub struct FederationState {
     pub relay_sender: Option<Arc<crate::relay::RelaySender>>,
     /// Channel to deliver messages to local participants.
     pub local_delivery_tx: tokio::sync::broadcast::Sender<String>,
+    /// Persistent storage layer (redb).
+    pub persistence: crate::persistence::PersistenceLayer,
 }
 
 // ---------------------------------------------------------------------------
