@@ -134,6 +134,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         server_keypair.clone(),
         server_id.to_string(),
         remote_cache.clone(),
+        persistence.clone(),
     ));
 
     // 6. Build identity store and register local participant

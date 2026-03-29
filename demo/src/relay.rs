@@ -1,17 +1,18 @@
-//! Outbound federation relay sender with per-destination send queues and
+//! Outbound federation relay sender with redb-backed persistent queues and
 //! exponential backoff.
 //!
 //! Implements transport.md Section 5.3:
 //! - Constructs signed `ainm.relay` JSON-RPC 2.0 payloads
-//! - Per-destination message queues (RELY-04: push-based, no polling)
+//! - Per-destination persistent message queues (FREL-01: survives restart)
 //! - Exponential backoff per destination (RELY-05: 1s base, 60s max)
+//! - 10K per-destination bound with FIFO eviction (D-11/D-13)
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
-// Backoff State
+// Backoff State (in-memory -- resets on restart per D-14)
 // ---------------------------------------------------------------------------
 
 /// Tracks exponential backoff state for a single destination.
@@ -49,26 +50,18 @@ impl BackoffState {
 }
 
 // ---------------------------------------------------------------------------
-// Destination Queue
+// Relay Sender (redb-backed persistent queue)
 // ---------------------------------------------------------------------------
 
-/// Per-destination message queue with backoff tracking.
-struct DestinationQueue {
-    messages: VecDeque<serde_json::Value>,
-    backoff: BackoffState,
-}
-
-// ---------------------------------------------------------------------------
-// Relay Sender
-// ---------------------------------------------------------------------------
-
-/// Outbound relay sender that manages per-destination send queues.
+/// Outbound relay sender with redb-backed persistent message queues.
 ///
-/// Messages are enqueued immediately (RELY-04: push-based) and flushed
-/// by a background loop. Failed deliveries trigger exponential backoff
-/// (RELY-05: 1s base, 60s max, 2^n growth capped at 2^6).
+/// Messages are persisted immediately via `PersistenceLayer` (FREL-01: survives
+/// server restart) and flushed by a background loop. Failed deliveries trigger
+/// exponential backoff (RELY-05: 1s base, 60s max, 2^n growth capped at 2^6).
+/// Backoff state is in-memory and resets on restart (D-14).
 pub struct RelaySender {
-    queues: Arc<Mutex<HashMap<String, DestinationQueue>>>,
+    backoff_states: Arc<Mutex<HashMap<String, BackoffState>>>,
+    persistence: crate::persistence::PersistenceLayer,
     http_client: reqwest::Client,
     server_keypair: Arc<crate::identity::Identity>,
     server_id: String,
@@ -76,20 +69,23 @@ pub struct RelaySender {
 }
 
 impl RelaySender {
-    /// Create a new relay sender.
+    /// Create a new relay sender with redb-backed persistent queue.
     ///
     /// * `http_client` - reqwest client configured for mTLS (from `tls::build_mtls_client`)
     /// * `server_keypair` - this server's Ed25519 identity for signing relay payloads
     /// * `server_id` - this server's domain (e.g., "server-a.local")
     /// * `remote_cache` - cache of resolved remote server identities
+    /// * `persistence` - redb persistence layer for offline queue storage
     pub fn new(
         http_client: reqwest::Client,
         server_keypair: Arc<crate::identity::Identity>,
         server_id: String,
         remote_cache: crate::identity::RemoteServerCache,
+        persistence: crate::persistence::PersistenceLayer,
     ) -> Self {
         Self {
-            queues: Arc::new(Mutex::new(HashMap::new())),
+            backoff_states: Arc::new(Mutex::new(HashMap::new())),
+            persistence,
             http_client,
             server_keypair,
             server_id,
@@ -99,33 +95,54 @@ impl RelaySender {
 
     /// Enqueue a message for delivery to a remote server.
     ///
-    /// Per RELY-04: push immediately, no polling.
+    /// Persists to redb (FREL-01: survives restart). Enforces 10K per-destination
+    /// bound with FIFO eviction of oldest messages (D-11/D-13).
     pub fn enqueue(&self, destination: &str, message: serde_json::Value) {
-        let mut queues = self.queues.lock().unwrap();
-        let queue = queues
-            .entry(destination.to_string())
-            .or_insert_with(|| DestinationQueue {
-                messages: VecDeque::new(),
-                backoff: BackoffState::new(),
-            });
-        queue.messages.push_back(message);
-        tracing::info!("[relay] Enqueued message for {}", destination);
+        // Persist to redb (FREL-01: survives restart)
+        if let Err(e) = self.persistence.enqueue_offline(destination, &message) {
+            tracing::error!(
+                "[relay] Failed to persist message for {}: {}",
+                destination,
+                e
+            );
+            return;
+        }
+
+        // Enforce 10K bound per destination (D-11: FIFO eviction)
+        match self.persistence.queue_len(destination) {
+            Ok(len) if len > 10_000 => {
+                match self.persistence.evict_oldest(destination, 10_000) {
+                    Ok(evicted) => {
+                        tracing::warn!(
+                            "[relay] Queue bound exceeded for {}: evicted {} oldest messages",
+                            destination,
+                            evicted
+                        );
+                    }
+                    Err(e) => tracing::error!("[relay] Eviction failed for {}: {}", destination, e),
+                }
+            }
+            _ => {}
+        }
+
+        tracing::info!("[relay] Enqueued message for {} (persistent)", destination);
     }
 
-    /// Send all queued messages for a destination. Called by the send loop.
+    /// Send queued messages for a destination. Called by the send loop.
+    /// Drains up to 100 messages per flush (batch processing).
     pub async fn flush_destination(&self, destination: &str) -> Result<(), String> {
-        let messages: Vec<serde_json::Value> = {
-            let mut queues = self.queues.lock().unwrap();
-            if let Some(queue) = queues.get_mut(destination) {
-                if !queue.backoff.can_retry() {
+        // Check backoff
+        {
+            let backoffs = self.backoff_states.lock().unwrap();
+            if let Some(backoff) = backoffs.get(destination) {
+                if !backoff.can_retry() {
                     return Ok(()); // Still in backoff window
                 }
-                queue.messages.drain(..).collect()
-            } else {
-                return Ok(());
             }
-        };
+        }
 
+        // Drain messages from persistent queue (batch of up to 100)
+        let messages = self.persistence.drain_offline(destination, 100)?;
         if messages.is_empty() {
             return Ok(());
         }
@@ -172,10 +189,12 @@ impl RelaySender {
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                let mut queues = self.queues.lock().unwrap();
-                if let Some(queue) = queues.get_mut(destination) {
-                    queue.backoff.record_success();
-                }
+                // Success: reset backoff (D-14: reset on reconnection)
+                let mut backoffs = self.backoff_states.lock().unwrap();
+                backoffs
+                    .entry(destination.to_string())
+                    .or_insert_with(BackoffState::new)
+                    .record_success();
                 tracing::info!("[relay] Successfully relayed to {}", destination);
                 Ok(())
             }
@@ -188,39 +207,36 @@ impl RelaySender {
                     status,
                     body
                 );
-                // Re-enqueue messages and record failure
-                let mut queues = self.queues.lock().unwrap();
-                if let Some(queue) = queues.get_mut(destination) {
-                    for msg in messages.into_iter().rev() {
-                        queue.messages.push_front(msg);
-                    }
-                    queue.backoff.record_failure();
+                // Re-enqueue messages back to persistence
+                for msg in &messages {
+                    let _ = self.persistence.enqueue_offline(destination, msg);
                 }
+                let mut backoffs = self.backoff_states.lock().unwrap();
+                backoffs
+                    .entry(destination.to_string())
+                    .or_insert_with(BackoffState::new)
+                    .record_failure();
                 Err(format!("HTTP {}", status))
             }
             Err(e) => {
                 tracing::error!("[relay] Connection to {} failed: {}", destination, e);
-                let mut queues = self.queues.lock().unwrap();
-                if let Some(queue) = queues.get_mut(destination) {
-                    for msg in messages.into_iter().rev() {
-                        queue.messages.push_front(msg);
-                    }
-                    queue.backoff.record_failure();
+                // Re-enqueue messages back to persistence
+                for msg in &messages {
+                    let _ = self.persistence.enqueue_offline(destination, msg);
                 }
+                let mut backoffs = self.backoff_states.lock().unwrap();
+                backoffs
+                    .entry(destination.to_string())
+                    .or_insert_with(BackoffState::new)
+                    .record_failure();
                 Err(format!("Connection error: {}", e))
             }
         }
     }
 
-    /// Get list of destinations with pending messages.
+    /// Get list of destinations with pending messages (from persistent store).
     pub fn pending_destinations(&self) -> Vec<String> {
-        self.queues
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, q)| !q.messages.is_empty())
-            .map(|(k, _)| k.clone())
-            .collect()
+        self.persistence.pending_destinations().unwrap_or_default()
     }
 
     /// Start the background send loop. Checks all queues every 500ms.
