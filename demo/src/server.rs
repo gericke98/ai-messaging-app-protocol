@@ -5,10 +5,12 @@ use anyhow::Result;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::State,
-    response::IntoResponse,
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
+    Router,
 };
+use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use std::collections::HashMap;
@@ -66,9 +68,41 @@ pub async fn start(
     Ok((addr, handle))
 }
 
-/// Agent Card HTTP endpoint.
-async fn agent_card_handler(State(state): State<ServerState>) -> Json<serde_json::Value> {
-    Json(state.agent_card.clone())
+/// Agent Card HTTP endpoint with ETag caching (per DISC-05).
+async fn agent_card_handler(
+    headers: HeaderMap,
+    State(state): State<ServerState>,
+) -> Response {
+    let body = serde_json::to_vec(&state.agent_card).unwrap();
+    let hash = ring::digest::digest(&ring::digest::SHA256, &body);
+    let etag_value = format!(
+        "\"{}\"",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash.as_ref())
+    );
+
+    // Check If-None-Match
+    if let Some(inm) = headers.get(header::IF_NONE_MATCH) {
+        if let Ok(inm_str) = inm.to_str() {
+            if inm_str == etag_value {
+                return (
+                    StatusCode::NOT_MODIFIED,
+                    [(header::ETAG, etag_value)],
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Return 200 with body and ETag
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/json".to_string()),
+            (header::ETAG, etag_value),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 /// WebSocket upgrade handler.
