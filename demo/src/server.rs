@@ -51,7 +51,7 @@ pub async fn start(
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
-            "/.well-known/ainm/agent-card/helper",
+            "/.well-known/ainm/helper/agent-card.json",
             get(agent_card_handler),
         )
         .with_state(state);

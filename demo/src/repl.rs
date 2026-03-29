@@ -292,7 +292,7 @@ fn run_repl_loop(
                     "/card" => {
                         // Fetch Agent Card via HTTP
                         let url = format!(
-                            "http://{}/.well-known/ainm/agent-card/helper",
+                            "http://{}/.well-known/ainm/helper/agent-card.json",
                             server_addr
                         );
                         let rt = tokio::runtime::Handle::current();

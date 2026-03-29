@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         &agent_identity.public_key_b64(),
         "agent",
         "ws://127.0.0.1:0/ws",
-        Some("http://127.0.0.1:0/.well-known/ainm/agent-card/helper".to_string()),
+        Some("http://127.0.0.1:0/.well-known/ainm/helper/agent-card.json".to_string()),
     );
 
     // 3. Build Agent Card for helper@demo.ainm.local
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
         "agent",
         &format!("ws://{}/ws", server_addr),
         Some(format!(
-            "http://{}/.well-known/ainm/agent-card/helper",
+            "http://{}/.well-known/ainm/helper/agent-card.json",
             server_addr
         )),
     );
