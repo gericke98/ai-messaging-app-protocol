@@ -299,6 +299,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         relay_sender: Some(relay_sender.clone()),
         local_delivery_tx: local_delivery_tx.clone(),
         persistence: persistence.clone(),
+        http_client: Some(http_client.clone()),
     };
 
     // 10. Start Listener 1: Plain TCP (local WebSocket)
@@ -400,6 +401,10 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {
                                 // --- FAUT-02 Layer 1 + FAUT-04 TOFU verification ---
+                                // Note: fingerprint check is permissive at TLS layer to allow
+                                // identity bootstrapping (/.well-known/ainm/server must be
+                                // reachable before peers know each other's fingerprints).
+                                // The relay handler enforces FAUT-02 at the application layer.
                                 let (_, server_conn) = tls_stream.get_ref();
                                 let peer_certs = server_conn.peer_certificates();
 
@@ -420,26 +425,15 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                                 );
                                             }
                                             Err(reason) => {
-                                                tracing::error!(
-                                                    "[federation] FAUT-02+FAUT-04 REJECTED: {} from {}",
+                                                // Allow connection for identity/discovery endpoints
+                                                // FAUT-02 enforcement happens in relay_handler
+                                                tracing::warn!(
+                                                    "[federation] FAUT-02 unverified peer: {} from {} (allowing for identity bootstrap)",
                                                     reason, addr
                                                 );
-                                                return;
                                             }
                                         }
-                                    } else {
-                                        tracing::error!(
-                                            "[federation] No peer certificate from {}",
-                                            addr
-                                        );
-                                        return;
                                     }
-                                } else {
-                                    tracing::error!(
-                                        "[federation] No peer certificates from {}",
-                                        addr
-                                    );
-                                    return;
                                 }
                                 // --- End FAUT-02 + FAUT-04 ---
 

@@ -165,6 +165,8 @@ pub struct FederationState {
     pub local_delivery_tx: tokio::sync::broadcast::Sender<String>,
     /// Persistent storage layer (redb).
     pub persistence: crate::persistence::PersistenceLayer,
+    /// HTTP client for lazy identity resolution (mTLS-configured).
+    pub http_client: Option<reqwest::Client>,
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +315,41 @@ pub async fn relay_handler(
     }
 
     // 3. Verify server signature (FAUT-03 layer 2)
+    // Lazy identity resolution: if server is unknown, try to resolve it now.
+    // This handles the startup race where Server B starts before Server A.
+    if state.remote_cache.get(&from_server).is_none() {
+        if let Some(ref client) = state.http_client {
+            // Try to find the remote server's federation port from the from_server domain
+            // Use the relay endpoint pattern: from_server is the server_id (domain)
+            // We need to find their federation port. Check if we have a --remote configured
+            // that matches this domain.
+            tracing::info!("[federation] Lazily resolving unknown server: {}", from_server);
+            // Try common federation ports based on the from_server identity
+            // The relay_endpoint in their identity response will tell us the correct port
+            for port in &[8443u16, 9443] {
+                let url = format!("https://{}:{}/.well-known/ainm/server", from_server, port);
+                if let Ok(resp) = client.get(&url).send().await {
+                    if let Ok(body) = resp.json::<serde_json::Value>().await {
+                        let resolved = crate::identity::ServerIdentity {
+                            server_id: body.get("server_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            public_key_b64: body.get("public_key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            relay_endpoint: body.get("relay_endpoint").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            tls_fingerprints: body.get("tls_fingerprints").and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                                .unwrap_or_default(),
+                            supported_versions: vec!["0.1.0".to_string()],
+                        };
+                        if !resolved.server_id.is_empty() {
+                            tracing::info!("[federation] Lazily resolved: {}", resolved.server_id);
+                            state.remote_cache.insert(resolved);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let remote_identity = match state.remote_cache.get(&from_server) {
         Some(id) => id,
         None => {
@@ -371,16 +408,45 @@ pub async fn relay_handler(
             }
             tracing::info!("[federation] Message signature verified: {}", sender);
         } else {
-            tracing::warn!("Unknown sender identity: {}", sender);
-            // For Phase 7 demo, reject unknown senders
-            return (
-                StatusCode::OK,
-                Json(protocol::new_error_value(
-                    id,
-                    -32011,
-                    "Unknown sender identity",
-                )),
-            );
+            // Lazily fetch sender's public key from origin server
+            let mut resolved = false;
+            if let Some(ref client) = state.http_client {
+                // Extract domain from sender address (user@domain)
+                if let Some(domain) = sender.split('@').nth(1) {
+                    if let Some(remote_id) = state.remote_cache.get(domain) {
+                        // Build participant key URL from relay_endpoint base
+                        let base = remote_id.relay_endpoint.replace("/ainm/v1/relay", "");
+                        let url = format!("{}/.well-known/ainm/participant/{}", base, sender);
+                        if let Ok(resp) = client.get(&url).send().await {
+                            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                                if let Some(pk) = body.get("public_key").and_then(|v| v.as_str()) {
+                                    if let Ok(pk_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(pk) {
+                                        let type_ = body.get("type").and_then(|v| v.as_str()).unwrap_or("human");
+                                        state.identity_store.register(sender, pk, type_, domain, None);
+                                        tracing::info!("[federation] Lazily fetched key for {}", sender);
+                                        // Now verify the message signature
+                                        if crate::signing::verify_signature(&pk_bytes, msg).unwrap_or(false) {
+                                            tracing::info!("[federation] Message signature verified: {}", sender);
+                                            resolved = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !resolved {
+                tracing::warn!("Unknown sender identity: {}", sender);
+                return (
+                    StatusCode::OK,
+                    Json(protocol::new_error_value(
+                        id,
+                        -32011,
+                        "Unknown sender identity",
+                    )),
+                );
+            }
         }
     }
 

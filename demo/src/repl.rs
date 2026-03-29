@@ -289,7 +289,7 @@ fn run_repl_loop(
                         println!("    tool     - Tool visibility demo");
                         println!("    button   - ButtonBlock demo");
                         println!("    /card    - View Agent Card");
-                        println!("    /discover agent@domain - Discover remote agent capabilities");
+                        println!("    /discover agent@host:port - Discover remote agent capabilities");
                         println!("    /memory  - Demo memory store, query, and context frame operations");
                         println!("    /evict   - Demo memory eviction (run /memory first)");
                         println!("    /bridge  - Demo MCP and A2A bridge compatibility mappings");
@@ -435,20 +435,21 @@ fn run_repl_loop(
                     line if line.starts_with("/discover ") => {
                         let target = line.trim_start_matches("/discover ").trim();
                         if target.is_empty() {
-                            println!("  Usage: /discover agent@server-domain");
+                            println!("  Usage: /discover agent@host:port");
                             continue;
                         }
                         let parts: Vec<&str> = target.splitn(2, '@').collect();
                         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-                            println!("  Invalid format. Use: /discover agent@server-domain");
+                            println!("  Invalid format. Use: /discover agent@host:port");
                             continue;
                         }
                         let agent_name = parts[0];
-                        let domain = parts[1];
+                        let host_port = parts[1];
 
+                        // Use HTTP for plain-text listener (agent cards served on both listeners)
                         let url = format!(
-                            "https://{}/.well-known/ainm/{}/agent-card.json",
-                            domain, agent_name
+                            "http://{}/.well-known/ainm/{}/agent-card.json",
+                            host_port, agent_name
                         );
                         println!("  Discovering {}...", target);
                         let rt = tokio::runtime::Handle::current();

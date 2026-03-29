@@ -61,28 +61,44 @@ pub fn build_mtls_server_config(
 ///
 /// The CA certificate is used to verify the remote server.
 /// The client certificate and key identify this server to the remote.
+///
+/// Uses a manually-configured rustls ClientConfig with webpki verification
+/// (not rustls-platform-verifier) so that our demo CA cert is sufficient
+/// without being added to the macOS system trust store.
 pub fn build_mtls_client(
     ca_cert_path: &str,
     client_cert_path: &str,
     client_key_path: &str,
 ) -> reqwest::Client {
-    // Load CA for server verification
-    let ca_pem = std::fs::read(ca_cert_path).expect("failed to read CA cert file");
-    let ca_cert =
-        reqwest::tls::Certificate::from_pem(&ca_pem).expect("failed to parse CA certificate");
+    // Load CA certs for server verification (webpki root store)
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_cert_path)
+        .expect("failed to open CA cert file")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("failed to parse CA certs");
 
-    // Load client identity (cert + key concatenated)
-    let cert_pem = std::fs::read(client_cert_path).expect("failed to read client cert file");
-    let key_pem = std::fs::read(client_key_path).expect("failed to read client key file");
-    let mut combined_pem = cert_pem;
-    combined_pem.extend_from_slice(&key_pem);
-    let identity =
-        reqwest::tls::Identity::from_pem(&combined_pem).expect("failed to parse client identity");
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in ca_certs {
+        root_store.add(cert).expect("failed to add CA cert to root store");
+    }
+
+    // Load client cert chain and key for mTLS
+    let client_certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_file_iter(client_cert_path)
+            .expect("failed to open client cert file")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("failed to parse client certs");
+
+    let client_key = PrivateKeyDer::from_pem_file(client_key_path)
+        .expect("failed to load client private key");
+
+    // Build rustls ClientConfig with webpki verifier (bypasses platform verifier)
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(client_certs, client_key)
+        .expect("failed to build ClientConfig with client cert");
 
     reqwest::Client::builder()
-        .add_root_certificate(ca_cert)
-        .identity(identity)
-        .use_rustls_tls()
+        .use_preconfigured_tls(config)
         .build()
         .expect("failed to build mTLS reqwest client")
 }
