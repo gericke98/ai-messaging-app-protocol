@@ -28,7 +28,7 @@ Requirements: RELY-01, RELY-02, RELY-03, RELY-04, RELY-05, FAUT-01, FAUT-02, FAU
 ### TLS & Certificate Setup
 - **D-07:** Pre-generated self-signed CA + server certificates checked into `demo/certs/` with a README explaining how to regenerate. Deterministic, `docker-compose up` just works.
 - **D-08:** Certificate structure: `ca.pem`, `ca-key.pem`, `server-a.pem`, `server-a-key.pem`, `server-b.pem`, `server-b-key.pem`.
-- **D-09:** Use `rustls` (pure Rust, no OpenSSL) with `rustls-pemfile` for PEM loading. Matches CLAUDE.md technology stack. `axum-server` provides rustls integration.
+- **D-09:** Use `rustls` (pure Rust, no OpenSSL) with `rustls-pki-types` 1.14+ for PEM loading (replaces `rustls-pemfile` per RUSTSEC-2025-0134). Use `tokio-rustls` + `hyper-util` for mTLS listener (replaces `axum-server` which doesn't expose `ServerConfig` for mTLS client-cert verification). Updated 2026-03-28 — user approved substitution.
 
 ### Thread Ownership & Routing
 - **D-10:** First message in a thread creates the thread on the sender's home server. That server becomes the origin — sole authority for participant list and message ordering.
