@@ -1,804 +1,579 @@
-# Architecture Patterns: Federation Integration
+# Architecture Patterns: iOS Reference Client
 
-**Domain:** Federated AI-native messaging -- integrating multi-server federation into existing single-server Axum architecture
-**Researched:** 2026-03-28
-**Overall confidence:** HIGH (based on existing spec, Matrix/XMPP federation precedents, current codebase analysis)
+**Domain:** Native iOS messaging client for AINM protocol
+**Researched:** 2026-03-29
+**Confidence:** HIGH (protocol is complete and server is implemented; iOS patterns are well-established)
 
----
+## Recommended Architecture
 
-## 1. Current Architecture Baseline
-
-The existing demo server (`demo/src/server.rs`) is a single-process Axum application with these components:
+The iOS client follows **MVVM + Repository** with a clear layered architecture. The critical insight: the server is the source of truth for messages and threads, but the local GRDB database is the source of truth for the UI. All server data flows through the database before reaching views. This "write-through" pattern gives us offline resilience, consistent UI state, and decoupled layers.
 
 ```
-                          Axum Router
-                         /          \
-                        /            \
-              WebSocket Handler    HTTP Handler
-              (ws_upgrade_handler) (agent_card_handler)
-                      |
-              handle_ws_connection
-                   /        \
-    handle_agent_connection  handle_human_connection
++-------------------------------------------------------------+
+|                      SwiftUI Views                           |
+|  ConversationListView | ThreadView | AgentCardView | ...    |
++-------------------------------------------------------------+
+        |  @Observable binding           ^  GRDB observation
+        v                                |
++-------------------------------------------------------------+
+|                     ViewModels                               |
+|  ConversationListVM | ThreadVM | StreamingVM | ...           |
++-------------------------------------------------------------+
+        |  Repository calls              ^  AsyncStream results
+        v                                |
++-------------------------------------------------------------+
+|                    Repositories                              |
+|  MessageRepository | ThreadRepository | MemoryRepository     |
+|  AgentRepository   | IdentityRepository                     |
++-------------------------------------------------------------+
+        |          |                     ^          ^
+        v          v                     |          |
++----------------+  +--------------------+  +----------------+
+| NetworkService |  | PersistenceService |  | CryptoService  |
+| (WebSocket +   |  | (GRDB.swift)       |  | (CryptoKit)    |
+|  HTTP client)  |  |                    |  |                |
++----------------+  +--------------------+  +----------------+
+        |                    |                      |
+        v                    v                      v
+   Rust Server          SQLite file           iOS Keychain
+   (wss://)             (local)               (Ed25519 keys)
 ```
 
-**Current state (in-memory, no persistence):**
-
-| Component | Implementation | What It Does |
-|-----------|---------------|--------------|
-| `ServerState` | Struct with `Clone` | Holds all shared state |
-| `IdentityStore` | `Arc<Mutex<HashMap>>` | Maps `address -> IdentityRecord` |
-| `to_agent_tx` / `to_human_tx` | `broadcast::Sender<String>` | Routes messages between agent and human connections |
-| `threads` | `Arc<Mutex<Vec<String>>>` | Tracks active thread IDs |
-| `archival_store` | `Arc<Mutex<HashMap>>` | In-memory archival fact storage |
-
-**Critical observation:** The current routing is hard-coded for exactly two participants (one human, one agent) using broadcast channels. There is no concept of "which server does this participant live on?" -- all participants are local. Federation requires fundamentally rethinking message routing.
-
-### 1.1 What Can Be Preserved
-
-| Component | Keep? | Rationale |
-|-----------|-------|-----------|
-| Axum Router structure | **YES** | Add federation routes alongside existing WebSocket/HTTP routes |
-| WebSocket handshake flow | **YES** | Client-to-server protocol is unchanged by federation |
-| Ed25519 signing/verification | **YES** | Federation adds server-level signatures on top of existing message signatures |
-| JSON-RPC framing | **YES** | Both C2S and S2S use JSON-RPC 2.0 |
-| `IdentityStore` interface | **MODIFY** | Must add remote identity resolution (HTTP fetch from `.well-known`) |
-| `broadcast::Sender` routing | **REPLACE** | Cannot route to remote servers. Need participant-addressed routing |
-| In-memory `threads` | **REPLACE** | Threads need persistent storage with origin-server metadata |
-
-### 1.2 What Must Be Added
-
-| New Component | Purpose |
-|---------------|---------|
-| **Federation Router** | Axum handler for `POST /ainm/v1/relay` endpoint |
-| **Server Identity** | `GET /.well-known/ainm/server` endpoint + server Ed25519 keypair |
-| **Message Router** | Decides local delivery vs remote relay per-participant |
-| **Federation Sender** | Outbound queue with per-destination retry logic |
-| **Remote Identity Resolver** | HTTP client to fetch `.well-known/ainm/{name}` from remote providers |
-| **Thread Registry** | Persistent thread metadata with origin-server tracking |
-| **Offline Queue** | Store-and-forward for messages to offline local participants |
-| **Backfill Handler** | Serves thread history to remote servers requesting it |
-| **mTLS Client/Server** | Mutual TLS for all server-to-server connections |
-
----
-
-## 2. Federation Architecture Design
-
-### 2.1 Recommended Architecture
-
-```
-                              AINM Server
-  ================================================================
-  |                                                              |
-  |  +------------------+    +------------------+               |
-  |  | WebSocket        |    | HTTP             |               |
-  |  | Handler (C2S)    |    | Handlers         |               |
-  |  |                  |    |                  |               |
-  |  | - ainm.initialize|    | - /.well-known/  |               |
-  |  | - ainm.message   |    |   ainm/{name}    |               |
-  |  |   .send          |    | - /.well-known/  |               |
-  |  | - ainm.thread    |    |   ainm/server    |               |
-  |  |   .create        |    | - /.well-known/  |               |
-  |  | - ainm.stream.*  |    |   ainm/register  |               |
-  |  | - ainm.memory.*  |    | - /ainm/v1/relay |               |
-  |  +--------+---------+    | - /ainm/v1/      |               |
-  |           |               |   backfill       |               |
-  |           |               +--------+---------+               |
-  |           v                        v                         |
-  |  +------------------------------------------------+         |
-  |  |              Message Router                     |         |
-  |  |                                                 |         |
-  |  |  For each participant in thread:                |         |
-  |  |    - Local + online? -> deliver via WebSocket   |         |
-  |  |    - Local + offline? -> queue in offline store |         |
-  |  |    - Remote? -> enqueue in federation sender    |         |
-  |  +----------+--------------------+---------+------+         |
-  |             |                    |         |                 |
-  |    +--------v------+    +-------v----+ +--v-----------+    |
-  |    | Local Delivery |    | Offline    | | Federation   |    |
-  |    | (Session Mgr)  |    | Queue      | | Sender       |    |
-  |    |                |    |            | |              |    |
-  |    | DashMap:       |    | Per-user   | | Per-server   |    |
-  |    |  session_id -> |    | message    | | destination  |    |
-  |    |  ws_sender     |    | queue      | | queue with   |    |
-  |    +----------------+    +------------+ | retry/backoff|    |
-  |                                         +---------+---+    |
-  |                                                   |         |
-  |                                          +--------v---+    |
-  |                                          | HTTP Client |    |
-  |                                          | (mTLS)      |    |
-  |                                          | reqwest +   |    |
-  |                                          | rustls      |    |
-  |                                          +-------------+    |
-  |                                                              |
-  |  +------------------------------------------------+         |
-  |  |              Thread Registry                    |         |
-  |  |                                                 |         |
-  |  |  thread_id -> {                                 |         |
-  |  |    origin_server,                               |         |
-  |  |    participants: [{identity, home_server}],     |         |
-  |  |    created_at, title, parent_thread_id          |         |
-  |  |  }                                              |         |
-  |  +------------------------------------------------+         |
-  |                                                              |
-  |  +------------------------------------------------+         |
-  |  |              Identity Resolver                  |         |
-  |  |                                                 |         |
-  |  |  Local: HashMap lookup (existing IdentityStore) |         |
-  |  |  Remote: HTTPS GET -> cache with TTL            |         |
-  |  +------------------------------------------------+         |
-  ================================================================
-```
-
-### 2.2 Component Boundaries
+### Component Boundaries
 
 | Component | Responsibility | Communicates With |
 |-----------|---------------|-------------------|
-| **WebSocket Handler** (existing, modified) | Client connections, JSON-RPC dispatch, session lifecycle | Message Router, Thread Registry, Session Manager |
-| **Federation Relay Handler** (new) | Receives `ainm.relay` from remote servers, validates triple-layer security | Message Router, Identity Resolver, Server Identity |
-| **Message Router** (new, core) | Determines delivery path for each message per-participant | Session Manager, Offline Queue, Federation Sender, Thread Registry |
-| **Session Manager** (new, replaces broadcast channels) | Tracks active WebSocket sessions by participant identity | WebSocket Handler |
-| **Federation Sender** (new) | Per-destination outbound queues, retry with exponential backoff, batch messages | HTTP Client, Server Identity Store |
-| **Thread Registry** (new, replaces `Vec<String>`) | Thread metadata, participant lists, origin-server tracking | Message Router, Backfill Handler |
-| **Identity Resolver** (modified from IdentityStore) | Local identity lookup + remote HTTPS resolution with caching | All components needing identity data |
-| **Server Identity** (new) | This server's Ed25519 keypair, TLS cert fingerprint, served at `/.well-known/ainm/server` | Federation Relay Handler, Federation Sender |
-| **Offline Queue** (new) | Persists messages for offline local participants, drains on reconnect | Message Router, WebSocket Handler (on reconnect) |
-| **Backfill Handler** (new) | Serves thread history to remote servers | Thread Registry, Message Store |
-| **mTLS HTTP Client** (new) | Makes outbound federation requests with mutual TLS | Federation Sender |
+| **SwiftUI Views** | Render UI, capture user input. Zero business logic. | ViewModels (read @Observable state, call actions) |
+| **ViewModels** | UI state, user action handling, coordinate repositories. One per screen/feature. | Repositories (call methods, observe streams) |
+| **Repositories** | Single API for a domain. Orchestrate network + persistence. Expose `AsyncStream` for observation. | NetworkService, PersistenceService, CryptoService |
+| **NetworkService** | WebSocket connection lifecycle, JSON-RPC framing, send/receive. Single persistent connection. | Rust server via `wss://` |
+| **PersistenceService** | GRDB database operations, migrations, observation queries. | SQLite file on disk |
+| **CryptoService** | Ed25519 key generation, message signing (JCS + sign), signature verification. Keychain access. | Apple CryptoKit, iOS Keychain |
 
----
+### Data Flow
 
-## 3. Data Flow: Federated Message Lifecycle
-
-### 3.1 Local Sender to Remote Recipient
+#### Sending a Message (Human -> Server)
 
 ```
-Alice@server-a.com sends message to thread with Bob@server-b.com
-
-1. Alice's client -> WebSocket -> server-a.com
-   |  ainm.message.send { from: "alice@server-a.com", thread_id: "..." }
-
-2. Server A: WebSocket Handler
-   |  Verify Alice's Ed25519 signature (existing logic)
-   |  Respond: { accepted: true, server_timestamp: "..." }
-
-3. Server A: Message Router
-   |  Look up thread participants from Thread Registry
-   |  For each participant:
-   |    alice@server-a.com -> local, online -> Session Manager delivers
-   |    bob@server-b.com   -> remote -> Federation Sender queue
-
-4. Server A: Federation Sender
-   |  Resolve server-b.com server identity (GET /.well-known/ainm/server)
-   |  Build relay payload: { messages: [...], from_server, server_signature }
-   |  Sign relay payload with Server A's Ed25519 key
-   |  POST https://server-b.com/ainm/v1/relay (mTLS)
-
-5. Server B: Federation Relay Handler
-   |  Validate mTLS certificate fingerprint
-   |  Verify server_signature against server-a.com's public key
-   |  Verify Alice's message signature against alice@server-a.com's public key
-   |  Pass to Message Router
-
-6. Server B: Message Router
-   |  bob@server-b.com -> local, online -> Session Manager delivers
-   |  bob@server-b.com -> local, offline -> Offline Queue stores
-
-7. Server B -> Bob's client: ainm.message.deliver { ... }
+User taps Send
+  -> ThreadViewModel.sendMessage(text)
+    -> CryptoService.signEnvelope(message)       // JCS canonicalize + Ed25519 sign
+    -> MessageRepository.send(signedMessage)
+      -> PersistenceService.insert(message, status: .sending)  // Optimistic local insert
+      -> NetworkService.sendRPC("ainm.message.send", params)   // JSON-RPC request
+      -> on success: PersistenceService.update(message, status: .sent)
+      -> on failure: PersistenceService.update(message, status: .failed)
+    -> ThreadViewModel state updates via GRDB observation (automatic)
 ```
 
-### 3.2 Thread Creation Across Servers
+#### Receiving a Message (Server -> Human)
 
 ```
-Alice@server-a.com creates thread with Bob@server-b.com
-
-1. Alice's client -> ainm.thread.create {
-     thread_id: "...",
-     participants: ["alice@server-a.com", "bob@server-b.com"]
-   }
-
-2. Server A: WebSocket Handler
-   |  For each participant, resolve identity:
-   |    alice@server-a.com -> local lookup
-   |    bob@server-b.com   -> remote HTTPS fetch /.well-known/ainm/bob
-   |  Validate all identities exist
-
-3. Server A: Thread Registry
-   |  Store thread with origin_server = "server-a.com"
-   |  Participants include home_server for each identity
-
-4. Server A: Federation Sender
-   |  Send thread.create event to server-b.com via relay
-   |  (As a message with type: "thread.create")
-
-5. Server B: Federation Relay Handler
-   |  Receive thread.create, store in own Thread Registry
-   |  Mark origin_server = "server-a.com" (Server B is NOT the authority)
-   |  Deliver thread.create notification to Bob if online
+WebSocket receives ainm.message.deliver notification
+  -> NetworkService.incomingMessages AsyncStream yields
+    -> MessageRepository.handleDelivery(notification)
+      -> CryptoService.verifySignature(message)    // Verify Ed25519
+      -> PersistenceService.insertOrUpdate(message, verified: true/false)
+    -> GRDB observation fires
+      -> ThreadViewModel.messages updated automatically
+        -> SwiftUI re-renders message list
 ```
 
-### 3.3 Routing Decision Flowchart
+#### Streaming Agent Response (Server -> Human, real-time)
 
 ```
-Message arrives (from client OR from federation relay)
-  |
-  v
-Verify sender signature
-  |
-  v
-Look up thread_id in Thread Registry
-  |-- Not found?
-  |     |-- From local client? -> Error -32024 (thread not found)
-  |     |-- From federation relay? -> Accept if it's a thread.create,
-  |           otherwise request backfill from origin server
-  |
-  v
-For each participant in thread:
-  |
-  +-- Is participant local? (provider matches our domain)
-  |     |
-  |     +-- Is participant online? (session exists in Session Manager)
-  |     |     |-- YES -> deliver via WebSocket (ainm.message.deliver)
-  |     |     |-- NO  -> enqueue in Offline Queue
-  |     |
-  +-- Is participant remote?
-        |-- Group by home_server domain
-        |-- Enqueue in Federation Sender (per-destination queue)
+WebSocket receives ainm.stream.start
+  -> NetworkService.streamEvents AsyncStream yields StreamStart
+    -> StreamingRepository.handleStreamStart(event)
+      -> PersistenceService.insertStreamPlaceholder(messageId, blocks)
+      -> StreamingState[streamId] = StreamBuffer(blocks: [...])
+
+WebSocket receives ainm.stream.delta (many times)
+  -> StreamingRepository.handleDelta(event)
+    -> StreamingState[streamId].appendDelta(blockIndex, text)
+    -> StreamingViewModel.liveText updated (in-memory, NOT persisted per delta)
+    -> SwiftUI re-renders incrementally
+
+WebSocket receives ainm.stream.end
+  -> StreamingRepository.handleStreamEnd(event)
+    -> PersistenceService.replaceStreamPlaceholder(
+         messageId, collapsedMessage, verified: CryptoService.verify(...)
+       )
+    -> StreamingState.remove(streamId)
+    -> GRDB observation fires -> final message rendered
 ```
 
----
+**Critical design decision:** Stream deltas are held in-memory only. The collapsed signed message at stream-end is what gets persisted to GRDB. This matches the protocol's design (deltas are ephemeral, only the collapsed message is signed and canonical).
 
-## 4. Lessons from Matrix and XMPP
-
-### 4.1 What Matrix Gets Right (Adopt)
-
-| Pattern | Matrix Implementation | AINM Adaptation |
-|---------|----------------------|-----------------|
-| **Per-destination send queues** | Synapse's `per_destination_queue.py` -- each remote server has its own outbound queue with independent retry/backoff state | Federation Sender maintains a `DashMap<ServerDomain, DestinationQueue>`. Each queue has its own backoff timer. If server-b.com is down, messages to server-c.com are unaffected. |
-| **Layered validation** | mTLS + server signatures + event signatures (3 layers) | Already specified in transport.md Section 5.4. Implement exactly as specced. |
-| **Server identity at well-known URL** | `/.well-known/matrix/server` for delegation | Already specced at `/.well-known/ainm/server`. |
-| **Backfill API** | `GET /_matrix/federation/v1/backfill/{roomId}` returns events before a given point | Implement `GET /ainm/v1/backfill/{thread_id}` returning messages in reverse chronological order from a given message_id. |
-| **Transaction batching** | Up to 50 PDUs per transaction | Batch up to 50 messages per relay request. Reduces HTTP overhead for chatty threads. |
-| **Caching remote server identity** | 1-hour TTL on server key responses | Cache `/.well-known/ainm/server` responses per the Cache-Control header, default 1 hour. |
-
-### 4.2 What Matrix Gets Wrong (Avoid)
-
-| Anti-Pattern | Matrix Problem | AINM Design |
-|-------------|----------------|-------------|
-| **DAG-based event ordering** | Events form a DAG with `prev_events` references. Fork/merge creates state resolution nightmares. State resets plagued early Matrix. State Resolution v2 is 2000+ lines of complex algorithm. | **Use origin-server authority instead.** Threads have a single authoritative server (where the thread was created). That server assigns `server_timestamp` ordering. No DAG, no forks, no state resolution needed. |
-| **Full room state replication** | Every server in a room gets a full copy of all state events. Joining a large room downloads megabytes of state. | **Selective state.** Remote servers store thread metadata (participants, title, origin) but do NOT replicate full thread state. They request backfill on demand. |
-| **Complex join handshake** | `make_join` / `send_join` is a multi-step dance involving auth chains, state snapshots, and room version negotiation. | **Simple join via relay.** Thread creator's server is authoritative. To add a remote participant, the origin server sends a `thread.create` or `thread.join` event via normal relay. No handshake dance. |
-| **Unbounded state accumulation** | Rooms accumulate state events forever. Large rooms (Matrix HQ) have enormous state. | **Bounded thread metadata.** Thread metadata is the participant list + title. Memory/archival is per-server, not replicated via federation. |
-
-### 4.3 What XMPP Gets Right (Adopt)
-
-| Pattern | XMPP Implementation | AINM Adaptation |
-|---------|---------------------|-----------------|
-| **Persistent S2S connections** (optional) | XMPP maintains long-lived TCP connections between servers for high-traffic pairs | Consider connection pooling (not persistent WebSocket but HTTP/2 connection reuse via reqwest) for high-volume server pairs. Start with stateless HTTP POST. |
-| **Simple identity model** | `user@domain` -- domain IS the server | Already using `name@provider`. Provider domain hosts `.well-known` endpoints. |
-| **SRV DNS records** for server discovery | `_xmpp-server._tcp.example.com` | Optional future enhancement. For v1, `/.well-known/ainm/server` is sufficient. |
-
-### 4.4 What XMPP Gets Wrong (Avoid)
-
-| Anti-Pattern | XMPP Problem | AINM Avoidance |
-|-------------|--------------|----------------|
-| **Dialback verification** | Weak authentication via DNS -- subject to DNS poisoning | Use mTLS with certificate fingerprint pinning (already specced in transport.md) |
-| **XML stanza complexity** | Verbose, hard to parse, poor tooling | JSON-RPC 2.0 -- already decided and correct |
-| **No message history federation** | XMPP has no built-in backfill protocol for federated chat history | Backfill API is a first-class federation feature |
-
----
-
-## 5. Thread Ownership Model: Origin-Server Authority
-
-This is the most critical architectural decision for AINM federation. The choice is between Matrix-style distributed authority (DAG + state resolution) and origin-server authority.
-
-**Recommendation: Origin-server authority.** The server where a thread was created is the authoritative source for that thread's state.
-
-### 5.1 How It Works
+#### Offline / Reconnection Flow
 
 ```
-Thread created on server-a.com:
+Connection drops (detected by URLSessionWebSocketTask delegate)
+  -> NetworkService.connectionState = .disconnected
+    -> All ViewModels observe this state -> show offline banner
 
-  server-a.com (ORIGIN)           server-b.com (PARTICIPANT)
-  ========================        ========================
-  Thread Registry:                Thread Registry:
-    thread_id: "abc-123"            thread_id: "abc-123"
-    origin_server: self             origin_server: "server-a.com"
-    participants: [                 participants: [
-      alice@server-a.com,             alice@server-a.com,
-      bob@server-b.com                bob@server-b.com
-    ]                               ]
-    messages: [full history]        messages: [locally cached]
+User sends message while offline:
+  -> PersistenceService.insert(message, status: .queued)
+  -> Message appears in UI with "pending" indicator
 
-  Authority:                      Authority:
-    - Assigns server_timestamp      - Caches participant list
-    - Authoritative participant     - Requests backfill from
-      list                            server-a.com on demand
-    - Accepts/rejects joins         - Forwards thread ops to
-    - Serves backfill                  server-a.com
+Connection restored:
+  -> NetworkService performs ainm.initialize handshake
+  -> NetworkService.connectionState = .connected
+  -> MessageRepository.flushQueuedMessages()
+    -> For each queued message: send via WebSocket, update status
+  -> Server may deliver missed messages via ainm.message.deliver
+    -> Normal receive flow handles them
 ```
 
-### 5.2 Origin-Server Responsibilities
+## Component Design Details
 
-| Operation | Origin Server | Participant Server |
-|-----------|--------------|-------------------|
-| **Message ordering** | Assigns `server_timestamp` to all messages (local and relayed) | Uses origin's `server_timestamp` for ordering |
-| **Participant management** | Authoritative add/remove of participants | Forwards `thread.join`/`thread.leave` to origin via relay |
-| **Thread metadata** | Authoritative title, settings | Caches metadata, refreshes from origin |
-| **Message storage** | Full message history | Stores messages it has seen (for local participant access) |
-| **Backfill** | Serves history via `/ainm/v1/backfill/{thread_id}` | Requests history from origin when client requests older messages |
+### 1. NetworkService (Singleton)
 
-### 5.3 Why Not Distributed Authority (Matrix-Style)
+The single most important component. Manages the one WebSocket connection to the server.
 
-| Criterion | Origin-Server Authority | Distributed (DAG) |
-|-----------|------------------------|-------------------|
-| **Complexity** | Simple -- one server decides | Extremely complex state resolution algorithms |
-| **Consistency** | Strong -- single source of truth | Eventual -- forks must merge |
-| **Message ordering** | Total order via `server_timestamp` | Partial order via DAG, requires resolution |
-| **Failure mode** | Origin server down = thread read-only temporarily | Any server can accept messages, but conflicts accumulate |
-| **Implementation effort** | Weeks | Months (Matrix state resolution is 2000+ LOC of edge cases) |
-| **Trade-off** | Single point of failure per thread | No single point of failure but complex failure modes |
+```swift
+@Observable
+final class NetworkService {
+    // Connection state
+    enum ConnectionState { case disconnected, connecting, handshaking, connected }
+    var connectionState: ConnectionState = .disconnected
 
-**The trade-off is acceptable for v1.** If the origin server goes down, the thread becomes temporarily unavailable for new messages. Participant servers still have cached messages for offline reading. This is the same model as email -- if gmail.com goes down, you cannot send FROM gmail, but existing messages are cached locally.
+    // Outbound
+    func sendRequest(method: String, params: Encodable) async throws -> JSONRPCResponse
+    func sendNotification(method: String, params: Encodable) async throws
 
-### 5.4 Future Migration Path
+    // Inbound streams (multiplexed from single WebSocket)
+    var messageDeliveries: AsyncStream<MessageDeliverParams>
+    var streamEvents: AsyncStream<StreamEvent>        // start/delta/end/error
+    var presenceUpdates: AsyncStream<PresenceUpdate>
+    var memoryNotifications: AsyncStream<MemoryEvent>
+    var contextFrames: AsyncStream<ContextFrame>
 
-If origin-server authority proves too limiting (e.g., origin server permanently lost), a future protocol version can add:
-- **Thread migration:** Transfer origin-server authority to another server
-- **Multi-master writes:** Allow participant servers to accept messages during origin outage, with reconciliation on recovery
-
-These are additive -- they do not require rearchitecting the v1 design.
-
----
-
-## 6. New Components: Detailed Design
-
-### 6.1 Message Router (Core New Component)
-
-The Message Router replaces the current `broadcast::Sender` pattern with participant-aware routing.
-
-```rust
-// Conceptual structure -- not literal implementation
-pub struct MessageRouter {
-    session_manager: SessionManager,
-    federation_sender: FederationSender,
-    offline_queue: OfflineQueue,
-    thread_registry: ThreadRegistry,
-    local_domain: String,
+    // Lifecycle
+    func connect(to url: URL, identity: String, signature: String) async throws
+    func disconnect() async
 }
+```
 
-impl MessageRouter {
-    /// Route a validated message to all thread participants
-    pub async fn route(&self, message: &SignedMessage) -> Result<()> {
-        let thread = self.thread_registry.get(&message.thread_id)?;
+**Implementation pattern:** The WebSocket receive loop runs as a detached Task. It deserializes each incoming JSON-RPC message, inspects the `method` field, and routes to the appropriate `AsyncStream.Continuation.yield()`. Pending requests (messages with `id`) are tracked in a `[String: CheckedContinuation]` dictionary for request/response correlation.
 
-        for participant in &thread.participants {
-            let provider = participant.identity.split('@').nth(1).unwrap();
+**Why a single connection:** The AINM transport spec (Section 4.1) specifies one connection per client session. All JSON-RPC methods are multiplexed on this single WebSocket.
 
-            if provider == self.local_domain {
-                // Local participant
-                if self.session_manager.is_online(&participant.identity) {
-                    self.session_manager.deliver(&participant.identity, message).await?;
-                } else {
-                    self.offline_queue.enqueue(&participant.identity, message).await?;
-                }
-            } else {
-                // Remote participant -- group by server and batch
-                let home_server = &participant.home_server;
-                self.federation_sender.enqueue(home_server, message).await?;
-            }
-        }
-        Ok(())
+### 2. PersistenceService (GRDB)
+
+Uses GRDB.swift with `DatabaseQueue` (single-connection, appropriate for a single-user iOS app). Provides both write operations and observation-based reads.
+
+**Database schema (key tables):**
+
+```
+threads
+  - id TEXT PRIMARY KEY          -- UUIDv7
+  - title TEXT
+  - created_at TEXT              -- RFC 3339
+  - updated_at TEXT
+  - last_message_preview TEXT
+  - unread_count INTEGER DEFAULT 0
+  - is_sub_thread INTEGER DEFAULT 0
+  - parent_thread_id TEXT
+
+messages
+  - id TEXT PRIMARY KEY          -- UUIDv7 (from protocol)
+  - thread_id TEXT NOT NULL      -- FK to threads
+  - from_address TEXT NOT NULL   -- AINM address
+  - timestamp TEXT NOT NULL      -- RFC 3339
+  - type TEXT NOT NULL           -- "message", "action", "system"
+  - content_json TEXT NOT NULL   -- JSON array of content blocks
+  - signature TEXT
+  - verified INTEGER             -- 0/1/NULL
+  - status TEXT NOT NULL         -- "sending", "sent", "delivered", "failed", "queued"
+  - stream_id TEXT               -- non-null during active streaming
+  - INDEX idx_messages_thread ON messages(thread_id, timestamp)
+
+participants
+  - thread_id TEXT NOT NULL
+  - address TEXT NOT NULL
+  - type TEXT NOT NULL           -- "human" or "agent"
+  - presence TEXT                -- "online", "offline", "available"
+  - PRIMARY KEY (thread_id, address)
+
+archival_facts
+  - fact_id TEXT PRIMARY KEY
+  - key TEXT NOT NULL
+  - value_json TEXT NOT NULL
+  - tags_json TEXT
+  - stored_by TEXT NOT NULL
+  - stored_at TEXT NOT NULL
+
+identity
+  - address TEXT PRIMARY KEY
+  - display_name TEXT
+  - type TEXT                    -- "human" or "agent"
+  - public_key_base64 TEXT
+  - server_url TEXT
+
+agent_cards
+  - address TEXT PRIMARY KEY
+  - card_json TEXT NOT NULL      -- Full Agent Card JSON
+  - etag TEXT                    -- For conditional GET caching
+  - fetched_at TEXT
+```
+
+**Observation pattern (GRDB ValueObservation):**
+
+```swift
+// In MessageRepository:
+func observeMessages(threadId: String) -> AsyncValueObservation<[Message]> {
+    let observation = ValueObservation.tracking { db in
+        try Message
+            .filter(Column("thread_id") == threadId)
+            .order(Column("timestamp"))
+            .fetchAll(db)
     }
+    return observation.values(in: database) // AsyncSequence
 }
 ```
 
-**Key design decisions:**
-- The router does NOT know about WebSocket specifics -- it delegates to `SessionManager`
-- Remote messages are grouped by destination server, not individual recipient
-- The router is called from both the WebSocket handler (client sends) AND the Federation Relay handler (remote server sends)
+ViewModels consume these as `AsyncStream` / `AsyncSequence`, which triggers SwiftUI re-renders automatically when the database changes.
 
-### 6.2 Session Manager (Replaces Broadcast Channels)
+### 3. CryptoService
 
-```rust
-pub struct SessionManager {
-    // Maps participant identity -> active WebSocket sender
-    sessions: DashMap<String, Arc<Mutex<SplitSink<WebSocket, Message>>>>,
-}
+Wraps Apple CryptoKit for AINM's specific signing requirements.
 
-impl SessionManager {
-    pub fn register(&self, identity: &str, sender: Arc<Mutex<SplitSink<WebSocket, Message>>>);
-    pub fn unregister(&self, identity: &str);
-    pub fn is_online(&self, identity: &str) -> bool;
-    pub async fn deliver(&self, identity: &str, message: &SignedMessage) -> Result<()>;
-}
-```
+```swift
+final class CryptoService {
+    // Key management
+    func generateKeyPair() -> Curve25519.Signing.PrivateKey
+    func storePrivateKey(_ key: Curve25519.Signing.PrivateKey, for address: String) // Keychain
+    func loadPrivateKey(for address: String) -> Curve25519.Signing.PrivateKey?   // Keychain
 
-**Why DashMap instead of broadcast channels:** The current architecture uses two broadcast channels (`to_agent_tx`, `to_human_tx`) which hard-codes exactly two participants. `DashMap` supports any number of concurrent sessions with lock-free reads. This is the pattern Conduit uses for connection tracking.
+    // Message signing (matches server's signing.rs exactly)
+    func signEnvelope(_ envelope: inout [String: Any]) throws -> String
+    // 1. Remove "signature" key
+    // 2. JCS canonicalize (RFC 8785) -- sorted keys, no whitespace
+    // 3. Sign canonical UTF-8 bytes with Ed25519
+    // 4. Base64url encode (no padding)
+    // 5. Set envelope["signature"]
 
-### 6.3 Federation Sender (Per-Destination Queues)
+    // Verification
+    func verifySignature(publicKey: Data, envelope: [String: Any]) throws -> Bool
 
-Modeled after Synapse's `per_destination_queue.py` and Conduit's `sending::Service`:
-
-```rust
-pub struct FederationSender {
-    // Per-destination outbound queues
-    queues: DashMap<String, DestinationQueue>,
-    server_identity: ServerIdentity,
-    http_client: reqwest::Client,  // configured with mTLS
-}
-
-pub struct DestinationQueue {
-    messages: VecDeque<SignedMessage>,
-    state: DestinationState,
-    last_attempt: Option<Instant>,
-    retry_count: u32,
-}
-
-pub enum DestinationState {
-    Ready,
-    Sending,
-    BackingOff { until: Instant },
-    Failed { reason: String },
+    // Init signing (transport.md Section 4.3)
+    func signInit(identity: String) throws -> String
+    // Signs: "identity|timestamp" with Ed25519
 }
 ```
 
-**Retry strategy (matching Matrix best practices):**
-1. Immediate first attempt
-2. On failure: exponential backoff starting at 1s, doubling to max 60s
-3. After 10 consecutive failures: mark destination as `Failed`, stop retrying
-4. Background task periodically retries `Failed` destinations every 5 minutes
-5. Successful send resets backoff to `Ready`
+**JCS (RFC 8785) implementation note:** There is no established Swift library for JSON Canonicalization Scheme. We need to implement it -- it is straightforward (serialize JSON with sorted keys, no extra whitespace, specific number formatting). This is the same algorithm the Rust server uses via `serde_json_canonicalizer`. The implementation is ~100 lines and must produce byte-identical output to the server's version for signatures to verify.
 
-**Batching:** Queue accumulates messages. When a send attempt fires, batch up to 50 messages into a single `ainm.relay` request. This is critical for chatty threads -- sending one HTTP request per message would be prohibitively expensive.
+### 4. Repository Layer
 
-### 6.4 Thread Registry
+Each repository coordinates one domain across network + persistence:
 
-```rust
-pub struct ThreadRegistry {
-    threads: DashMap<String, FederatedThread>,
+| Repository | Network Methods | Persistence Tables | Key Responsibility |
+|-----------|----------------|-------------------|-------------------|
+| **MessageRepository** | `ainm.message.send`, handles `ainm.message.deliver` | `messages` | Send messages, persist deliveries, flush offline queue |
+| **ThreadRepository** | `ainm.thread.create`, `ainm.thread.join`, `ainm.thread.leave` | `threads`, `participants` | Thread CRUD, participant management |
+| **StreamingRepository** | Handles `ainm.stream.start/delta/end/error/cancel` | `messages` (for collapsed) | In-memory stream buffer, collapse to persistence |
+| **MemoryRepository** | `ainm.memory.store/query/evict`, handles `ainm.context.frame` | `archival_facts` | Memory operations, context frame display |
+| **AgentRepository** | HTTP GET `/.well-known/ainm/{name}/agent-card.json` | `agent_cards` | Agent Card discovery with ETag caching |
+| **IdentityRepository** | HTTP GET identity resolution | `identity` | Identity resolution, key caching |
+
+### 5. ViewModel Layer
+
+| ViewModel | Screens | Key State |
+|-----------|---------|-----------|
+| **ConversationListVM** | Conversation list (home screen) | `[ThreadSummary]`, sorted by last activity |
+| **ThreadVM** | Message thread view | `[Message]`, `[Participant]`, send action |
+| **StreamingVM** | Embedded in ThreadVM | `[StreamId: LiveStreamState]` with in-memory delta text |
+| **AgentCardVM** | Agent detail/discovery view | `AgentCard`, capabilities list |
+| **MemoryVM** | Memory context display | `[ArchivalFact]`, context frames |
+| **SettingsVM** | Identity/connection settings | `ConnectionState`, identity address |
+
+## Patterns to Follow
+
+### Pattern 1: Database as Single Source of Truth (Write-Through Cache)
+
+**What:** All server data writes to GRDB first, then UI observes GRDB. Never hold message state only in ViewModel memory (except streaming deltas).
+
+**When:** Every received message, thread update, participant change.
+
+**Why:** Guarantees consistency. If the app crashes mid-operation, state is recoverable. GRDB observation handles UI updates automatically -- no manual state synchronization.
+
+```swift
+// GOOD: Write-through
+func handleDelivery(_ notification: MessageDeliverParams) async throws {
+    let message = Message(from: notification)
+    try await database.write { db in
+        try message.save(db)    // GRDB handles INSERT or UPDATE
+    }
+    // UI updates automatically via ValueObservation -- no explicit notification needed
 }
 
-pub struct FederatedThread {
-    pub thread_id: String,
-    pub title: Option<String>,
-    pub origin_server: String,  // Domain of the server where thread was created
-    pub created_at: String,
-    pub created_by: String,
-    pub parent_thread_id: Option<String>,
-    pub parent_message_id: Option<String>,
-    pub participants: Vec<FederatedParticipant>,
-}
-
-pub struct FederatedParticipant {
-    pub identity: String,       // e.g., "alice@server-a.com"
-    pub participant_type: String, // "human" or "agent"
-    pub home_server: String,    // e.g., "server-a.com"
-    pub joined_at: String,
-    pub role: String,           // "creator" or "member"
+// BAD: ViewModel-only state
+func handleDelivery(_ notification: MessageDeliverParams) {
+    messages.append(Message(from: notification))  // Lost on app restart
 }
 ```
 
-**Key addition vs current:** Every participant now carries a `home_server` field, derived from the identity's provider domain during identity resolution. This is what the Message Router uses to decide local vs remote delivery.
+### Pattern 2: AsyncStream Demultiplexer for WebSocket
 
-### 6.5 Identity Resolver (Extended)
+**What:** Single WebSocket receive loop demultiplexes by JSON-RPC method into typed AsyncStreams.
 
-```rust
-pub struct IdentityResolver {
-    // Local identities (registered on this server)
-    local_store: DashMap<String, IdentityRecord>,
-    // Cached remote identities with TTL
-    remote_cache: DashMap<String, CachedIdentity>,
-    http_client: reqwest::Client,
-    local_domain: String,
-}
+**When:** Always. The AINM protocol multiplexes all operations on one WebSocket.
 
-pub struct CachedIdentity {
-    pub record: IdentityRecord,
-    pub fetched_at: Instant,
-    pub ttl: Duration,  // from Cache-Control header, default 1 hour
-}
-
-impl IdentityResolver {
-    /// Resolve an identity -- local lookup first, then remote HTTPS fetch
-    pub async fn resolve(&self, address: &str) -> Result<IdentityRecord> {
-        let provider = address.split('@').nth(1).ok_or(Error::InvalidAddress)?;
-
-        if provider == self.local_domain {
-            // Local lookup
-            self.local_store.get(address)
-                .map(|r| r.clone())
-                .ok_or(Error::IdentityNotFound)
-        } else {
-            // Check cache first
-            if let Some(cached) = self.remote_cache.get(address) {
-                if cached.fetched_at.elapsed() < cached.ttl {
-                    return Ok(cached.record.clone());
-                }
+```swift
+private func receiveLoop() async {
+    while let message = try? await webSocket.receive() {
+        guard case .string(let text) = message,
+              let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let method = json["method"] as? String else {
+            // No "method" field = this is a JSON-RPC response (has "id" + "result"/"error")
+            if let id = (json?["id"] as? String) ?? (json?["id"] as? Int).map(String.init) {
+                pendingRequests[id]?.resume(returning: json!)
             }
-            // Fetch from remote provider
-            let url = format!("https://{}/.well-known/ainm/{}", provider, name);
-            let record = self.http_client.get(&url).send().await?.json().await?;
-            self.remote_cache.insert(address.to_string(), CachedIdentity {
-                record: record.clone(),
-                fetched_at: Instant::now(),
-                ttl: Duration::from_secs(3600),
-            });
-            Ok(record)
+            continue
+        }
+
+        switch method {
+        case "ainm.message.deliver":
+            messageDeliveryContinuation.yield(decode(json))
+        case "ainm.stream.start", "ainm.stream.delta", "ainm.stream.end", "ainm.stream.error":
+            streamEventContinuation.yield(decode(json))
+        case "ainm.presence.update":
+            presenceContinuation.yield(decode(json))
+        case "ainm.context.frame":
+            contextFrameContinuation.yield(decode(json))
+        case "ainm.memory.stored", "ainm.memory.evicted", "ainm.memory.query.result":
+            memoryContinuation.yield(decode(json))
+        default:
+            break // Unknown notification, ignore
         }
     }
 }
 ```
 
-### 6.6 Backfill Protocol
+### Pattern 3: Optimistic UI for Sending
 
-When a remote server needs thread history (e.g., a new participant joins and their client scrolls up):
+**What:** Insert messages locally with `status: .sending` before server confirms. Update to `.sent` on success, `.failed` on error.
 
-```
-GET /ainm/v1/backfill/{thread_id}?before={message_id}&limit={n}
+**When:** Every outbound message.
 
-Response:
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "messages": [ ... ],  // Signed message envelopes, reverse chronological
-    "has_more": true
-  }
+**Why:** Instant UI feedback. Messages appear immediately in the thread. Standard pattern in all modern messaging apps (iMessage, WhatsApp, Telegram).
+
+### Pattern 4: Streaming Delta Buffer (In-Memory Only)
+
+**What:** Accumulate stream deltas in-memory per `stream_id`. Only persist the final collapsed message.
+
+**When:** All agent streaming responses.
+
+**Why:** Protocol design -- deltas are ephemeral, unsigned. Persisting hundreds of deltas per message would thrash the database. The collapsed signed message at `ainm.stream.end` is the canonical record.
+
+```swift
+@Observable
+class StreamBuffer {
+    let streamId: String
+    let messageId: String
+    var blockTexts: [String]    // One entry per block in the layout
+    var isComplete: Bool = false
 }
 ```
 
-**Access control:** Only servers with at least one participant in the thread may request backfill. The backfill handler checks the requesting server's identity against the thread's participant list.
+### Pattern 5: Request/Response Correlation with CheckedContinuation
 
-**Selective backfill (not full replication):** Unlike Matrix which replicates the entire room DAG, AINM backfill is on-demand. A participant server only fetches history when its local client requests it. This dramatically reduces federation bandwidth and storage requirements.
+**What:** For JSON-RPC requests (messages with `id`), use a `[String: CheckedContinuation]` map to bridge the async gap between sending a request and receiving its response.
 
-### 6.7 Offline Queue
+**When:** All outbound JSON-RPC requests (`ainm.message.send`, `ainm.thread.create`, etc.).
 
-```rust
-pub struct OfflineQueue {
-    // Per-participant queues for messages awaiting delivery
-    queues: DashMap<String, VecDeque<QueuedMessage>>,
-}
+```swift
+func sendRequest<T: Decodable>(method: String, params: Encodable) async throws -> T {
+    let id = UUID().uuidString
+    let rpcRequest = JSONRPCRequest(jsonrpc: "2.0", id: id, method: method, params: params)
 
-pub struct QueuedMessage {
-    pub message: SignedMessage,
-    pub queued_at: Instant,
-}
-
-impl OfflineQueue {
-    pub async fn enqueue(&self, identity: &str, message: &SignedMessage);
-
-    /// Drain all queued messages for a participant (called on reconnect)
-    pub async fn drain(&self, identity: &str) -> Vec<SignedMessage>;
+    return try await withCheckedThrowingContinuation { continuation in
+        pendingRequests[id] = continuation
+        webSocket.send(.string(encode(rpcRequest))) { error in
+            if let error {
+                pendingRequests.removeValue(forKey: id)
+                continuation.resume(throwing: error)
+            }
+        }
+    }
 }
 ```
 
-Messages are drained in chronological order when a client reconnects and completes `ainm.initialized`. The spec requires at least 7 days retention (transport.md Section 6.2).
+## Anti-Patterns to Avoid
 
----
+### Anti-Pattern 1: Parsing JSON-RPC in ViewModels
 
-## 7. Server Identity and mTLS
+**What:** ViewModel directly deserializes raw WebSocket JSON.
 
-### 7.1 Server Identity Endpoint
+**Why bad:** Couples UI layer to wire protocol. Makes testing impossible without mocking WebSocket.
 
-New Axum route: `GET /.well-known/ainm/server`
+**Instead:** NetworkService handles all JSON-RPC framing. Repositories handle all protocol-specific logic. ViewModels work with domain model types only.
 
-```rust
-async fn server_identity_handler(State(state): State<ServerState>) -> impl IntoResponse {
-    Json(json!({
-        "server_id": state.server_identity.domain,
-        "public_key": state.server_identity.public_key_b64(),
-        "relay_endpoint": format!("https://{}/ainm/v1/relay", state.server_identity.domain),
-        "tls_fingerprint": state.server_identity.tls_fingerprint(),
-        "supported_versions": ["0.1.0"]
-    }))
-}
-```
+### Anti-Pattern 2: Multiple WebSocket Connections
 
-### 7.2 Server Ed25519 Keypair
+**What:** Opening separate WebSocket connections for different features (one for messages, one for streaming, etc.).
 
-Separate from participant keypairs. The server has its own Ed25519 identity used exclusively for:
-1. Signing relay payloads (`server_signature` field)
-2. Publishing at `/.well-known/ainm/server`
+**Why bad:** Protocol violation -- AINM specifies one connection per session. Also wastes resources and complicates session state.
 
-This key is generated once at server startup and persisted. It is NOT the same as any participant's key.
+**Instead:** Single NetworkService singleton with one WebSocket, demultiplexed streams.
 
-### 7.3 mTLS for Federation
+### Anti-Pattern 3: Persisting Stream Deltas
 
-| Direction | Certificate | Verification |
-|-----------|-------------|-------------|
-| Outbound relay | This server presents its TLS certificate | Remote server verifies against our `tls_fingerprint` |
-| Inbound relay | Remote server presents its TLS certificate | We verify against their published `tls_fingerprint` at `/.well-known/ainm/server` |
+**What:** Writing every `ainm.stream.delta` to GRDB.
 
-**Implementation:** Use `reqwest` with `rustls` for the HTTP client. Configure `ClientConfig` with client certificates for mTLS. Use `axum-server` with `rustls` for the HTTPS listener accepting federation connections.
+**Why bad:** Hundreds of database writes per agent response. Deltas are unsigned and ephemeral by protocol design. Causes UI flicker from rapid observation updates.
 
----
+**Instead:** In-memory `StreamBuffer`. Persist only the final collapsed message from `ainm.stream.end`.
 
-## 8. Modified Components: What Changes
+### Anti-Pattern 4: SwiftData for Messages
 
-### 8.1 WebSocket Handler Changes
+**What:** Using SwiftData instead of GRDB for message persistence.
 
-**Before (current):**
-```
-handle_ws_connection
-  -> is_agent? handle_agent_connection : handle_human_connection
-  -> Hard-coded broadcast channel routing
-```
+**Why bad:** SwiftData lacks background write support (messages arrive on WebSocket task, not main thread). Performance degrades with large datasets. No raw SQL for complex queries (unread counts, search). Missing observation granularity.
 
-**After:**
-```
-handle_ws_connection
-  -> authenticate via ainm.initialize (unchanged)
-  -> register session in SessionManager (NEW)
-  -> drain offline queue for this identity (NEW)
-  -> dispatch JSON-RPC methods to handlers
-  -> on disconnect: unregister from SessionManager (NEW)
-```
+**Instead:** GRDB.swift with `ValueObservation` provides exactly the observation + background-write + raw-SQL combination messaging apps need.
 
-The handler no longer distinguishes agent vs human. All participants are handled uniformly. The Message Router handles delivery logic.
+### Anti-Pattern 5: Re-implementing JSON-RPC Framing Ad Hoc
 
-### 8.2 Message Send Handler Changes
+**What:** Hand-rolling JSON-RPC request/response/notification handling scattered across the codebase.
 
-**Before:** Directly broadcasts to the other channel (`to_agent_tx` or `to_human_tx`).
+**Why bad:** Error-prone, misses edge cases (error codes, null IDs, notifications vs requests).
 
-**After:**
-1. Verify signature (unchanged)
-2. Check thread membership (unchanged)
-3. Assign `server_timestamp` (unchanged -- but only if we are the origin server for this thread)
-4. Pass to Message Router (NEW)
-5. Message Router handles local/remote/offline delivery
+**Instead:** Build a small but complete `JSONRPCCodec` layer that handles all framing concerns once. ~200 lines that correctly handles requests, responses, notifications, and errors per the JSON-RPC 2.0 spec.
 
-### 8.3 Thread Create Handler Changes
+## Sync Strategy
 
-**Before:** Pushes thread_id to `Vec<String>`.
+### Online-First, Offline-Tolerant
 
-**After:**
-1. Validate participants (resolve all identities, including remote) (MODIFIED)
-2. Create `FederatedThread` in Thread Registry with `origin_server = self` (NEW)
-3. For each remote participant's home server, relay the `thread.create` event via Federation Sender (NEW)
+This is NOT an offline-first app. The server is authoritative. But the app must handle:
 
----
+1. **Brief disconnections** (tunnel, elevator, network switch): Queue outbound messages locally, flush on reconnect. Inbound messages delivered by server on reconnect.
 
-## 9. Build Order (Dependency-Aware)
+2. **App backgrounding**: iOS suspends the app. On foreground, reconnect WebSocket, receive any queued deliveries from server.
 
-The components have clear dependencies. Build in this order:
+3. **Cold start with cached data**: Show conversation list and recent messages from GRDB immediately while WebSocket connects in background.
+
+**What we do NOT need for v1:**
+- Conflict resolution (server is authoritative)
+- CRDTs or operational transforms (messages are append-only)
+- Background sync daemon (iOS kills background WebSocket connections anyway)
+- Delta sync / incremental fetch (server delivers missed messages on reconnect)
+
+### Reconnection Strategy
 
 ```
-Phase 1: Foundation (no external dependencies)
-  |
-  +-- 1a. Server Identity (keypair generation, well-known endpoint)
-  +-- 1b. Identity Resolver (extend IdentityStore with remote HTTPS fetch + cache)
-  +-- 1c. Session Manager (DashMap-based, replaces broadcast channels)
-  |
-  v
-Phase 2: Local Routing Refactor
-  |
-  +-- 2a. Thread Registry (replace Vec<String> with FederatedThread)
-  +-- 2b. Message Router (local-only first: Session Manager + Offline Queue)
-  +-- 2c. Offline Queue (per-participant message storage)
-  +-- 2d. Refactor WebSocket handler to use Session Manager + Message Router
-  |       (This phase must produce a working single-server system
-  |        equivalent to the current demo -- no regression)
-  |
-  v
-Phase 3: Federation Send Path
-  |
-  +-- 3a. mTLS HTTP client (reqwest + rustls with client certs)
-  +-- 3b. Federation Sender (per-destination queues, batching, retry)
-  +-- 3c. Extend Message Router to route remote participants to Federation Sender
-  |
-  v
-Phase 4: Federation Receive Path
-  |
-  +-- 4a. Relay endpoint (POST /ainm/v1/relay with triple-layer validation)
-  +-- 4b. Remote server identity verification (fetch + validate .well-known/ainm/server)
-  +-- 4c. Inbound message processing (validate -> Message Router -> local delivery)
-  |
-  v
-Phase 5: Thread Federation
-  |
-  +-- 5a. Thread creation across servers (origin-server creates, relays to participants)
-  +-- 5b. Thread join/leave across servers (forward to origin server)
-  +-- 5c. Participant management with remote identities
-  |
-  v
-Phase 6: Backfill & History
-  |
-  +-- 6a. Message persistence (store messages for backfill -- even in-memory for demo)
-  +-- 6b. Backfill endpoint (GET /ainm/v1/backfill/{thread_id})
-  +-- 6c. Backfill client (request history from origin server)
-  |
-  v
-Phase 7: Demo & Validation
-  |
-  +-- 7a. docker-compose with 2+ federated servers
-  +-- 7b. Cross-server thread creation and messaging demo
-  +-- 7c. Offline queue + reconnection demo
-  +-- 7d. Backfill demo
-  +-- 7e. Updated JSON schemas and AsyncAPI definitions
+Disconnect detected
+  -> Wait 1s, attempt reconnect
+  -> If fail: exponential backoff (1s, 2s, 4s, 8s, max 30s)
+  -> On success: full ainm.initialize handshake
+  -> Server delivers any messages queued during offline period
+  -> Flush local outbound queue
 ```
 
-**Why this order:**
-- Phase 1 has no dependencies -- pure additive components
-- Phase 2 refactors the core routing without adding federation. This is the riskiest phase because it changes existing behavior. Must verify no regression before adding federation complexity.
-- Phases 3-4 are the federation send/receive paths. Send before receive because we can test send against a mock/echo server.
-- Phase 5 builds on 3+4 for thread lifecycle across servers
-- Phase 6 is backfill, which requires message persistence from Phase 2+
-- Phase 7 is the integration demo proving everything works together
+## Build Order (Suggested Phase Sequence)
 
----
+The layers have hard dependencies. Build bottom-up:
 
-## 10. Scalability Considerations
+### Phase 1: Foundation (no server needed)
+1. **Xcode project setup** -- SPM, target config, iOS 18 minimum
+2. **GRDB schema + PersistenceService** -- migrations, all tables, basic CRUD
+3. **CryptoService** -- Ed25519 keygen, JCS canonicalization, signing, verification
+4. **Domain models** -- Swift types for Message, Thread, Participant, ContentBlock, etc.
+5. **Unit tests** -- Verify signing produces output compatible with Rust server's `signing.rs`
 
-| Concern | At 2 servers (demo) | At 10 servers | At 100+ servers |
-|---------|--------------------|--------------|--------------------|
-| **Federation send queues** | 1 destination queue | 9 destination queues | Per-destination queues in DashMap, background task pool |
-| **Identity resolution** | 1-2 remote lookups | Cache becomes critical, TTL-based expiry | Consider DNS-style hierarchical caching |
-| **Thread participant scatter** | 2-3 participants, 1-2 servers | 10+ participants across multiple servers | Group relay by destination server (already designed) |
-| **Backfill volume** | Minimal | Moderate -- cache responses | Rate limit backfill requests per-server |
-| **mTLS connections** | 1 peer | 9 peers, consider HTTP/2 connection reuse | Connection pooling via reqwest, idle timeout management |
-| **Message storage** | In-memory HashMap | SQLite or PostgreSQL for persistence | PostgreSQL with partitioned message tables |
+**Rationale:** Crypto compatibility is the riskiest integration point. Validating early that Swift's CryptoKit Ed25519 + our JCS implementation produces identical signatures to the Rust server prevents late-stage rework.
 
----
+### Phase 2: Network Layer (needs running server)
+6. **JSONRPCCodec** -- Encode/decode JSON-RPC 2.0 requests, responses, notifications
+7. **NetworkService** -- WebSocket connection, init handshake, receive loop, demux
+8. **Request/response correlation** -- CheckedContinuation map for RPC calls
+9. **Integration test** -- Connect to demo server, complete handshake, send/receive one message
 
-## 11. Patterns to Follow
+### Phase 3: Core Messaging (server + persistence + network integrated)
+10. **MessageRepository** -- Send, receive, persist, optimistic UI
+11. **ThreadRepository** -- Create thread, manage participants
+12. **ThreadViewModel + ThreadView** -- Message list, send input, basic rendering
+13. **ConversationListViewModel + ConversationListView** -- Thread list with last message preview
+14. **ContentBlockRenderer** -- Render text, code, image, file blocks in SwiftUI
 
-### Pattern 1: Participant-Addressed Routing (Not Topic-Based)
-**What:** Every message routes to individual participants via their home server, not broadcast to a "room" that all servers subscribe to.
-**When:** All message delivery.
-**Why:** Simpler than Matrix's room-based replication. Only servers with active participants receive messages. A server that had a participant who left stops receiving messages immediately.
+### Phase 4: Real-Time Features
+15. **StreamingRepository + StreamBuffer** -- Handle stream lifecycle
+16. **StreamingViewModel** -- Live text updates in thread view
+17. **Interactive block renderers** -- Button, Form, Table, Approval, Action blocks
+18. **Presence indicators** -- Online/offline/available status display
 
-### Pattern 2: Origin-Server Timestamp Authority
-**What:** The server where a thread was created assigns the authoritative `server_timestamp` to all messages in that thread, whether from local or remote senders.
-**When:** Every message in a federated thread.
-**Why:** Provides total ordering without a DAG. Remote servers relay messages to the origin for timestamp assignment, then the origin relays to all participants.
+### Phase 5: Advanced Features
+19. **MemoryRepository + MemoryVM** -- Context frames, archival facts display
+20. **AgentRepository + AgentCardVM** -- Agent Card discovery with ETag caching
+21. **IdentityRepository + SettingsVM** -- Identity management, connection settings
+22. **Offline queue** -- Queue outbound messages, flush on reconnect
 
-**Important nuance for remote messages:** When Server B relays a message from Bob to a thread owned by Server A, Server A assigns the `server_timestamp` and then relays the timestamped message to all participants (including back to Server B for Bob's confirmation). This means remote messages have slightly higher latency (one extra hop through origin) but gain guaranteed ordering.
+### Phase 6: Polish
+23. **Navigation** -- NavigationStack with deep linking
+24. **Error handling** -- Network errors, signing failures, UI feedback
+25. **Accessibility** -- VoiceOver, Dynamic Type
+26. **Performance** -- Profile GRDB queries, optimize list rendering
 
-### Pattern 3: Lazy History (Backfill on Demand)
-**What:** Participant servers do NOT proactively replicate thread history. They request it from the origin server only when a local client scrolls up.
-**When:** Client requests messages older than what the server has locally.
-**Why:** Dramatically reduces federation bandwidth. Most users never scroll past the recent 50 messages.
+**Dependency graph:**
+```
+Phase 1 (Foundation) ----+
+                         |
+Phase 2 (Network) ------+---> Phase 3 (Core Messaging)
+                                |
+                         +------+-------+
+                         |              |
+                   Phase 4 (RT)    Phase 5 (Advanced)
+                         |              |
+                         +------+-------+
+                                |
+                          Phase 6 (Polish)
+```
 
----
+## Scalability Considerations
 
-## 12. Anti-Patterns to Avoid
+| Concern | At 10 conversations | At 100 conversations | At 1000+ conversations |
+|---------|---------------------|----------------------|------------------------|
+| Message list | No issues | SQLite indexed query, fine | Need pagination (GRDB `limit/offset` or cursor) |
+| GRDB observation | Instant | Instant | Use `DatabaseRegionObservation` for targeted observation |
+| WebSocket throughput | Trivial | Fine | One connection handles thousands of messages/sec |
+| Streaming | 1 concurrent stream | Multiple OK | Bound stream buffers to cap memory |
+| SQLite file size | KB | Low MB | Implement message archival/cleanup strategy |
 
-### Anti-Pattern 1: Full State Replication
-**What:** Replicating all thread state and history to every participating server.
-**Why bad:** Exponential storage growth. Privacy concerns (departed participants' servers still have history). Consistency nightmares.
-**Instead:** Origin-server authority with selective backfill.
+## Key Integration Points with Rust Server
 
-### Anti-Pattern 2: Synchronous Federation
-**What:** Waiting for remote server acknowledgment before confirming message to the local sender.
-**Why bad:** A slow/unreachable remote server blocks local users. Federation is inherently asynchronous.
-**Instead:** Accept message immediately, queue for async federation delivery. Local sender gets instant `{ accepted: true }`. Remote delivery is eventually-consistent.
-
-### Anti-Pattern 3: Global Ordering Without a Central Authority
-**What:** Trying to maintain a total ordering across all servers without an origin-server.
-**Why bad:** Impossible without consensus protocols (Raft, Paxos) which add enormous complexity and latency.
-**Instead:** Origin-server provides total ordering for each thread. Different threads may have different origin servers, distributing the load.
-
-### Anti-Pattern 4: Persistent Server-to-Server Connections
-**What:** Maintaining long-lived WebSocket or TCP connections between federated servers.
-**Why bad:** N servers = N*(N-1)/2 connections. Connection management complexity explodes. Servers behind NAT/firewalls have trouble accepting inbound connections.
-**Instead:** Stateless HTTP POST for federation relay. Connection per-request with HTTP/2 connection reuse for efficiency.
-
----
+| Integration Point | Server Side | iOS Side | Verification Method |
+|-------------------|-------------|----------|-------------------|
+| WebSocket handshake | `ws_upgrade_handler` + `ainm.initialize` | `NetworkService.connect()` | Successful capability exchange |
+| JSON-RPC framing | `protocol.rs` types | `JSONRPCCodec` | Round-trip encode/decode test |
+| Ed25519 signing | `signing.rs` + `ring` | `CryptoService` + CryptoKit | Sign on iOS, verify on server (and vice versa) |
+| JCS canonicalization | `serde_json_canonicalizer` | Custom Swift implementation | Byte-identical canonical output for same input |
+| Message envelope | `ainm.message.send` params | `Message` model | Schema compliance (JSON Schema 2020-12) |
+| Stream lifecycle | `streaming.rs` | `StreamingRepository` | Start/delta/end sequence correctly handled |
+| Content blocks | JSON content array | `ContentBlock` enum + renderers | All 9 block types rendered (text, code, image, file, button, form, table, approval, action) |
+| Agent Card | `agent_card_handler` with ETag | `AgentRepository` HTTP GET | Conditional GET, ETag caching |
+| Thread creation | `ainm.thread.create` handler | `ThreadRepository` | Thread ID returned and persisted |
+| Memory operations | `ainm.memory.store/query/evict` handlers | `MemoryRepository` | Facts stored and retrieved |
+| Presence updates | `ainm.presence.update` notifications | `participants` table + UI | Status reflected in thread participant list |
 
 ## Sources
 
-- [Matrix Server-Server API Specification v1.9](https://spec.matrix.org/v1.9/server-server-api/)
-- [Matrix State Resolution v2](https://matrix.org/docs/older/stateres-v2/)
-- [Conduit Architecture Overview (DeepWiki)](https://deepwiki.com/timokoesters/conduit/1-overview)
-- [Synapse per_destination_queue.py](https://github.com/matrix-org/synapse/blob/develop/synapse/federation/sender/per_destination_queue.py)
-- [XMPP Server Dialback (XEP-0220)](https://xmpp.org/extensions/xep-0220.html)
-- [XMPP Inter-Domain Federation Protocol Flows (XEP-0238)](https://xmpp.org/extensions/xep-0238.html)
-- [Prosody IM S2S Documentation](https://prosody.im/doc/s2s)
-- [Linearized Matrix Proposal (MSC3995)](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/linearized-matrix/proposals/3995-linearized-matrix.md)
-- [Conduit/Tuwunel (Successor)](https://github.com/matrix-construct/tuwunel)
-- AINM Spec: `transport.md` Section 5 (HTTP Transport Binding / Federation Relay)
-- AINM Spec: `identity.md` Section 4 (Identity Resolution)
-- AINM Spec: `security.md` (Message Signing / Verification)
-- AINM Spec: `threading.md` (Thread Model)
-- AINM Demo: `demo/src/server.rs` (Current architecture baseline)
+- [GRDB.swift (v7.10.0)](https://github.com/groue/GRDB.swift) -- SQLite toolkit, observation API
+- [GRDBQuery](https://github.com/groue/GRDBQuery) -- SwiftUI companion for GRDB
+- [Apple CryptoKit - Curve25519.Signing](https://developer.apple.com/documentation/cryptokit/curve25519/signing) -- Ed25519 in iOS
+- [URLSessionWebSocketTask](https://developer.apple.com/documentation/foundation/urlsessionwebsockettask) -- Native WebSocket API
+- [Iterating over web socket messages with async/await in Swift](https://www.donnywals.com/iterating-over-web-socket-messages-with-async-await-in-swift/) -- AsyncStream wrapping pattern
+- [Modern MVVM + Repository Pattern in SwiftUI](https://medium.com/@gauravios/modern-mvvm-repository-pattern-in-swiftui-eca4f78fc2f5) -- Architecture reference
+- [Offline-First Sync Patterns](https://developersvoice.com/blog/mobile/offline-first-sync-patterns/) -- Sync strategy reference
+- AINM spec/transport.md -- Connection lifecycle, JSON-RPC framing, capability negotiation
+- AINM spec/streaming.md -- Stream start/delta/end lifecycle
+- AINM spec/security.md -- Ed25519 signing procedure, JCS canonicalization
+- AINM spec/content.md -- Content block types and base schema
+- AINM spec/interactive.md -- Interactive block types (button, form, table, approval, action)
+- AINM spec/memory.md -- Three-tier memory model, context frames
+- AINM spec/identity.md -- Address format, identity resolution
+- AINM demo/src/server.rs -- Server WebSocket handler implementation (integration target)
+- AINM demo/src/signing.rs -- Reference signing implementation (port to Swift)
+- AINM demo/src/streaming.rs -- Reference streaming implementation
+- AINM demo/src/protocol.rs -- JSON-RPC type definitions (match in Swift)

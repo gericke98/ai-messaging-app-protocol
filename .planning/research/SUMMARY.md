@@ -1,233 +1,240 @@
 # Project Research Summary
 
-**Project:** AI-Native Messaging Protocol — v3.2 Federation
-**Domain:** Multi-server federation for an existing AI-native messaging protocol
-**Researched:** 2026-03-28
+**Project:** AI-Native Messaging Protocol — iOS Reference Client (v3.3)
+**Domain:** Native iOS messaging client for a federated, AI-native protocol (AINM)
+**Researched:** 2026-03-29
 **Confidence:** HIGH
 
 ## Executive Summary
 
-AINM v3.2 is a focused federation milestone that extends an already-working single-server AI-native messaging protocol to operate across multiple independent servers. The v3.1 foundation is solid: email-like addressing (`name@provider`), Ed25519 message signing, JSON-RPC 2.0 framing, WebSocket transport, and server identity at `.well-known/ainm/server` are all already specified and running in the demo. The v3.2 work is primarily implementation — making the relay endpoint actually function end-to-end, adding mTLS between servers, building a persistent offline relay queue, and proving the federation flow with a Docker Compose two-server demo. Six new Rust crate dependencies cover the entire surface area: `reqwest`, `rcgen`, `rustls` (direct dep), `tokio-rustls`, `rustls-pki-types`, and `redb`.
+This project delivers a native iOS reference client for the AINM protocol — a federated messaging protocol where humans and AI agents are equal participants. The server stack (Rust/Axum, WebSocket, Ed25519, JSON-RPC 2.0) is complete and battle-tested through v3.2. The research scope is exclusively the iOS client layer, which must speak the existing protocol exactly and expose its AI-native features (streaming responses, tool call visibility, interactive blocks, memory transparency) through a polished SwiftUI app targeting iOS 18+.
 
-The single most consequential architectural decision — already made in the spec — is **origin-server authority** over Matrix-style DAG-based eventual consistency. This eliminates the most complex part of federated messaging: state resolution algorithms. Matrix's DAG approach produced a 2000-line state resolution algorithm, rooms that take 10-60 minutes to join, and databases reaching 45GB in production. Origin-server authority means the server where a thread was created is the sole authority for that thread's state; remote servers cache but defer. The trade-off is that threads become temporarily read-only when the origin is unreachable — acceptable for v1, analogous to how email works (if gmail.com goes down, you cannot send from it). Research from Matrix, XMPP, and ActivityPub post-mortems unanimously validates choosing simplicity here.
+The recommended approach is MVVM + Repository architecture with GRDB.swift as the local database and the server as the canonical source of truth. All server data flows through GRDB before reaching SwiftUI views — this write-through pattern provides offline resilience, consistent UI state, and decoupled layers without requiring offline-first complexity. A single WebSocket connection is demultiplexed into typed AsyncStreams per protocol notification type. Swift Concurrency (`async/await`, `Actor`, `AsyncStream`) handles all async coordination; no Combine or RxSwift is needed. Eight external SPM dependencies cover non-trivial gaps; everything else is built-in or custom-implemented in under 100 lines.
 
-The key risks for v3.2 are operational and security-focused, not architectural. Certificate lifecycle management for mTLS breaks federation silently and invisibly when certificates expire. Replay attacks are feasible because Ed25519 signatures are permanent while the deduplication window is finite. Backfill can leak pre-join message history to unauthorized servers. All three must be addressed in an authentication hardening phase — they cannot be retrofitted without breaking federation compatibility. The recommended build order is: establish the relay core first (prove federation works), harden authentication second (make it secure), then add reliability and AI-native differentiation features third (offline queues, federated presence, selective backfill).
+The critical risk is RFC 8785 JSON Canonicalization Scheme (JCS) interoperability between Swift and Rust. Signatures are only valid if both sides produce identical canonical bytes, and Swift has no standard JCS library — a custom implementation is required and must be built and cross-platform-verified in Phase 1 before anything else, or signature failures will surface intermittently in production with Unicode content. Secondary risks are WebSocket connection lifecycle management (iOS aggressively kills background sockets) and SwiftUI message list performance (LazyVStack does not recycle views — pagination must be designed from day one or the app will crash at scale).
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing stack (Axum 0.8, Tokio 1.x, ring 0.17, serde/serde_json, tokio-tungstenite 0.26) is unchanged. Six new direct dependencies cover the full federation surface area. All versions were verified against crates.io on 2026-03-28.
+The iOS client is built on SwiftUI (iOS 18+) with Swift 6.1 strict concurrency. Eight external SPM dependencies cover the non-trivial gaps: GRDB.swift (7.10.0) for local persistence, GRDBQuery (0.11.0) for reactive SwiftUI observation, KeychainAccess (4.2.2) for Ed25519 key storage, MarkdownUI (2.4.1) for rich text rendering, HighlightSwift (1.1.0) for code block syntax highlighting, Nuke (12.9.0) for image caching, and swift-collections/swift-algorithms for efficient data structures. Everything else — WebSocket (URLSessionWebSocketTask), cryptography (Apple CryptoKit), structured logging (OSLog), and navigation (NavigationStack) — is built-in. Two components require custom implementation with no library equivalent: RFC 8785 JCS canonicalization (~100 lines, no Swift library exists) and UUIDv7 generation (~30 lines, Foundation's UUID() produces v4 not v7).
 
-**Core new technologies:**
-- `reqwest 0.13` (features: rustls-tls, json): mTLS HTTP client for server-to-server relay POST — consensus standard Rust HTTP client, 414M+ downloads, integrates with existing rustls stack
-- `rcgen 0.14`: in-process X.509 certificate generation — pure Rust, maintained by the rustls team, eliminates external CA tooling for demo; init container generates shared CA + per-server leaf certs
-- `rustls 0.23` (direct dep): `ServerConfig` with `WebPkiClientVerifier` for mTLS — already an indirect dep via tokio-tungstenite, making it direct pins the version and gives access to mTLS config builders
-- `tokio-rustls 0.26`: async TLS acceptor — wraps rustls `ServerConfig` into Tokio-compatible `TlsAcceptor`, required because `axum::serve()` does not natively accept TLS
-- `rustls-pki-types 1.14`: PEM parsing and PKI types — replaces unmaintained `rustls-pemfile` (RUSTSEC-2025-0134, archived August 2025)
-- `redb 3`: persistent offline relay queue — pure Rust, ACID transactions, stable format since 1.0 (2023); correct choice over sled (pre-1.0, unstable format) and SQLite (C dependency breaks single-binary approach)
-
-**Critical version note:** Do not add `rustls-pemfile`. It is unmaintained as of August 2025 (RUSTSEC-2025-0134). Use `rustls-pki-types 1.14` instead for all PEM parsing.
-
-**Architecture for mTLS in demo:** Two TCP listeners — one plain (existing WebSocket for local clients, unchanged), one TLS-wrapped (new, for federation relay endpoint only). This keeps existing client code untouched while adding mTLS for S2S. A Docker Compose init container generates the shared CA + leaf certs via rcgen and writes to a shared volume.
+**Core technologies:**
+- SwiftUI iOS 18+ / Swift 6.1: Declarative UI with strict concurrency — eliminates data races at compile time for a real-time messaging app with concurrent WebSocket reads, database writes, and UI updates
+- GRDB.swift 7.10.0: Production SQLite with ValueObservation, migrations, and background write support — SwiftData is not viable (no background task support, performance degrades with 10K+ messages)
+- URLSessionWebSocketTask (built-in): Native WebSocket with zero dependency — sufficient for JSON-RPC 2.0 over WebSocket, no Starscream needed
+- Apple CryptoKit (built-in): Hardware-accelerated Ed25519 via Curve25519.Signing — compatible with Rust's `ring` crate (both use 32-byte raw key representation)
+- Custom JCS (RFC 8785): Required for cross-platform signing — must use UTF-16 lexicographic key sorting, not JSONEncoder(.sortedKeys) which uses UTF-8 byte order
+- MarkdownUI 2.4.1: GFM rendering for agent responses — in maintenance mode but stable and battle-tested (3.7K+ stars)
+- Nuke 12.9.0: Async image loading with disk/memory caching — AsyncImage is insufficient (no disk caching, no progressive loading)
+- Custom UUIDv7: ~30 lines to generate time-ordered message IDs matching the server's `uuid` crate format
 
 ### Expected Features
 
-**Must have — P1 (v3.2 launch, demo works):**
-- TS-2: Server discovery and identity verification — `/.well-known/ainm/server` endpoint, foundation for all federation
-- TS-8: Cross-server identity resolution — HTTPS fetch to remote `.well-known/ainm/{name}` with 1-hour TTL cache
-- TS-5: Origin-server authority for thread state — the critical architectural decision, must be locked in first
-- TS-1: Cross-server message delivery — the relay round-trip end-to-end
-- TS-10: Relay delivery confirmation/rejection — originating server must know delivery outcome per-message
-- TS-4: Message deduplication at relay level — at-least-once delivery guarantees duplicates will arrive
-- TS-6: Federated thread creation with remote participants
-- TS-7: Federated thread join/leave propagation to all participating servers
-- TS-9: Federation rate limiting — error code `-32022` with `retry_after`, per-source-server limits
+**Must have (table stakes — Tier 1-2 from FEATURES.md):**
+- WebSocket connection + ainm.initialize handshake with capability negotiation
+- Ed25519 key generation, Keychain storage, message signing on send, signature verification on receive
+- Conversation list and thread view with LazyVStack (paginated from day one — no exceptions)
+- Text message rendering with Markdown (MarkdownUI for GFM)
+- Streaming responses token-by-token (ainm.stream.start/delta/end) — the defining AI chat UX
+- Code block rendering with syntax highlighting (HighlightSwift)
+- Image display with caching and fullscreen tap (Nuke)
+- File display with download and SHA-256 digest verification
+- Multi-block message rendering (content[] array rendered in order)
+- Tool call visibility with collapsible indicators and lifecycle grouping by call_id
+- Interactive blocks: ButtonBlock, FormBlock, TableBlock, ApprovalBlock + ActionBlock send flow
+- Agent identity display (type badge, Agent Card profile on tap)
+- @-mention highlighting and composer autocomplete
+- Local persistence for offline reading (GRDB write-through cache)
+- Connection status indicator, typing/processing indicators (presence), fallback block rendering, stream cancellation
 
-**Should have — P2 (v3.2 complete, reliable):**
-- TS-3: Offline relay queues (redb-backed, 7-day retention, per-source quotas)
-- DF-1: Selective thread backfill (bounded history window + context frame, not full replication)
-- DF-3: Federated presence with agent-specific states (thread-scoped only, best-effort relay)
-- DF-5: Server allowlist/denylist (enterprise access control, enforced at relay endpoint)
-- DF-7: Federated tool call visibility (should flow naturally if relay handles all message types)
+**Should have (differentiators — Tier 3-4 from FEATURES.md):**
+- Agent discovery browser (search Agent Cards by skill before starting a conversation)
+- Memory context display (show what agents remember — radical transparency, no competing app does this)
+- Memory management UI (view/edit/delete archival facts per agent)
+- Mixed human-agent thread creation (adding both humans and agents as equal participants)
+- Sub-thread branching (long-press a message to branch a focused side conversation)
+- Parallel block streaming visualization (two blocks rendering simultaneously in real time)
+- Verified message indicators (Ed25519 checkmark per message with tap-for-details)
+- Federated identity display (show which server each participant belongs to)
+- Stream cancellation (stop generating button during active stream)
 
-**Defer to v3.3+:**
-- DF-2: Agent capability federation — needs broader agent ecosystem before design is clear
-- DF-4: Federated streaming responses — HTTP batch relay vs WebSocket S2S is unsettled; needs dedicated research
-- DF-6: Cross-server memory queries — complex authorization model, defer until federation is stable
-
-**Explicit anti-features (never build):**
-- DAG-based eventual consistency — produces Matrix-level complexity (2000-line state resolution), eliminated by origin-server authority
-- Persistent S2S connections (XMPP model) — O(n²) connection lifecycle complexity
-- Global presence federation — causes 50,000+ HTTP requests/hour per user in Matrix at scale; thread-scoped only
-- Multi-hop relay (transitive federation) — creates open relay vulnerability, simplify to direct S2S
-- Full message history replication — unbounded data transfer; use selective backfill instead
+**Defer (v2+):**
+- End-to-end encryption (protocol chose server-visible by design; incompatible with multi-agent threads where agents must read content)
+- Voice/video messaging (out of scope per PROJECT.md; WebRTC complexity without protocol benefit)
+- iPad/Mac Catalyst (iPhone-first; SwiftUI adaptation is easier later — do not design for it now)
+- Extension block plugin registry (architecturally important to plan for; premature to build for v1)
+- Push notifications (APNs requires server-side protocol extensions not yet specified)
+- Read receipts, emoji reactions (not defined in AINM v1 protocol)
+- Offline message composition queue (complexity around conflict resolution and stale context; show "offline" banner instead)
 
 ### Architecture Approach
 
-The existing single-server Axum architecture requires surgical extension, not redesign. The WebSocket handler, Ed25519 signing, and JSON-RPC framing are preserved. The current `broadcast::Sender` routing (hard-coded for exactly one human + one agent) must be replaced with a participant-aware `Message Router` backed by a `Session Manager` (DashMap of identity → WebSocket sender). Four new modules are required: `federation.rs` (inbound relay handler + outbound Federation Sender), `relay_queue.rs` (redb-backed persistent queue for both offline local participants and unreachable remote servers), `tls.rs` (mTLS `ServerConfig`/`ClientConfig` construction), and `cert_gen.rs` (demo-only certificate generation via rcgen). Two new Axum routes are added to the TLS-wrapped federation listener: `POST /ainm/v1/relay` and `GET /.well-known/ainm/server`.
+The client follows a strict layered architecture: SwiftUI Views bind to ViewModels via `@Observable`, ViewModels coordinate Repositories, Repositories orchestrate NetworkService (WebSocket), PersistenceService (GRDB), and CryptoService (CryptoKit). The critical design invariant is "database as single source of truth": all server data is written to GRDB before any UI state updates. GRDB observation — not ViewModel mutation — is what drives SwiftUI re-renders. The only exception is streaming deltas, which are held in an in-memory `StreamBuffer` per stream_id and only collapsed to GRDB on `ainm.stream.end`. This matches the protocol's design: deltas are ephemeral and unsigned; only the final collapsed message is signed and canonical.
 
 **Major components:**
-1. **Message Router** (new, replaces broadcast channels) — routes per-participant: local+online → Session Manager, local+offline → Offline Queue, remote → Federation Sender, grouped by destination server
-2. **Federation Sender** (new) — per-destination outbound queues modeled on Synapse's `per_destination_queue.py`; exponential backoff (1s base, max 60s), batches up to 50 messages per relay request, signs with server Ed25519 key, sends via mTLS reqwest client
-3. **Federation Relay Handler** (new) — inbound `POST /ainm/v1/relay`; validates three-layer security (mTLS fingerprint → server signature → per-message signatures), passes to Message Router
-4. **Thread Registry** (new, replaces `Vec<String>`) — stores `FederatedThread` with `origin_server` and per-participant `home_server` fields; these fields drive all routing decisions
-5. **Identity Resolver** (extended from IdentityStore) — local `DashMap` lookup first, then HTTPS fetch to remote `.well-known/ainm/{name}` with 1-hour TTL cache; two distinct key types: server Ed25519 keys (sign relay metadata) vs participant Ed25519 keys (sign message content)
-6. **Offline Queue** (new) — redb-backed store-and-forward; per-participant queues for local offline users; drained in chronological order on reconnect; key schema: `(target_server_domain, message_timestamp_nanos) → JSON bytes`
-
-**Two-listener architecture for demo:**
-```
-Plain TCP listener (existing, unchanged):
-  WebSocket /ws  ←→  Local client connections
-
-TLS TCP listener (new, mTLS for S2S):
-  POST /ainm/v1/relay       ← Inbound relay from remote servers
-  GET  /.well-known/ainm/server  ← Server identity endpoint
-```
+1. **NetworkService** (singleton actor) — single WebSocket connection, JSON-RPC 2.0 framing via a JSONRPCCodec layer, receive loop that demultiplexes into typed AsyncStreams by method name, request/response correlation via `[String: CheckedContinuation]` map
+2. **PersistenceService** (GRDB DatabaseQueue) — schema migrations, all CRUD operations, ValueObservation delivered on background queue to prevent main-thread fetches on large result sets
+3. **CryptoService** — Ed25519 key generation/storage/signing/verification, custom RFC 8785 JCS canonicalization, init-signing for handshake (`"identity|timestamp"` format)
+4. **Repository Layer** (MessageRepository, ThreadRepository, StreamingRepository, MemoryRepository, AgentRepository, IdentityRepository) — domain orchestrators combining network + persistence; expose AsyncStream for ViewModel observation
+5. **ViewModel Layer** (ConversationListVM, ThreadVM, StreamingVM, AgentCardVM, MemoryVM, SettingsVM) — UI state, user actions, observe GRDB AsyncSequences, expose @Observable state to views
+6. **SwiftUI Views** — zero business logic, pure rendering and user input capture; streaming text views are leaf nodes managing their own content to isolate delta updates from parent list re-renders
 
 ### Critical Pitfalls
 
-1. **Split-brain thread state under network partitions** — origin-server authority works when the origin is available; under partition, concurrent activity on remote servers creates divergent histories. Fix: define explicit partition behavior in the spec before writing code (can remote servers accept messages when origin is down?); build a partition test harness in Phase 1 that partitions two servers, generates concurrent activity, heals the partition, and verifies message ordering. Do not ship federation without passing partition tests.
+1. **RFC 8785 JCS mismatch between Swift and Rust** — Swift has no JCS library. `JSONEncoder(.sortedKeys)` uses UTF-8 byte order; RFC 8785 requires UTF-16 lexicographic order for key sorting. These differ for characters above U+FFFF, causing intermittent signature failures with emoji and CJK content. Build a custom JCS implementation from the spec (~100 lines), validate against official test vectors at cyberphone/json-canonicalization, and run a cross-platform CI test (sign on iOS, verify on Rust server, and vice versa). Phase 1, Task 1 — everything else depends on this.
 
-2. **mTLS certificate lifecycle breaks federation silently** — Let's Encrypt certs expire every 90 days; certificate rotation changes the TLS fingerprint; remote servers cache the old fingerprint for up to 1 hour after rotation, causing federation to fail with no local symptoms. Fix: extend `tls_fingerprint` to a `tls_fingerprints` array with `valid_from`/`valid_until` per entry to support rotation overlap; implement a `ainm-fed-check` CLI health tool; monitor expiry proactively. Must be designed in Phase 2 before the first production mTLS connection.
+2. **WebSocket connection lifecycle on iOS** — iOS suspends background apps within 30 seconds, killing TCP connections. WiFi-to-cellular transitions silently invalidate the socket with no error callback. Fix: explicit state machine (`disconnected` → `connecting` → `handshaking` → `connected`), NWPathMonitor for proactive network-change reconnection, exponential backoff with jitter, and full ainm.initialize handshake replay on every reconnection. Never treat TCP open as protocol-ready. Never cache capabilities across sessions.
 
-3. **Server identity spoofing via DNS poisoning** — well-known discovery trusts DNS + TLS; a DNS attack can serve an attacker's public key and intercept all relay messages. Fix: implement TOFU key pinning (once a server's Ed25519 key is first seen, pin it; require old key to sign rotation attestation for any key change). Implement in Phase 2 alongside mTLS, not as a later addition.
+3. **SwiftUI message list memory collapse** — LazyVStack retains all created views in memory (not UITableView-style recycling). Memory exhaustion and crash occurs around 5,000 messages on iPhone 11 Pro Max. Pagination must be designed from day one: load the most recent 50 messages initially, trigger load-more on scroll-up, maintain a view window of ~200 maximum. `defaultScrollAnchor(.bottom)` with large datasets causes a blank window on initial load. Retrofitting pagination into a "load all" design is a full architectural rewrite.
 
-4. **Signature verification bottleneck at relay scale** — a relay batch with 50 messages from 30 different remote senders requires potentially 30 identity resolution HTTP calls on the hot path (200ms each = 6s of blocking I/O before any message is processed). Fix: aggressive identity caching (1-hour TTL covering 99%+ of lookups), accept relay with 202 and verify signatures asynchronously, cap batch size at 100 messages. Cache in Phase 1; async verification and batch resolution endpoint in Phase 3.
+4. **Streaming delta rendering starvation of the main thread** — At 50-100+ deltas/second from fast models, each delta triggering a SwiftUI state update starves the main thread. Fix: process WebSocket messages on a background actor, accumulate deltas in a buffer, flush to @MainActor at most every 16-33ms (30-60fps). Make streaming text views leaf nodes that manage their own `Text` content independently from the parent message list. For parallel block streaming, batch all block updates for a stream_id in a single UI transaction.
 
-5. **Cross-federation replay attacks** — Ed25519 signatures are permanent; a captured relay payload can be replayed after the 24-hour deduplication window expires. Fix: add `relay_timestamp` to relay params (covered by server signature), reject payloads older than 5 minutes; add `relay_id` unique per relay request (distinct from message IDs). Must be in Phase 2 before production.
-
-6. **Backfill leaks pre-join message history** — naive backfill sends full thread history to any requesting server, including messages from before the new participant joined. Fix: implement backfill visibility levels (`none`, `summary`, `since_invite`, `full`) at thread creation time; enforce authorization (only serve messages from the requesting participant's join timestamp onward; only serve to servers with a legitimate participant in the thread). Design before Phase 2 backfill implementation, not as a retrofit.
+5. **Ed25519 private key loss or inaccessibility** — Ed25519 keys have no native Keychain `SecKey` representation; they must be stored as `kSecClassGenericPassword` raw bytes. Common mistakes: using `kSecAttrAccessibleWhenUnlocked` (makes the key unavailable when the device is locked, breaking background signing), not setting `kSecAttrSynchronizable: false` (iCloud Keychain syncs the key across devices, creating identity conflicts), key deletion on app uninstall with no recovery path. Use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` explicitly. Design a key recovery mechanism before shipping — without it, key loss equals permanent identity loss.
 
 ## Implications for Roadmap
 
-Federation naturally decomposes into three phases following a strict dependency chain: establish the relay core (prove federation works), harden authentication and security (make it production-safe), then add reliability and AI-native differentiation features.
+Based on the dependency graph in ARCHITECTURE.md and the pitfall-to-phase mapping in PITFALLS.md, the following six-phase structure is recommended. The layering is strict: each phase depends on the one before it. Phases 1-3 are foundational; Phases 4-6 build differentiation on top.
 
-### Phase 1: Relay Core
+### Phase 1: Foundation (Security + Network Core)
 
-**Rationale:** TS-2 (server discovery) is the root dependency for all other federation features. TS-5 (origin-server authority) must be locked in architecturally before any thread state is created across servers. TS-1 (cross-server message delivery) is the milestone that proves federation works. These three together produce a working two-server Docker Compose demo.
+**Rationale:** Crypto compatibility and WebSocket lifecycle are the two highest-risk items in the project and block everything else. Validating these before any UI prevents late-stage rewrites. Five of seven critical pitfalls (JCS mismatch, WebSocket lifecycle, Ed25519 key storage, GRDB observation setup, ainm.initialize handshake) all map to Phase 1 failures.
 
-**Delivers:** Two AINM servers can exchange messages between users on different servers. Server discovery, identity resolution, mTLS handshake, three-layer signature validation, and basic thread creation/join all work end-to-end. Partition test harness validates behavior under network failure.
+**Delivers:** A working connection to the Rust demo server that can complete the ainm.initialize handshake and exchange signed, verified messages. All crypto and persistence infrastructure proven with tests before any UI is built.
 
-**Addresses features:** TS-2, TS-5, TS-8, TS-1, TS-10, TS-4, TS-6, TS-7, TS-9 (the full P1 feature set)
+**Addresses:** Ed25519 key generation and Keychain storage, JCS canonicalization, message signing and verification, WebSocket state machine, ainm.initialize / ainm.initialized handshake, GRDB schema and migrations, domain model types, JSONRPCCodec
 
-**New stack added:** reqwest 0.13, rcgen 0.14, rustls 0.23, tokio-rustls 0.26, rustls-pki-types 1.14
+**Avoids:** JCS mismatch (Pitfall 1), WebSocket lifecycle mismanagement (Pitfall 2), Ed25519 key storage mistakes (Pitfall 5), ainm.initialize handshake violations (Pitfall 7)
 
-**New modules:** `federation.rs`, `tls.rs`, `cert_gen.rs`, `server_identity.rs`; Message Router, Session Manager, Thread Registry, Identity Resolver (extended)
+**Key deliverables:** Xcode project + SPM dependencies, GRDB schema + PersistenceService, custom JCS + RFC 8785 test vectors, CryptoService (keygen/sign/verify with cross-platform test), JSONRPCCodec (requests/responses/notifications), NetworkService (WebSocket + state machine + demux + handshake), integration test against demo server
 
-**Must avoid:** Skipping the partition test harness (Pitfall 1 — define partition behavior in spec before implementing relay). Routing to individual recipients instead of grouping by destination server (performance trap). Accepting relay messages where `from` address domain does not match `from_server` (server message laundering security mistake).
+### Phase 2: Core Messaging UI
 
-### Phase 2: Authentication and Security Hardening
+**Rationale:** With network and crypto proven, wire up the basic messaging loop end-to-end. The message list pagination architecture must be established here — it cannot be retrofitted later without a full rewrite. GRDB observation scope and delivery queue must be co-designed with the message list.
 
-**Rationale:** Relay core proves federation works. Before adding any reliability features, complete the security model: replay protection, TOFU key pinning, certificate rotation protocol, and backfill authorization. These are cheaper to design now than to retrofit onto a production system.
+**Delivers:** A usable messaging app: conversation list, thread view, send and receive text messages with Markdown rendering, code blocks, images, local persistence, offline reading, connection status indicator, and signature verification indicators.
 
-**Delivers:** mTLS with `tls_fingerprints` array supporting rotation overlap; TOFU key pinning store that rejects unsigned key changes; `relay_timestamp` + `relay_id` replay protection; backfill endpoint with visibility levels and authorization enforcement; per-source federation rate limiting.
+**Addresses:** Conversation list with last-message preview, thread view (paginated LazyVStack, 50-message initial load), TextBlock rendering (MarkdownUI), CodeBlock rendering (HighlightSwift), ImageBlock rendering (Nuke), FileBlock display, fallback block rendering, optimistic send (status: sending/sent/failed), GRDB write-through cache, offline read from cache
 
-**Addresses features:** TS-9 (rate limiting, if not already in Phase 1), DF-1 (selective backfill with authorization), DF-5 (server allowlist/denylist)
+**Avoids:** Message list performance collapse (Pitfall 3), GRDB observation overload (Pitfall 6)
 
-**New modules:** Key pinning store, certificate rotation logic, backfill handler
+**Key deliverables:** MessageRepository + ThreadRepository, ConversationListVM + ConversationListView (GRDB observation on background queue), ThreadVM + ThreadView (paginated, windowed, GRDB observation), ContentBlockRenderer (all 9 block types including fallback), signature verification checkmarks
 
-**Must avoid:** Every item in the "technical debt shortcuts" table from PITFALLS.md: skipping mTLS, indefinite server identity caching, skipping `server_signature` verification, trusting all federated servers equally. Implementing backfill without authorization first (Pitfall 6).
+### Phase 3: Streaming + Real-Time Features
 
-### Phase 3: Reliability and AI-Native Differentiation
+**Rationale:** Streaming is the defining AI chat UX. The streaming pipeline — WebSocket delta events to throttled UI updates to collapsed persistence — has distinct complexity and must be isolated in a dedicated phase with explicit performance criteria.
 
-**Rationale:** Core federation is secure. Add features that make AINM's federation more reliable and more interesting than alternatives: persistent offline relay queues (messages survive server outages), federated presence (participants on remote servers see agent-specific states), and performance hardening for signature verification at scale.
+**Delivers:** Token-by-token streaming agent responses with cursor animation, parallel block streaming visualization, stream cancellation, typing and processing indicators, presence display.
 
-**Delivers:** redb-backed offline relay queue (7-day retention, per-source quotas, size-bounded); federated presence relay (thread-scoped only, best-effort, no queue); federated tool call visibility events; async signature verification pool; batch identity resolution endpoint `POST /.well-known/ainm/resolve-batch`.
+**Addresses:** ainm.stream.start/delta/end/cancel/error, parallel block streaming with different block_index values, presence updates (ainm.presence.update), pre-stream "thinking" indicator
 
-**Addresses features:** TS-3 (offline relay queues), DF-3 (federated presence), DF-7 (federated tool call visibility)
+**Avoids:** Streaming UI thread starvation (Pitfall 4), streaming collapse and persistence gap
 
-**New stack added:** redb 3.x
+**Key deliverables:** StreamingRepository + StreamBuffer (in-memory, background actor), throttled delta dispatch to @MainActor (16-33ms flush), StreamingVM with leaf-node architecture, stream lifecycle UI (placeholder, progressive text, cursor animation, collapse to permanent message), parallel block rendering, stream cancel button, presence indicator components
 
-**New modules:** `relay_queue.rs`
+### Phase 4: AI-Native Interactive Features
 
-**Must avoid:** Global presence federation (Anti-feature AF-3 — thread-scoped only); unbounded offline queues (add per-source quotas and size limits before testing); synchronous identity resolution on relay hot path (Pitfall 4 — address via async verification and batch resolution endpoint).
+**Rationale:** Interactive blocks and tool call visibility are the protocol's core differentiators over other AI chat products. They build on the content block renderer from Phase 2 and the message delivery pipeline from Phase 3. ActionBlocks are new thread messages (not mutations of the original), so the full send flow from Phase 2 is a prerequisite.
+
+**Delivers:** Full interactive block suite, tool call visibility with lifecycle grouping, agent identity display, @-mention support, agent type badges.
+
+**Addresses:** ButtonBlock rendering + ActionBlock send flow, FormBlock (all field types, client-side validation), TableBlock (horizontal scroll, row actions), ApprovalBlock (state machine: pending/approved/rejected/changes_requested), tool call events grouped by call_id (collapsible, progress bar, determinate/indeterminate), agent identity badge + Agent Card profile view, @-mention highlighting + composer autocomplete
+
+**Avoids:** Interactive block action flow mistakes (form state lost on scroll, missing post-action disabled state, missing loading state on approval tap)
+
+**Key deliverables:** All interactive block view components, ActionBlock message creation + CryptoService sign + send, Tool call visibility engine (lifecycle grouping, in-place status updates), Agent Card HTTP GET with ETag caching, @-mention rendering + autocomplete
+
+### Phase 5: Advanced Features (Memory + Discovery + Threading)
+
+**Rationale:** Memory transparency, agent discovery, and sub-thread branching are high-value differentiators that require the full messaging, streaming, and interactive infrastructure to be in place. These are also more speculative in UX — they should be built with room for design iteration after the core is validated.
+
+**Delivers:** Memory context display (what agents remember), memory management UI (view/delete archival facts), agent discovery browser, mixed human-agent thread creation, sub-thread branching and navigation.
+
+**Addresses:** ainm.memory.store/query/evict, context frames (ainm.context.frame notifications), Agent Card discovery with ETag caching, ainm.thread.create with mixed human + agent participants, sub-thread creation (parent_thread_id, parent_message_id), sub-thread navigation
+
+**Key deliverables:** MemoryRepository + MemoryVM + MemoryView, AgentRepository + AgentDiscoveryVM + AgentDiscoveryView, thread creation UI with participant type display, sub-thread branching UI (long-press message), sub-thread indicator in parent thread
+
+### Phase 6: Polish + Hardening
+
+**Rationale:** This phase converts a functional app into a reference-quality app that can serve as the canonical iOS implementation of the AINM protocol. Deep linking, accessibility, performance hardening under production loads, and error UX polish are deferred here because they require the full feature set to be in place to audit properly.
+
+**Delivers:** Deep linking, accessibility (VoiceOver, Dynamic Type), performance profiling under 2,000-message load, push notifications (APNs), offline outbound message queue hardening, error message mapping, and complete "Looks Done But Isn't" checklist verification.
+
+**Addresses:** NavigationStack deep linking (`ainm://thread/{id}`, `ainm://thread/{id}/message/{id}`), VoiceOver labels for all interactive elements, Dynamic Type scaling, APNs integration + notification tap handler, offline message queue (store-and-forward with deduplication), key recovery mechanism design, error code to human-readable message mapping
+
+**Key deliverables:** NavigationPath URL scheme handler, accessibility audit, Instruments profiling pass (60fps + <150MB memory budget for 2,000-message conversation), APNs server-side integration design, PITFALLS.md "Looks Done But Isn't" checklist as acceptance criteria, app store quality review
 
 ### Phase Ordering Rationale
 
-- **Dependency chain is strict:** Server discovery (TS-2) → Identity resolution (TS-8) → Message delivery (TS-1) → all reliability features. This ordering matches the feature dependency graph in FEATURES.md exactly.
-- **Security before reliability:** Offline queues without replay protection would queue attackable payloads. Backfill without authorization leaks historical data. Phase 2 must complete before Phase 3 ships anything production-facing.
-- **Architecture decisions are irreversible after traffic accumulates:** Origin-server authority (Phase 1) and backfill visibility levels (Phase 2) cannot change without breaking federation compatibility. Lock these in first, implement them explicitly, test them aggressively.
-- **Selective backfill (DF-1) belongs in Phase 2:** Although it might seem like a "nice to have," backfill without the authorization model (Pitfall 6) is a data leakage risk. Design it in Phase 2 so it ships with authorization from the start.
-- **Streaming federation (DF-4) stays deferred:** The design choice between HTTP batch relay (pragmatic, higher latency) and WebSocket S2S (lower latency, more complex) is unsettled. Do not speculate — research it when it becomes the bottleneck.
+- Phase 1 before everything: crypto interop and the WebSocket state machine are architectural foundations with catastrophic rewrite costs if deferred. PITFALLS.md explicitly marks JCS mismatch and WebSocket lifecycle as "never acceptable as technical debt shortcuts."
+- Phase 2 before streaming (Phase 3): the ContentBlockRenderer and GRDB observation patterns established in Phase 2 are required by the streaming pipeline and interactive block renderers.
+- Phase 3 before interactive (Phase 4): the ActionBlock send flow and message delivery pipeline from Phase 3 are the foundation for interactive block responses and tool call persistence.
+- Phase 4 before advanced (Phase 5): agent discovery, memory display, and mixed thread creation all require complete interactive block rendering and identity resolution.
+- Phase 6 last: polish and hardening are safe to defer; architectural mistakes are not. APNs in particular requires server-side protocol design work that is not yet specified.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
+Phases likely needing per-task research during planning:
 
-- **Phase 1 (partition behavior):** The spec says "origin-server authority" but does not fully define what happens when the origin is partitioned for an extended period. The exact ordering and merge strategy for queued messages on reconnect is a protocol-level decision that must be made before relay implementation begins. This is a gap in the current spec.
-- **Phase 2 (certificate rotation protocol):** The `tls_fingerprints` array with `valid_from`/`valid_until` is not yet in the AINM spec. The exact format and behavior during the rotation overlap window must be spec'd before Phase 2 implementation.
-- **Phase 2 (backfill visibility spec):** The four backfill levels (`none`, `summary`, `since_invite`, `full`) are recommended in FEATURES.md but not yet in the spec. The format of backfill requests and responses including visibility enforcement needs to be designed and added to transport.md.
-- **Phase 3 (federated streaming, if re-prioritized):** DF-4 is deferred to v3.3+ but if it gets pulled forward, the HTTP batch relay vs WebSocket S2S design question is unsettled and needs dedicated research before implementation begins.
+- **Phase 1 (JCS custom implementation):** No Swift JCS library exists. The UTF-16 key sorting edge cases (characters above U+FFFF, surrogate pairs) and ECMAScript number formatting (RYU algorithm) need careful implementation and validation. Research the exact cross-platform test harness setup before coding.
+- **Phase 1 (URLSessionWebSocketTask behavior):** WiFi-to-cellular transition behavior and the exact timing of connection teardown during backgrounding are poorly documented. Recommend testing with Network Link Conditioner before committing to the reconnection strategy in NetworkService.
+- **Phase 6 (APNs integration):** APNs requires server-side AINM protocol extensions (push token registration, server-to-APNs delivery, notification payload format) not yet defined in the spec. This needs protocol-level design before iOS implementation begins.
 
-Phases with standard patterns (skip research-phase):
+Phases with well-documented patterns (skip research-phase):
 
-- **Phase 1 (relay sender):** Per-destination queues with exponential backoff are well-documented. Synapse's `per_destination_queue.py` is the direct reference. The ARCHITECTURE.md already contains the Rust struct design (`FederationSender`, `DestinationQueue`, `DestinationState`).
-- **Phase 1 (mTLS setup):** The axum TLS example + tokio-rustls + rcgen pattern is documented in the official axum repository. STACK.md contains the exact Cargo.toml additions verified on 2026-03-28.
-- **Phase 1 (Docker Compose orchestration):** Standard Docker Compose patterns with init container for cert bootstrapping; no new research needed.
-- **Phase 3 (redb queue):** redb's API is straightforward; the key schema `(target_server_domain, message_timestamp_nanos) → JSON bytes` is already designed in STACK.md.
+- **Phase 2 (GRDB + MVVM + Repository):** GRDB 7.10.0 is mature with extensive documentation. The MVVM + Repository pattern is well-established for SwiftUI. The observation and pagination strategy is fully designed in ARCHITECTURE.md.
+- **Phase 3 (streaming throttling):** The streaming pipeline architecture is fully specified in AINM streaming.md. The throttling pattern (background actor, 16-33ms flush) is a standard Swift Concurrency pattern with clear implementation guidance.
+- **Phase 4 (interactive blocks):** The interactive.md spec is complete. All block types (ButtonBlock, FormBlock, TableBlock, ApprovalBlock, ActionBlock) have defined schemas. SwiftUI rendering follows standard patterns.
+- **Phase 5 (Agent Card discovery):** Agent Card HTTP GET with ETag caching is fully specified in agent-card.md. Standard URLSession conditional GET pattern.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All 6 new crate versions verified against crates.io on 2026-03-28. Alternatives explicitly analyzed and rejected. RUSTSEC-2025-0134 (rustls-pemfile deprecation) caught and accounted for. redb rated MEDIUM during research but upgraded to HIGH — stable 1.0 since 2023, now at 3.1.1. |
-| Features | HIGH | Grounded in Matrix Server-Server API v1.16, XMPP XEP-0045/0289, ActivityPub spec, and the existing AINM spec files (transport.md, identity.md, security.md). Feature dependency graph is fully mapped with explicit conflict identification (TS-5 conflicts with AF-1). |
-| Architecture | HIGH | Based on existing codebase analysis (`demo/src/server.rs`) plus Matrix/Conduit/Synapse federation patterns. Component boundaries, data flows, and Rust struct signatures are concrete and implementable. Two-listener architecture is the right call for the demo. |
-| Pitfalls | HIGH | Every pitfall is grounded in documented real-world incidents: Matrix state resolution CVEs (Project Hydra 2025), XMPP dialback domain spoofing (2012), ActivityPub HTTP signature fragmentation, email open relay history. Not speculative — these failures have happened in production federated systems. |
+| Stack | HIGH | All 8 SPM library versions verified on GitHub as of 2026-03-29. Built-in Apple APIs confirmed against WWDC 2024/2025 sessions. Custom JCS and UUIDv7 are well-specified (RFC 8785, RFC 9562). No speculative choices. |
+| Features | HIGH | Derived directly from the complete AINM protocol spec (content.md, interactive.md, streaming.md, etc.). Feature dependency graph is fully mapped. MVP tiers are grounded in both protocol requirements and iOS messaging app conventions. |
+| Architecture | HIGH | GRDB + MVVM + Repository is proven for production iOS apps (Monzo, PointFree recommendations). Data flow patterns are directly derived from protocol design (one WebSocket, demultiplexed streams, write-through cache). Component boundaries are concrete and match the protocol's module structure. |
+| Pitfalls | HIGH | Critical pitfalls are grounded in Apple's documented platform constraints (Keychain accessibility attributes, URLSessionWebSocketTask single-shot receive, LazyVStack memory retention) and RFC 8785 spec analysis. Performance numbers (5,000-message crash threshold, 16ms frame budget) are from Apple's own SwiftUI documentation and community profiling data. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Partition behavior specification:** The spec asserts "origin-server authority" but does not define what happens during extended origin unavailability. Options (read-only, accept with uncertain ordering, promote backup origin) each have different protocol implications. This must be resolved in Phase 1 planning before relay implementation begins.
+- **JCS Swift implementation correctness:** The custom RFC 8785 implementation is the single highest-risk technical unknown. The gap closes in Phase 1 by running the official cyberphone/json-canonicalization test vectors and a cross-platform signing integration test (sign on iOS, verify on Rust server, and vice versa). If the implementation is wrong, the feedback is immediate and fixable before any other feature is built.
 
-- **`tls_fingerprints` array format:** The current AINM spec has a single `tls_fingerprint` string field. The research recommends extending this to an array with `valid_from`/`valid_until` per entry to support certificate rotation overlap. This spec change is required before Phase 2 implementation.
+- **APNs protocol design:** Push notifications require server-side AINM protocol extensions for push token registration and server-to-APNs delivery that are not yet specified. Deferred to Phase 6; flag for protocol-level design work before iOS implementation begins.
 
-- **Backfill visibility level spec:** The four backfill levels (`none`, `summary`, `since_invite`, `full`) are recommended by research but not yet in transport.md. Spec addition required before Phase 2 backfill implementation.
+- **KeychainAccess 4.2.2 Swift 6 compliance:** The library was released in 2020 and has not been updated for Swift 6 strict concurrency. If Sendable warnings are blockers, the fallback is a thin custom wrapper around the Security framework (~100 lines). Assess in Phase 1 when CryptoService is built; do not block on this.
 
-- **Docker Compose demo acceptance criteria:** The demo must test more than the happy path. The PITFALLS.md "Looks Done But Isn't" checklist identifies partition simulation, certificate rotation, key rotation, and replay attack tests as required for the demo to be credible. Phase 1 acceptance criteria should explicitly include these test scenarios.
+- **MarkdownUI maintenance mode risk:** MarkdownUI 2.4.1 is stable but the author is working on a successor (Textual, currently v0.3.1, too immature for production). If Textual reaches 1.0 during development, evaluate migration. Low probability of breaking impact within the v1 timeframe.
 
-- **Batch identity resolution endpoint:** The research recommends `POST /.well-known/ainm/resolve-batch` for batching identity lookups during relay processing (Pitfall 4 mitigation). This endpoint is not in the current spec. Plan for Phase 3 addition when signature verification performance becomes a measured bottleneck.
+- **Offline outbound queue deduplication:** The client-side outbound queue for messages sent while offline needs an idempotency key strategy to prevent double-send on retry after reconnection. The server-side store-and-forward (transport.md 4.5) handles delivery to offline recipients; the client side needs its own deduplication. Design this in Phase 2 alongside the message send flow.
+
+- **HighlightSwift performance at scale:** HighlightSwift uses JavaScriptCore (highlight.js) under the hood. Performance with many simultaneous code blocks in a single conversation is untested. Monitor during Phase 2; if sluggish, fall back to static coloring.
 
 ## Sources
 
-### Primary (HIGH confidence — official specs and crates.io verified)
+### Primary (HIGH confidence)
+- AINM protocol spec: content.md, interactive.md, streaming.md, threading.md, transport.md, security.md, identity.md, memory.md, agent-card.md, tool-visibility.md — direct protocol requirements and contract definitions
+- AINM demo server: demo/src/signing.rs, demo/src/protocol.rs, demo/src/streaming.rs — reference implementations (integration targets for iOS)
+- Apple Developer Documentation: CryptoKit Curve25519.Signing, Storing CryptoKit Keys in Keychain, URLSessionWebSocketTask, NWPathMonitor, Creating Performant Scrollable Stacks — platform constraints and APIs
+- GRDB.swift v7.10.0 (GitHub, Feb 15 2026), GRDBQuery v0.11.0 (GitHub) — database API, observation patterns, SwiftUI integration
+- Nuke v12.9.0 (GitHub), swift-collections v1.4.1 (GitHub, Mar 2026) — image loading, data structures
+- RFC 8785 (JSON Canonicalization Scheme), RFC 9562 (UUIDv7) — implementation specifications for custom components
 
-- [reqwest on crates.io v0.13.2](https://crates.io/crates/reqwest) — mTLS HTTP client, rustls-tls feature
-- [rcgen on GitHub (rustls org) v0.14.7](https://github.com/rustls/rcgen) — X.509 certificate generation
-- [rustls on crates.io v0.23.36](https://crates.io/crates/rustls) — WebPkiClientVerifier for mTLS
-- [tokio-rustls on crates.io v0.26.4](https://crates.io/crates/tokio-rustls) — async TLS acceptor
-- [rustls-pki-types on crates.io v1.14.0](https://crates.io/crates/rustls-pki-types) — PEM parsing (replaces rustls-pemfile)
-- [RUSTSEC-2025-0134: rustls-pemfile unmaintained](https://rustsec.org/advisories/RUSTSEC-2025-0134) — critical: do not use rustls-pemfile
-- [redb on crates.io v3.1.1](https://crates.io/crates/redb) — pure-Rust embedded KV store
-- [Matrix Server-Server API v1.16](https://spec.matrix.org/v1.16/server-server-api/) — federation endpoints, transactions, backfill patterns
-- [Matrix State Resolution v2](https://matrix.org/docs/older/stateres-v2/) — why DAG complexity is real and must be avoided
-- [W3C ActivityPub Specification](https://www.w3.org/TR/activitypub/) — inbox/outbox delivery model, async retry
-- [axum TLS example (official repo)](https://github.com/tokio-rs/axum/blob/main/examples/tls-rustls/src/main.rs) — tokio-rustls integration pattern
-- AINM Transport Specification v0.1.0 (`spec/transport.md`) — existing federation relay spec
-- AINM Identity Specification v0.1.0 (`spec/identity.md`) — identity resolution and key management
-- AINM Security Specification v0.1.0 (`spec/security.md`) — message signing, deduplication
+### Secondary (MEDIUM confidence)
+- [PointFree SharingGRDB](https://www.pointfree.co/blog/posts/168-sharinggrdb-a-swiftdata-alternative) — GRDB as SwiftData alternative, production iOS patterns including background write architecture
+- [Stream Chat SwiftUI SDK — AI Integrations](https://getstream.io/chat/docs/sdk/ios/ai-integrations/overview/) — StreamingMessageView and AITypingIndicatorView patterns in production SwiftUI
+- [Donny Wals — WebSocket AsyncStream](https://www.donnywals.com/iterating-over-web-socket-messages-with-async-await-in-swift/) — URLSessionWebSocketTask wrapped in AsyncStream pattern
+- [Smashing Magazine — Designing for Agentic AI](https://www.smashingmagazine.com/2026/02/designing-agentic-ai-practical-ux-patterns/) — Agentic UX patterns for control, consent, and tool visibility
+- [A2UI.org](https://a2ui.org/) — Google's declarative agent UI spec; corroborates AINM interactive block design choices
+- [Approachable Concurrency in Swift 6.2](https://www.avanderlee.com/concurrency/approachable-concurrency-in-swift-6-2-a-clear-guide/) — Swift actor isolation patterns
 
-### Secondary (MEDIUM confidence — community sources, multiple sources agree)
-
-- [Matrix State Resolution CVE-2025-49090 (Project Hydra)](https://matrix.org/blog/2025/08/project-hydra-improving-state-res/) — state resets from crafted events after 7 years of v2; validates choosing origin-server authority
-- [Auth Chain Difference Performance (Synapse #8622)](https://github.com/matrix-org/synapse/issues/8622) — hundreds of seconds of DB time; validates async verification requirement
-- [Typing Notifications with 800 Homeservers](https://matrix.org/blog/2025/01/27/this-week-in-matrix-2025-01-27/) — EDU federation scaling failure; validates thread-scoped presence decision
-- [Conduit (Rust Matrix homeserver)](https://conduit.rs/) — validates Rust for federated messaging at 32 MiB RAM vs Synapse's hundreds
-- [XMPP Server Dialback Vulnerability](https://xmpp.org/community/security-notices/vulnerability-in-xmpp-server-dialback-implementations/) — DNS spoofing in practice; validates TOFU key pinning requirement
-- [ActivityPub and HTTP Signatures fragmentation](https://swicg.github.io/activitypub-http-signature/) — implementation inconsistencies between Mastodon/Misskey/GoToSocial; validates single-implementation strategy
-- [Step v0.8.3: Federation Root Rotation](https://smallstep.com/blog/step-v0.8.3-federation-root-rotation/) — certificate rotation in federated PKI; validates `tls_fingerprints` array approach
-- [mTLS Complete Guide (GitGuardian)](https://blog.gitguardian.com/mutual-tls-mtls-authentication/) — certificate lifecycle operational complexity
-
-### Tertiary (informational)
-
-- [XEP-0045: Multi-User Chat](https://xmpp.org/extensions/xep-0045.html) — XMPP MUC as reference for origin-server authority model
-- [XEP-0289: Federated MUC](https://xmpp.org/extensions/xep-0289.html) — distributed multi-user chat federation patterns
-- [Wire: Federating Security or Spam](https://wire.com/en/blog/federating-security-or-spam) — open vs closed federation trust model analysis
-- [Open Mail Relay History](https://en.wikipedia.org/wiki/Open_mail_relay) — validates direct-only S2S relay (no transitive hops)
-- [Matrix Decomposition Academic Analysis](https://matrix.org/blog/2020/06/16/matrix-decomposition-an-independent-academic-analysis-of-matrix-state-resolution/) — formal correctness analysis of state resolution
+### Tertiary (LOW confidence — informational, needs validation during implementation)
+- [Apple Study on AI Agent Interaction](https://9to5mac.com/2026/02/12/apple-study-looks-into-how-people-expect-to-interact-with-ai-agents/) — User expectations for agent UX on iOS (consumer research, not technical spec)
+- [RFC 8785 cyberphone/json-canonicalization test vectors](https://github.com/cyberphone/json-canonicalization) — reference test suite for JCS validation (test data, not implementation)
+- [HighlightSwift](https://github.com/appstefan/HighlightSwift) — JavaScriptCore performance at scale is untested; monitor during Phase 2 before committing
 
 ---
-*Research completed: 2026-03-28*
+*Research completed: 2026-03-29*
 *Ready for roadmap: yes*

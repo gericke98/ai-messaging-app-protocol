@@ -1,334 +1,347 @@
-# Federation Pitfalls Research
+# iOS Reference Client Pitfalls Research
 
-**Domain:** Adding multi-server federation to an existing single-server AI-native messaging protocol (AINM v3.2)
-**Researched:** 2026-03-28
-**Confidence:** HIGH (grounded in extensive real-world post-mortems from Matrix, XMPP, ActivityPub, and email)
+**Domain:** iOS Reference Client for AI-Native Messaging Protocol (AINM v3.3)
+**Researched:** 2026-03-29
+**Confidence:** HIGH (iOS platform constraints well documented by Apple; AINM integration pitfalls derived from protocol spec analysis; community patterns verified from Stream, Matrix iOS, and messaging-specific SwiftUI implementations)
 
 ---
 
 ## Critical Pitfalls
 
-These mistakes cause protocol rewrites, security breaches, or multi-year engineering sinkholes.
+These mistakes cause rewrites, data loss, or fundamental architectural failures.
 
 ---
 
-### Pitfall 1: Origin-Server Authority Becomes Split-Brain Under Network Partitions
+### Pitfall 1: RFC 8785 JSON Canonicalization Mismatch Between Swift and Rust
 
 **What goes wrong:**
-AINM v3.2 specifies "origin-server authority for thread state" -- one server is the authoritative source for each thread. This seems simple until the origin server goes offline. Remote participants keep sending messages that queue on their local servers. When the origin server returns, two divergent histories exist: messages the origin server knew about, and messages that accumulated on remote servers. If the origin server simply appends the queued messages, ordering may violate causal dependencies. If it rejects them, users lose messages.
-
-The problem compounds in multi-party threads spanning 3+ servers. Server B sends a reply to a message from Server C, but Server A (the origin) was offline and has no record of Server C's message yet. When Server A comes back, it receives Server B's reply before Server C's original -- the causal chain is broken.
+Messages signed by the iOS client fail signature verification on the Rust server (or vice versa). The Ed25519 signature is mathematically valid on the platform that produced it but invalid on the other. This failure is intermittent -- it only surfaces with certain message content (Unicode characters, non-ASCII keys in content block metadata, decimal numbers). ASCII-only test messages pass, creating false confidence.
 
 **Why it happens:**
-"Origin-server authority" is a simplification that works perfectly when the origin is always available. In a federated network, the origin WILL be unavailable -- hardware failures, maintenance windows, DNS outages, DDoS attacks. The design was correct for a single-server protocol but doesn't account for the fundamental reality of distributed systems: partitions are not exceptional, they are normal.
-
-Matrix solved this by having NO authoritative server -- every server that participates in a room has equal authority, which is why state resolution is so complex. AINM chose the opposite extreme (single authority) which avoids state resolution complexity but creates a single point of failure per thread.
+The AINM security spec (Section 4) requires RFC 8785 (JSON Canonicalization Scheme) to produce deterministic bytes for signing. RFC 8785 has two notoriously tricky requirements: (1) UTF-16 lexicographic key sorting (not UTF-8 byte order -- these differ for characters above U+FFFF), and (2) ECMAScript-compatible float-to-string conversion using the RYU algorithm. Swift's `JSONEncoder` with `.sortedKeys` does NOT produce RFC 8785 output -- it sorts keys by UTF-8 byte order and uses its own float formatting. Swift's `JSONSerialization` is similarly non-compliant. The Rust server uses `serde_json_canonicalizer` which follows RFC 8785 correctly. Two "sorted JSON" implementations that use different sort orders will produce different byte sequences for the same logical message, causing signature mismatch.
 
 **How to avoid:**
-- Define explicit behavior for "origin server unavailable" in the spec BEFORE implementing federation. The spec must answer: Can remote servers accept messages for a thread when the origin is down? If yes, how are they ordered when the origin returns? If no, what does the user see?
-- Implement "queued relay with causal ordering" -- remote servers accept and locally order messages using UUIDv7 timestamps and causal references (each message references the ID of the message it's replying to). When the origin returns, it merges queued messages respecting causal order.
-- Set a partition tolerance window (e.g., 7 days). If the origin server is down for longer than this, remote servers can either promote a new origin (protocol-defined process) or mark the thread as degraded.
-- Build a "partition simulator" test harness that runs two federated servers, partitions them, generates concurrent activity on both sides, heals the partition, and verifies message ordering and completeness.
+- Write a dedicated RFC 8785 JCS implementation in Swift. The spec is ~15 pages. The critical details are: key sorting must use UTF-16 code unit comparison (not Unicode scalar comparison), and number formatting must match ECMAScript's `Number.prototype.toString()`. Do not use `JSONEncoder`/`JSONSerialization`.
+- Port the official JCS test vectors (github.com/cyberphone/json-canonicalization, includes edge cases for Unicode, floats, and sorting) and run them as unit tests in the Swift package.
+- Create a cross-platform signing integration test: sign a message on iOS, send the canonical bytes and signature to the Rust server, verify. And vice versa. This test must run in CI on every commit.
+- AINM mostly avoids floats (timestamps are strings, IDs are strings), which reduces the float-formatting risk -- but do not rely on this; content block extensions may introduce numeric fields.
 
 **Warning signs:**
-- Messages appearing out of order after a server reconnects
-- "Message not found" errors when clicking a reply that references a message not yet synced
-- Thread participant lists diverging between servers
-- Integration tests that only pass when all servers are online simultaneously
+- Signature verification failures that only happen with emoji, CJK characters, or accented text in messages
+- Tests pass locally (iOS-to-iOS signing) but fail when the Rust server verifies the same message
+- Messages with only ASCII content always work; messages with Unicode content sometimes fail
+- The JCS output of the Swift implementation differs from the output of the `serde_json_canonicalizer` Rust crate for the same input
 
 **Phase to address:**
-Phase 1 (Relay Core). The partition behavior must be specified and tested from the very first relay implementation. Do not ship federation without a partition test suite.
+Phase 1 (Foundation). JCS + Ed25519 signing must be the first thing built and cross-platform tested. Every other feature depends on being able to send verified messages.
 
 ---
 
-### Pitfall 2: mTLS Certificate Lifecycle Becomes an Operational Nightmare
+### Pitfall 2: WebSocket Connection Lifecycle Mismanagement
 
 **What goes wrong:**
-AINM specifies mutual TLS (mTLS) for server-to-server relay, with TLS certificate fingerprints published at `/.well-known/ainm/server`. This means every federated server must: (1) obtain a TLS certificate, (2) publish its fingerprint, (3) verify remote server fingerprints against their well-known endpoints, and (4) rotate certificates before expiry without breaking federation.
-
-When a server rotates its TLS certificate, its fingerprint changes. Every remote server that cached the old fingerprint will reject connections until they re-fetch the server identity. If the TTL on the cached server identity is 1 hour (as recommended in the transport spec), there is up to a 1-hour window where federation is broken after every certificate rotation. During this window, messages queue up, and if the queue is bounded, messages may be lost.
-
-Worse: Let's Encrypt certificates expire every 90 days. If a server operator forgets to renew (or auto-renewal fails), federation silently breaks. The server still works for local users but is invisible to the federated network. No error is visible to the local operator unless they actively monitor federation health.
+The app works perfectly in foreground testing on WiFi but silently loses messages in real-world usage. Users experience: messages sent while offline vanishing, duplicate messages after reconnection, the app stuck in a "connecting" state after switching from WiFi to cellular, and missing messages that arrived while the app was backgrounded. The app may appear to be connected (no error visible) while actually disconnected.
 
 **Why it happens:**
-mTLS is the right security choice for S2S authentication, but it shifts significant operational complexity onto every server operator. In a centralized system, one team manages certificates. In federation, every independent operator must do it correctly. Email's history proves this fails at scale: misconfigured MX records, expired TLS certificates, and broken DKIM selectors are the #1 cause of email delivery failures between organizations.
-
-The AINM spec defines how fingerprints are published and verified but does not define certificate rotation procedures, overlap periods, or health monitoring.
+iOS aggressively suspends background apps -- there is no API to keep an arbitrary WebSocket connection alive in the background. `URLSessionWebSocketTask` connections are torn down when the app enters background (within ~30 seconds). WiFi-to-cellular transitions create a new network interface that silently kills the existing TCP connection. Developers make several compounding mistakes: (1) treating TCP connection open as "ready to send" without completing the `ainm.initialize` handshake, (2) not detecting that `URLSessionWebSocketTask.receive()` is single-shot (must be re-called after every message), (3) not monitoring network path changes with `NWPathMonitor`, (4) not replaying the AINM handshake on every reconnection.
 
 **How to avoid:**
-- Define a certificate rotation protocol: servers MUST publish the new fingerprint at least 24 hours before the old certificate expires. The server identity endpoint SHOULD return both current and upcoming fingerprints during the rotation window.
-- Add a `tls_fingerprints` array (plural) to the server identity response, replacing the single `tls_fingerprint` field. Support multiple valid fingerprints during rotation, with each having a `valid_from` and `valid_until` timestamp. This mirrors AINM's existing key rotation model for participant Ed25519 keys.
-- Implement federation health checks: each server periodically tests its own federation connectivity by resolving its own server identity from external DNS and verifying the fingerprint matches. Log warnings when certificates are within 14 days of expiry.
-- Provide a `ainm-fed-check` CLI tool in the reference server that validates: DNS resolution, TLS certificate validity, fingerprint match with well-known endpoint, relay endpoint reachability. Operators run this after any certificate change.
-- Default to short cache TTLs for server identity (5 minutes during rotation, 1 hour otherwise). Include a `rotation_in_progress` boolean in the server identity response to signal remote servers to reduce cache TTL.
+- Model the connection as an explicit state machine with these states: `disconnected` -> `connecting` (TCP) -> `handshaking` (ainm.initialize sent, waiting for ainm.initialized) -> `connected` (protocol ready) -> `disconnecting`. Only expose `send()` in the `connected` state. Queue messages sent in other states.
+- Use `NWPathMonitor` to detect network interface changes and proactively reconnect. Do not wait for a send/receive failure to discover the connection is dead.
+- Implement exponential backoff with jitter for reconnection: start 1s, max 30s, add random 0-500ms jitter to prevent thundering herd when the server restarts.
+- On every reconnection, replay the full `ainm.initialize` / `ainm.initialized` handshake with capability negotiation. Never cache capabilities across sessions.
+- Register for `UIApplication.willEnterForegroundNotification` and trigger immediate reconnection.
+- Use `beginBackgroundTask(expirationHandler:)` on background entry for ~30 seconds to gracefully close the WebSocket and flush pending messages to the local queue.
+- Implement server-side message replay: on reconnect, request messages since the last received `server_timestamp` to fill the gap.
+- Wrap `URLSessionWebSocketTask.receive()` in an `AsyncThrowingStream` that automatically re-calls receive after each message. Handle stream termination (cancellation, error) explicitly.
 
 **Warning signs:**
-- Federation working between some server pairs but not others
-- Relay requests failing with TLS handshake errors after certificate renewal
-- Server operators not knowing their federation is broken (no local symptoms)
-- Message delivery delays that correlate with certificate renewal schedules
+- Messages appear in a different order than sent
+- "Connection lost" state that never recovers without force-quitting the app
+- Messages sent while on cellular never arrive (WiFi worked fine)
+- The receive loop silently stops after a single message
 
 **Phase to address:**
-Phase 2 (Authentication & Security). Certificate lifecycle must be designed before the first mTLS connection is established in production.
+Phase 1 (Foundation/Networking). The WebSocket state machine is the transport foundation. Build this before any UI.
 
 ---
 
-### Pitfall 3: Server Identity Spoofing via DNS Poisoning or Well-Known Endpoint Compromise
+### Pitfall 3: SwiftUI Message List Performance Collapse with Large Conversations
 
 **What goes wrong:**
-AINM's federation discovery relies on DNS resolution to find `/.well-known/ainm/server` endpoints. An attacker who poisons DNS (or compromises the well-known endpoint hosting) can serve a malicious server identity with their own public key and TLS fingerprint. The attacking server then impersonates the legitimate server, receiving and sending messages that appear to come from the legitimate domain.
-
-This is not theoretical. XMPP's dialback protocol suffered exactly this: in 2012, multiple XMPP server implementations were found vulnerable to attacks where malicious servers sent verification responses for domains that never initiated the exchange. Servers accepted these unsolicited responses because they didn't track request-response state, enabling arbitrary domain spoofing.
-
-For AINM, the attack surface is: (1) DNS poisoning redirects `example.com` to attacker IP, (2) attacker serves `/.well-known/ainm/server` with their own keys, (3) attacker receives relay messages destined for `example.com` users, (4) attacker can read messages and forge new ones signed with the spoofed server key.
+Scrolling becomes janky or the app crashes when a conversation exceeds ~1,000 messages. Initial load of a long conversation takes 3-5 seconds with a blank screen. Fast scrolling shows blank frames. Memory climbs to 500MB+ for a single conversation view, leading to jetsam termination on older devices.
 
 **Why it happens:**
-The well-known endpoint pattern (used by Matrix, ACME/Let's Encrypt, ActivityPub) is convenient but relies entirely on DNS + TLS for trust. If either is compromised, the server identity is compromised. AINM adds Ed25519 server keys on top of TLS, but the server key is itself discovered via the potentially-compromised well-known endpoint -- it's circular trust.
+`LazyVStack` inside `ScrollView` does NOT recycle views the way `UITableView` does. It creates views lazily on scroll-down but retains all previously created views in memory. Testing shows memory exhaustion and crash around 5,000 messages on iPhone 11 Pro Max. Each AINM message can contain multiple content blocks (text, code, images, interactive forms) making each cell a complex view hierarchy. `defaultScrollAnchor(.bottom)` with large datasets causes a blank window on initial load because SwiftUI attempts to measure all content to determine the scroll position. Additionally, SwiftUI only retains the state of top-level views in a `ForEach` when they leave and re-enter the visible area -- nested view state (like form input in an interactive block) is lost.
 
 **How to avoid:**
-- Implement server key pinning: once a server has successfully federated with a remote server, it pins the remote server's Ed25519 public key. Subsequent connections verify the key hasn't changed. If it has, federation is paused and an alert is raised (TOFU -- Trust On First Use, same as SSH).
-- Add key continuity verification: when a server identity's public key changes, the old key MUST sign a "key rotation" attestation (identical to AINM's participant key rotation model). Unsigned key changes are treated as potential compromise.
-- Validate the `from_server` field in relay requests against the mTLS client certificate AND the server identity endpoint. All three must be consistent: the mTLS cert, the well-known public key, and the `from_server` claim.
-- Consider DNSSEC validation for server discovery. While not universally deployed, DNSSEC prevents DNS poisoning where available, and the reference server should validate DNSSEC when the remote domain supports it.
-- Rate-limit and log all server identity changes. A server whose key or fingerprint changes more than once per month should trigger investigation.
+- Implement pagination from day one: load only the most recent 50 messages initially. Load older messages on scroll-up with a "load more" trigger.
+- Maintain a view window of at most ~200 messages in the active SwiftUI view. When the user scrolls down past the window, remove messages from the top of the data source (and vice versa).
+- Use an inverted scroll approach for chat: rotate the ScrollView 180 degrees, reverse the message order, rotate each cell 180 degrees back. This makes "scroll to bottom" the natural default position and eliminates `defaultScrollAnchor` issues.
+- Make message views lightweight: use `.task` modifier to defer heavy rendering (Markdown parsing, syntax highlighting, image loading) until the cell is actually visible.
+- Pre-render `AttributedString` from Markdown when messages are received (in the repository layer), cache in the model. Do not parse Markdown during scroll.
+- Profile with Instruments (SwiftUI profiler) from Phase 2. Set a budget: 16ms per frame (60fps), <150MB memory for a 2,000-message conversation.
+- Use `Equatable` conformance on message view models to prevent unnecessary redraws.
 
 **Warning signs:**
-- Server identity responses with public keys that don't match previously seen values
-- mTLS handshakes succeeding but server signature verification failing (or vice versa)
-- A remote server's well-known endpoint returning different results from different network vantage points
-- Relay messages arriving from a `from_server` that doesn't match the connecting IP's reverse DNS
+- Memory usage climbs linearly as the user scrolls through a conversation (visible in Instruments)
+- Frame drops during fast scrolling (visible in Instruments as >16ms layout passes)
+- Blank frames appear when scrolling quickly
+- App terminations in crash logs with `EXC_RESOURCE` or jetsam memory pressure codes
+- Nested view state (form inputs inside interactive blocks) resets when scrolling away and back
 
 **Phase to address:**
-Phase 2 (Authentication & Security). Key pinning must be implemented alongside initial federation. Without it, every federation connection is vulnerable to a one-time DNS attack.
+Phase 2 (Core UI). The message list architecture must be built with pagination and memory management from the start. Retrofitting pagination into a "load all messages" design is a full rewrite.
 
 ---
 
-### Pitfall 4: Message Signature Verification Becomes a Performance Bottleneck at Federation Scale
+### Pitfall 4: Streaming Token Rendering Causes UI Thread Starvation
 
 **What goes wrong:**
-AINM requires three levels of validation on every relay request: (1) mTLS certificate verification, (2) server signature verification on the relay payload, (3) individual Ed25519 signature verification on each message against the sender's public key (resolved via identity resolution).
-
-Step 3 is the killer. For each message in a relay batch, the receiving server must: resolve the sender's identity (HTTP GET to a remote server), fetch the public key, verify the signature. If a relay batch contains 50 messages from 30 different senders on 15 different servers, that's potentially 30 identity resolution HTTP requests before the batch can be processed. If identity resolution takes 200ms average (DNS lookup + TLS handshake + HTTP request), that's 6 seconds of blocking I/O per relay batch.
-
-Matrix learned this the hard way: the `get_auth_chain_difference` algorithm -- which serves a similar purpose of validating event authorization chains -- "can often take hundreds of seconds of database time" and was "a large component of database load from state resolution."
+During agent streaming responses, the UI freezes: the user cannot scroll, tap buttons, or cancel the stream. Text appears in large chunks rather than smooth token-by-token flow. The "cancel stream" button does not respond. On older devices, the app may receive a watchdog termination for unresponsive main thread.
 
 **Why it happens:**
-Single-server AINM doesn't have this problem because all identities are local. Federation multiplies the identity resolution cost by the number of unique remote senders, and this cost is paid on the hot path of message delivery.
+Each `ainm.stream.delta` notification arrives as a WebSocket message (potentially 50-100+ per second for fast models). If every delta triggers a SwiftUI state update via `@Observable` or `@Published`, and the state change causes a view body re-evaluation, the main thread spends its entire budget on layout passes. AINM supports parallel streaming across multiple block indices within a single stream -- meaning deltas for a text block and a code block can interleave. If each delta for each block triggers an independent state update, the combinatorial effect multiplies the problem. Swift's `@Observable` macro triggers synchronous view updates on every property mutation.
 
 **How to avoid:**
-- Aggressive identity caching: cache resolved identity records for the full Cache-Control duration (recommended 1 hour). The receiving server should maintain a local identity cache that handles 99%+ of lookups without remote HTTP calls.
-- Pre-warm identity cache during federation handshake: when two servers begin federating, they should exchange the identities of their active users in bulk rather than waiting for per-message lookups.
-- Batch identity resolution: when a relay batch arrives with multiple unknown senders from the same server, resolve them in a single batched HTTP request rather than individual GETs. Define a batch identity resolution endpoint (e.g., `POST /.well-known/ainm/resolve-batch`).
-- Async signature verification: verify signatures in a background task pool, not on the relay request handler. Accept the relay payload with a 202 (Accepted), queue signature verification, and notify the sending server of rejections asynchronously. This prevents relay requests from timing out during verification.
-- Set a maximum batch size for relay requests (e.g., 100 messages). Reject batches exceeding this with a clear error, forcing the sender to split into multiple requests.
+- Throttle UI updates: accumulate deltas in a buffer on a background actor/queue. Flush the buffer to the UI at most every 16-33ms (30-60fps). Use `DispatchSource.makeTimerSource` or a `Task` with `Task.sleep(nanoseconds:)` coalescing loop.
+- Make the streaming text view a leaf view that manages its own `Text` content independently from the parent message list. This isolates delta updates from triggering re-layout of the entire list.
+- Use `AttributedString` append operations rather than rebuilding the entire string on every token.
+- For parallel block streaming, batch deltas by stream_id and flush all block updates in a single UI transaction.
+- Process WebSocket messages on a background actor. Batch and throttle before dispatching to the `@MainActor`.
+- Test the worst case early: an agent streaming 100+ tokens/second into 3 parallel blocks while the user is actively scrolling the conversation. This must be smooth.
 
 **Warning signs:**
-- Relay request latency increasing as the number of federated servers grows
-- Identity resolution HTTP requests dominating server CPU/network
-- Message delivery delays that correlate with federation traffic volume
-- Database connection pool exhaustion during signature verification
+- UI becomes unresponsive during agent responses
+- Xcode Organizer shows main thread hang reports
+- Text appears in bursts rather than smooth character-by-character rendering
+- The cancel button requires multiple taps to register
+- CPU usage spikes to 100% main thread during streaming
 
 **Phase to address:**
-Phase 1 (Relay Core) for the caching strategy. Phase 3 (Performance) for batch resolution and async verification.
+Phase 3 (Streaming). The throttling and batching architecture must be designed before implementing delta rendering. The streaming pipeline is: WebSocket -> background actor (batch/throttle) -> @MainActor (UI update).
 
 ---
 
-### Pitfall 5: Replay Attacks Across Federation Boundaries Bypass Single-Server Deduplication
+### Pitfall 5: Ed25519 Private Key Loss or Inaccessibility
 
 **What goes wrong:**
-AINM's deduplication (security.md Section 7) relies on tracking message IDs and rejecting duplicates. This works within a single server. In federation, an attacker captures a valid signed relay payload (the server signature is intact, the individual message signatures are intact) and re-transmits it to the target server. The target server sees a valid relay from a valid server with valid messages -- but it's a replay.
-
-The attack is powerful because AINM messages are immutable and self-contained: once signed, a message is valid forever (the signature doesn't expire). The deduplication window is "at least 24 hours" -- after 24 hours, the same message ID may no longer be in the deduplication set and could be accepted again.
-
-ActivityPub suffers from exactly this: "HTTP Signatures are ephemeral -- they only authenticate HTTP requests, not long-lived data." But AINM's per-message Ed25519 signatures are permanent, making signed messages valid replay material indefinitely.
+Users lose their cryptographic identity (and all ability to send verified messages) after app reinstall, device migration, or iOS update. Alternatively, the key becomes inaccessible when the device is locked, causing background message signing to fail silently. Or the key unexpectedly syncs to another device via iCloud Keychain, creating identity conflicts.
 
 **Why it happens:**
-The current deduplication spec was designed for client-to-server scenarios where the server is the single source of truth. In federation, messages arrive from external servers where the receiving server has no prior knowledge. The deduplication window is a sliding window that eventually evicts old message IDs, opening a window for replay.
+Ed25519 (`Curve25519.Signing.PrivateKey`) has NO native Keychain `SecKey` representation -- unlike P-256 keys which the Keychain stores as first-class `kSecClassKey` items. Ed25519 keys must be stored as generic password items (`kSecClassGenericPassword`) containing the raw key bytes. This has three consequences developers miss: (1) default accessibility for generic passwords may make the key unavailable when the device is locked (`kSecAttrAccessibleWhenUnlocked` is the default, which breaks background signing), (2) generic passwords sync to iCloud Keychain by default unless explicitly prevented with `kSecAttrSynchronizable: false`, creating duplicate identities across devices, (3) app deletion removes Keychain items on iOS 13+ unless the item was shared via a Keychain access group with another installed app.
 
 **How to avoid:**
-- Persist message IDs permanently (or for the message retention period) in the database, not just in a sliding window. For relay messages, the receiving server MUST check the persistent message store, not just the in-memory deduplication set.
-- Add a `nonce` or `relay_id` to relay payloads -- a unique identifier for each relay request (distinct from the message IDs it contains). Receiving servers track relay_ids to detect replayed relay payloads even if the individual message IDs are still in the dedup set.
-- Enforce timestamp bounds on relay payloads: add a `relay_timestamp` to the relay params (covered by the server signature). Receiving servers reject relay payloads with timestamps older than 5 minutes. This means replaying a captured payload only works within a 5-minute window.
-- Consider adding a challenge-response mechanism to the relay protocol: before accepting a relay, the receiving server sends a nonce to the sender, and the sender includes this nonce in the server signature. This prevents replay entirely but adds a round trip.
-- Log and alert on relay payloads where ALL message IDs are already in the dedup set -- this is a strong indicator of replay.
+- Store Ed25519 private key raw bytes (`privateKey.rawRepresentation`, 32 bytes) as `kSecClassGenericPassword` with these explicit attributes:
+  - `kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (available after first unlock, survives lock screen, does NOT sync to iCloud, does NOT survive backup restore to different device)
+  - `kSecAttrSynchronizable: false` (explicit -- do not rely on default)
+  - Use a stable `kSecAttrAccount` key like `"com.ainm.identity.ed25519.private"`
+- Reconstruct the key with `Curve25519.Signing.PrivateKey(rawRepresentation: storedBytes)`.
+- Implement a key existence check on every app launch. If the key is missing, guide the user through re-registration or key recovery.
+- Design a key recovery mechanism at the protocol level (out-of-band key backup, social recovery, or server-assisted recovery) before shipping. Without this, key loss = permanent identity loss.
+- Use `KeychainAccess` library (in the stack) but verify its defaults match these requirements -- do not assume the library sets the correct accessibility.
+- Test: install app, create identity, delete app, reinstall. Verify the key is gone (expected behavior) and the app handles it gracefully.
 
 **Warning signs:**
-- Duplicate messages appearing after the deduplication window expires
-- Relay payloads arriving with timestamps significantly older than the current time
-- Users seeing the same message delivered twice, hours or days apart
-- Server logs showing identical relay payloads from the same source within a short window
+- Users report "identity lost" after iOS update or device migration
+- Message signing fails intermittently when the device is locked (key inaccessible)
+- Users on multiple devices have the same identity key (iCloud sync leak)
+- Key is present in unencrypted iTunes backups
 
 **Phase to address:**
-Phase 2 (Authentication & Security). Replay protection must be in the relay protocol before federation is considered production-ready.
+Phase 1 (Foundation/Security). Key storage is the foundation of identity. Get it right before building any signing, sending, or identity UI.
 
 ---
 
-### Pitfall 6: Selective Backfill Leaks Thread History to Unauthorized Servers
+### Pitfall 6: GRDB Observation Triggering Excessive SwiftUI Redraws
 
 **What goes wrong:**
-AINM v3.2 targets "selective backfill for thread history across servers." When a new participant from Server B joins a thread owned by Server A, Server A must send thread history to Server B. If backfill sends the full thread history, Server B gets messages that were exchanged before the new participant joined -- potentially including sensitive content that was shared under the assumption that only the original participants would see it.
-
-This is not just a privacy concern -- it's a security concern. In a multi-server thread, Server B could be malicious (or compromised), and backfill gives it access to historical messages it was never authorized to receive. The thread participants never consented to Server B seeing messages from before the join.
-
-Matrix's backfill has this exact problem: "Excessively large rooms may cause performance problems for servers implementing state backfill APIs" and there are no fine-grained access controls on what history is shared during backfill.
+The UI redraws the entire conversation list or message thread on every database write, even when the change is unrelated to the visible content. CPU spikes when messages arrive in a background conversation. Scrolling stutters when the database is being written to. The app feels sluggish despite having a fast network connection.
 
 **Why it happens:**
-In single-server AINM, when a user joins a thread, the server controls exactly what history they see (based on thread settings). In federation, the "thread history" must be serialized and transmitted to another server that you don't control. Once the messages leave the origin server, there is no way to enforce access controls on the remote server.
+GRDB's `ValueObservation` is powerful but coarse-grained by default. A common pattern is: observe "all messages in thread X" with `ValueObservation.tracking { db in try Message.filter(threadId: threadId).fetchAll(db) }`. When any message in that thread changes (new arrival, status update, read receipt), GRDB re-fetches the entire result set and SwiftUI diffs the whole array. With 500+ messages per thread, this is 500+ Equatable comparisons on every database write. Worse: if the observation is on the main queue (the default), the re-fetch blocks the UI thread. If you have separate observations for the conversation list and the message view, a single incoming message triggers two full re-fetches.
 
 **How to avoid:**
-- Define backfill visibility levels in the spec: `none` (no history for new joiners from other servers), `summary` (a server-generated summary of prior discussion, no actual messages), `since_invite` (only messages after the participant was invited/mentioned), `full` (complete history). Thread creators choose the level at thread creation time.
-- Never send messages to a server that doesn't have a participant in the thread. The relay endpoint should reject messages for threads where the target server has no participants.
-- Implement "backfill authorization": when Server B requests backfill, Server A verifies that Server B has a legitimate participant in the thread and only sends messages from the point of that participant's join timestamp onward.
-- Consider "backfill digests": instead of sending raw messages, send summaries or metadata (sender, timestamp, content type) that let the new participant understand thread context without exposing the actual content. The participant can request specific messages if needed.
-- Make backfill a pull operation, not a push. Server B requests history; Server A decides what to share based on the requesting participant's join time and the thread's backfill policy. Do not automatically push full history on join.
+- Use `ValueObservation` with narrow queries: observe only the visible page of messages (e.g., the most recent 50), not the entire thread. Update the observation when the user scrolls to a new page.
+- Use GRDB's `DatabaseRegionObservation` for lightweight change detection -- it tells you "something changed in table X matching condition Y" without re-fetching. Combine with manual, targeted re-fetches.
+- Schedule observations to deliver on a background queue (`.scheduling(.async(onQueue: .global()))`), then dispatch results to `@MainActor`. Never let GRDB fetch on the main thread for large result sets.
+- For the conversation list, observe only the `conversations` table with preview fields (last message preview, timestamp, unread count). Do not join the full messages table.
+- Use `fetchAll` with explicit column selection when you only need preview data -- avoid fetching large `content` JSONB columns for list views.
+- Implement proper `Identifiable` and `Equatable` on your message view models so SwiftUI's diff is as cheap as possible (compare IDs, not content).
 
 **Warning signs:**
-- New participants seeing messages from before they joined, without the thread owner's intent
-- Server operators requesting "how do I prevent other servers from seeing old messages"
-- Privacy-sensitive threads being created without backfill considerations
-- Backfill requests that are disproportionately large relative to the participant's legitimate need
+- Instruments shows GRDB fetch operations on the main thread taking >10ms
+- CPU spikes when messages arrive in conversations the user is not viewing
+- The conversation list stutters when a background sync writes messages
+- Memory spikes from re-fetching large result sets on every observation trigger
 
 **Phase to address:**
-Phase 2 (Backfill). Backfill authorization must be designed before the first backfill message is sent. This cannot be retrofitted without breaking existing behavior.
+Phase 2 (Core UI / Persistence). The observation and pagination strategy must be co-designed with the message list. They are the same problem.
+
+---
+
+### Pitfall 7: Not Respecting the ainm.initialize Handshake Contract
+
+**What goes wrong:**
+The iOS client sends protocol messages before completing the `ainm.initialize` / `ainm.initialized` exchange, and the server rejects them with error code -32001. Features work after a fresh app launch but break after reconnection because the client reuses stale capability information. Streaming-related messages are sent to a server session that did not negotiate streaming support.
+
+**Why it happens:**
+Developers treat the WebSocket `open` event as "ready to send protocol messages." But AINM transport spec (Section 4.2-4.3) requires a handshake exchange before any protocol method can be called. The handshake includes capability negotiation: both sides declare which features they support (`streaming`, `interactive`, `memory`, etc.). Only features declared by both sides are available for the session. If the client caches capabilities from a previous session and the server has changed (upgraded, downgraded, different config), the client may attempt operations the current session does not support.
+
+**How to avoid:**
+- Model the connection state explicitly. `tcpConnected` is NOT `protocolReady`. Only expose a `send(method:params:)` API after `ainm.initialized` response is received and parsed.
+- Store negotiated capabilities in the session object, scoped to the current connection. Clear and re-negotiate on every reconnection.
+- Queue outbound messages that arrive during the handshake phase. Flush the queue after `ainm.initialized`. Drop messages that require capabilities the new session does not support (and notify the caller).
+- Handle handshake failure explicitly: if `ainm.initialize` returns an error (version mismatch, auth failure), surface a user-visible error. Do not silently retry forever.
+- Validate each outbound message against the session's negotiated capabilities before sending.
+
+**Warning signs:**
+- Server logs show rejected messages with "session not initialized" or "capability not negotiated" errors
+- Features work after fresh app launch but break after reconnection
+- Intermittent "method not found" JSON-RPC errors for streaming or interactive methods
+- The client sends `ainm.stream.cancel` to a session that did not negotiate streaming
+
+**Phase to address:**
+Phase 1 (Foundation/Networking). The handshake is the first thing that happens on the wire. Build it before any protocol method.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable during initial federation implementation but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Skip mTLS, use server signatures only | Faster dev setup, no PKI infrastructure needed | No transport-layer authentication; any server can claim any identity by serving a fake well-known endpoint | Never in production. Acceptable only for local docker-compose testing |
-| Cache server identities indefinitely | Eliminates repeated HTTP lookups | Stale fingerprints after certificate rotation, stale keys after server key rotation; federation silently breaks | Never. Always respect Cache-Control headers |
-| Single-threaded relay processing | Simpler implementation, no concurrency bugs | Relay throughput bottleneck; one slow identity resolution blocks all relay processing | MVP only. Must be concurrent before any load testing |
-| Skip relay `server_signature` verification | Faster message processing, one fewer crypto operation | Any server on the network can inject messages claiming to be from any other server; the mTLS alone doesn't prevent a compromised server from lying about `from_server` | Never |
-| Unbounded offline relay queues | No messages lost during server downtime | Disk exhaustion; a malicious server sending millions of messages to an offline target fills the relay queue | Early development only. Must add queue size limits and per-source quotas before federation testing |
-| Trust all federated servers equally | No trust infrastructure needed | One malicious server can spam/abuse the entire network with no consequences. Email's open relay history proves this fails catastrophically | Never. Graduated trust from first federation implementation |
+| Load all messages into LazyVStack without pagination | Simpler code, works in demos with 20 messages | Memory crash at ~5K messages, scroll jank at 1K+ | Never -- pagination must be designed from day one |
+| Use `JSONEncoder(.sortedKeys)` instead of proper RFC 8785 JCS | Ships faster, works for ASCII-only test messages | Signature failures on Unicode content, impossible to debug in production | Never -- cross-platform signing requires exact JCS compliance |
+| Store Ed25519 key in UserDefaults | Quick prototyping, easy to inspect | Key exposed to unencrypted backups, no access control, App Store rejection risk | Only in `#if DEBUG` builds with a hard guard |
+| Skip WebSocket reconnection logic | Faster initial development | App appears broken after any network hiccup, loses user trust immediately | Never -- reconnection is table stakes for any messaging app |
+| Single global GRDB `ValueObservation` for all messages in a thread | Simple setup, single subscription | UI redraws everything on any DB change, CPU waste, jank | Only in very early prototype with <100 messages, must be refactored before first user test |
+| Process every streaming delta synchronously on main thread | Simpler code path, no concurrency to manage | UI freezes during agent streaming, unresponsive to user input | Never -- throttling must be part of the streaming pipeline design |
+| Hardcode server URL | Faster dev setup | Cannot test against different servers, blocks multi-server/federation testing, violates 12-factor principles | Acceptable in first 2 weeks of Phase 1, must be configurable before Phase 1 ends |
+| Skip fallback rendering for unknown block types | Fewer view components to build | Blank spaces in messages when the server sends newer block types the client does not recognize | Never -- the protocol requires fallback rendering, and server evolution will produce unknown blocks |
 
 ## Integration Gotchas
 
-Mistakes specific to integrating federation with AINM's existing single-server identity and signing model.
+Mistakes specific to connecting the iOS client to the existing AINM Rust server.
 
-| Integration Point | Common Mistake | Correct Approach |
-|-------------------|----------------|------------------|
-| Identity resolution across servers | Calling `/.well-known/ainm/{name}` on the remote server for every message in a relay batch | Cache identity records locally. Batch-resolve unknown identities. Pre-warm cache during federation handshake |
-| Ed25519 signature verification with key rotation | Verifying only against the sender's current key, failing messages signed with a recently-rotated key | Follow identity.md Section 6.7: try current key, then check key_history for a key valid at the message's timestamp. Handle the 24-hour overlap period |
-| Server Ed25519 key vs. participant Ed25519 key | Confusing the server-level signing key (for relay payloads) with participant-level signing keys (for individual messages) | Server keys sign relay metadata. Participant keys sign message content. They are independent key pairs with independent rotation lifecycles |
-| Thread ownership across federation | Assuming the origin server always knows about all thread participants | Remote servers may have participants that joined via other remote servers. The origin server must track all participants across all servers, not just directly-connected ones |
-| UUIDv7 message ordering in federation | Relying on UUIDv7 timestamp component for global ordering when clocks are not synchronized across servers | UUIDv7 provides per-server ordering. Cross-server ordering requires the `server_timestamp` assigned by the origin server. Use causal references (reply-to message IDs) for causal ordering |
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| JSON-RPC dispatch | Treating notifications (no `id`) and requests (with `id`) identically; not correlating responses to pending requests | Maintain a `[Int: CheckedContinuation]` map for pending requests keyed by JSON-RPC `id`. Route incoming messages: if has `id` and `result`/`error` -> resume continuation; if has `method` -> dispatch to notification handler via `AsyncStream`. Use a `Sendable` actor for the pending map |
+| Streaming lifecycle | Treating stream deltas as independent messages; losing track of which stream a delta belongs to; not pre-allocating block layout | Maintain a `[UUID: StreamState]` actor. On `ainm.stream.start`, allocate block buffers matching the declared layout array. On `ainm.stream.delta`, append to the correct block buffer by `block_index`. On `ainm.stream.end`, collapse buffers into a permanent signed message and persist to GRDB |
+| CryptoKit vs. Rust ring compatibility | Assuming the signature format is automatically compatible | Both use standard Ed25519 (64-byte signatures), but verify: (1) CryptoKit's `signature(for:)` takes raw bytes, not a digest -- do not pre-hash; (2) ring's `Ed25519KeyPair::sign()` also signs raw bytes; (3) public key format is 32 bytes raw in both. Test with shared test vectors from the Ed25519 RFC |
+| GRDB observation in SwiftUI | Putting `ValueObservation` in the ViewModel's `init`, causing observation to start before the view is visible and continue after it disappears | Start observations in `.task` modifier (auto-cancelled when view disappears). Use `@Observable` view models that expose published results from GRDB, not raw observation tokens |
+| Server timestamps vs. local clock | Using `Date()` for message ordering | Always use `server_timestamp` from the `ainm.message.send` response for canonical ordering. UUIDv7 IDs are time-ordered but use the device clock (which may be wrong). Show messages in UUIDv7 order optimistically, re-sort by `server_timestamp` when the response arrives |
+| Interactive blocks + ActionBlocks | Sending the action response as a mutation of the original message | ActionBlocks are NEW messages in the thread (per interactive.md). They reference the original via `ref_message_id` and `ref_action_id`. The original interactive block is immutable. Build the action flow as: user taps -> create new ActionBlock message -> sign -> send -> original block transitions to disabled state locally |
+| Content block `version` handling | Only implementing `1.0` and showing blank for anything else | Check MAJOR version. Same MAJOR = render normally, ignore unknown optional fields. Higher MAJOR = render `fallback` string. This is required by content.md Section 3 |
 
 ## Performance Traps
 
-Patterns that work in single-server or small-federation scenarios but fail as the federation grows.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Synchronous identity resolution on relay hot path | Relay request latency increases linearly with number of unique senders per batch | Async resolution, local cache, batch resolution endpoint | > 10 unique remote senders per relay batch |
-| Unbounded relay batch size | Single relay request takes > 30 seconds to process; connection timeouts | Cap batch size at 100 messages; reject larger batches with error | > 200 messages per relay request |
-| Per-message relay (no batching) | Network overhead from TCP+TLS handshake per message; connection storms during high traffic | Batch messages per destination server; hold for 50-100ms to collect batch | > 50 messages/second to a single remote server |
-| Full thread state in every relay payload | Relay payload size grows with thread history; bandwidth saturation | Send only new messages in relay; backfill only on explicit request | Threads with > 1000 messages |
-| Typing/presence notifications via federation | A single user typing in a room with 800 participating homeservers triggers 800 HTTP requests | Rate-limit EDU (Ephemeral Data Unit) federation; only federate presence to servers with active participants; cap at N remote servers | > 50 participating remote servers per thread |
-| Naive server discovery on every relay | DNS lookup + HTTPS + JSON parse for `/.well-known/ainm/server` before every relay attempt | Cache server identity with TTL; background refresh; circuit breaker for unreachable servers | > 100 relay requests per minute to the same server |
+| Parsing Markdown in every message cell during scroll | Frame drops, janky scroll, high CPU in Instruments | Pre-parse Markdown to `AttributedString` when the message is received/fetched, cache in the model. Use background parsing for batches | 50+ messages with Markdown formatting visible simultaneously during fast scroll |
+| Loading full image data for ImageBlocks in message list | Memory spikes, scroll hitches, jetsam termination | Use thumbnail URLs in the list view. Load full resolution only when tapped. Use `AsyncImage` with `.resizable()` and explicit `.frame()`. Implement disk cache | 10+ images visible in a single conversation scroll viewport |
+| Unbounded streaming delta buffer | Memory grows linearly during long agent responses | Cap buffer at 100KB per block. For collapsed messages, stream large content to disk. Set a maximum stream duration timeout (e.g., 5 minutes) | Agent generates 50KB+ response (common for code generation tasks) |
+| Re-signing messages on retry after reconnection | CPU spike re-signing 20+ queued messages, blocking reconnection flow | Cache the signed envelope bytes alongside the message in the outbound queue. Reuse if content unchanged. Only re-sign if the timestamp was updated | Batch retry of 20+ failed messages after reconnection on an older device (iPhone 11) |
+| Fetching full JSONB content for conversation list preview | Slow conversation list load, 100MB+ memory for 50 conversations with large messages | Store `preview_text` (first 100 chars of first text block) as a separate indexed column. Query only `id, thread_id, from, timestamp, preview_text` for list | 50+ conversations where messages contain code blocks, forms, or long text |
+| Rendering all content blocks eagerly in each message cell | Complex cells with 3+ blocks cause layout passes >16ms | Use lazy rendering: show only the first 2 blocks initially, "Show more" button for messages with 3+. Or use measured pre-layout to only render visible blocks | Messages with 5+ content blocks (common for agent responses with text + code + explanation) |
 
 ## Security Mistakes
 
-Federation-specific security issues beyond AINM's existing single-server security model.
-
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Trusting relay payload `from_server` without verifying mTLS certificate identity | Any server can claim to be any other server by spoofing the `from_server` field | Cross-validate `from_server` against the mTLS client certificate Subject/SAN AND the server identity endpoint |
-| Not validating that relayed messages are actually FROM users on the sending server | Server A relays a message claiming to be from `alice@serverB.com` -- Server A is laundering messages through its relay | Verify that each message's `from` address has a provider matching the relay's `from_server`. Reject messages where the sender's provider doesn't match the relaying server |
-| Accepting relay payloads with no rate limiting | A single malicious federated server sends millions of messages, overwhelming the receiving server (federation-level DDoS) | Per-source rate limits on relay endpoint. Graduated limits based on server trust/reputation. Hard cap at N relay requests per minute per source |
-| Serving `/.well-known/ainm/server` over HTTP (not HTTPS) | Server identity response can be tampered with in transit, enabling MITM of all federation traffic | Enforce HTTPS-only for all well-known endpoints. Reject HTTP responses. Pin certificate on first successful connection (TOFU) |
-| No relay payload expiry | Captured relay payloads can be replayed indefinitely | Add `relay_timestamp` to relay params (covered by server signature). Reject payloads older than 5 minutes |
-| Allowing cross-server message forgery through backfill | During backfill, remote server sends fabricated "historical" messages that were never actually sent | Verify every backfilled message's individual Ed25519 signature against the sender's public key at the message's timestamp. Reject any message with an invalid signature, even during backfill |
-| Server key rotation without attestation | A compromised well-known endpoint can silently replace the server's Ed25519 key, enabling impersonation | Require the old key to sign a rotation attestation for the new key (same model as participant key rotation in identity.md) |
+| Logging message content or signatures via `print()` or `os_log` | Sensitive content visible in device console, sysdiagnose, and Xcode device logs accessible by anyone with physical access | Use `OSLog` with `privacy: .private` for any message content or signature data. Use `#if DEBUG` guards for verbose protocol logging |
+| Implementing `urlSession(_:didReceive:completionHandler:)` to bypass TLS validation for dev servers | Man-in-the-middle attack intercepts all messages and signing keys if accidentally shipped to production | Never disable TLS validation. For dev servers, install a local CA certificate on the test device. Use `Info.plist` App Transport Security exceptions only for specific test domains |
+| Storing Ed25519 private key with `kSecAttrAccessibleWhenUnlocked` (the default) | Key inaccessible when device is locked, breaking background message signing; key accessible from unencrypted backups | Use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` explicitly |
+| Not verifying Ed25519 signatures on incoming `ainm.message.deliver` notifications | Accepting spoofed or tampered messages from a compromised server or network attacker | Verify signature on every incoming message before displaying. Fetch sender's public key via identity resolution. Show a warning badge on messages that fail verification rather than silently displaying them |
+| Trusting the `source` field without verifying the message signature first | Prompt injection: attacker sends a message with `source: "system"` to trick the UI into displaying it as a system message | Verify signature first. Only then trust the `source` annotation for UI styling. Unsigned messages must not receive system-level visual treatment |
+| Caching public keys indefinitely without TTL or rotation awareness | Using a revoked or rotated key to verify messages, accepting invalid signatures | Implement a 1-hour TTL cache for public keys. On verification failure, re-fetch the key before rejecting. Check `key_history` for messages signed with rotated keys (per identity.md Section 6.7) |
+| Storing auth tokens or session secrets in `UserDefaults` | Accessible via backup extraction, no encryption at rest, no access control | Store all secrets in Keychain with appropriate accessibility attributes |
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| No optimistic message sending | User taps send, sees nothing for 500ms-2s until server confirms. Feels broken | Insert the message into the UI immediately with a "sending" indicator (spinner/clock icon). Update to "sent" (checkmark) on server confirmation. Show "failed" with retry button on error |
+| Showing raw JSON-RPC errors to the user | User sees `{"code": -32010, "message": "Invalid signature"}` | Map AINM error codes to human-readable messages. `-32010` -> "This message could not be verified. Please try again." `-32001` -> "Connection interrupted. Reconnecting..." Log the technical error for debugging |
+| Blocking the UI during reconnection | User opens the app after being offline, sees a spinner for 5+ seconds with no content | Show cached messages from GRDB immediately on app open. Display a subtle "Reconnecting..." banner at the top. Sync new messages in background. Remove banner when connected |
+| Not rendering `fallback` for unknown block types | Messages from a newer server contain interactive blocks the client does not support -- they render as blank space | Always check block type and version major. Render `fallback` text (required on every block) when unrecognized. This is a protocol requirement, not a nice-to-have |
+| No typing/thinking indicator before streaming starts | Agent appears to do nothing for 1-3 seconds between the user's message and the first `ainm.stream.start` event | Show a "thinking..." indicator immediately when a message is sent to a thread containing an agent. Replace with streaming content on first `ainm.stream.start` |
+| Tool call events shown as raw JSON | User sees `{"tool": "web_search", "status": "started"}` in the message thread | Render tool calls as native UI cards using the AINM tool-visibility spec: "Searching the web..." with a loading animation, then the result. This is one of AINM's differentiating features -- make it shine |
+| Form state lost when scrolling away | User fills out half of a FormBlock, scrolls up to read context, scrolls back -- form is blank | Persist form input state in the view model (not the SwiftUI view state). LazyVStack does not preserve nested view state. Store draft form values keyed by `action_id` |
+| Approval blocks with no loading state | User taps "Approve" and nothing happens for 500ms while the action message is being signed and sent | Show an immediate state transition: button -> loading spinner -> confirmed state. Revert to original state if the send fails |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete in a federation implementation but are missing critical pieces.
-
-- [ ] **Relay endpoint works:** But does it verify mTLS fingerprint against the well-known server identity? Not just "TLS handshake succeeded" but "certificate fingerprint matches published value."
-- [ ] **Messages relay between two servers:** But do they relay correctly when the origin server is down? Test the partition case, not just the happy path.
-- [ ] **Signature verification passes:** But does it work for messages signed with a rotated key? Test with sender keys that rotated after the message was signed but before it was relayed.
-- [ ] **Server identity endpoint responds:** But does it include the upcoming TLS fingerprint during certificate rotation? Test the rotation overlap period.
-- [ ] **Offline queue stores messages:** But is it bounded? What happens when it fills up? Are per-source quotas enforced? Does it survive server restart (persistence, not just in-memory)?
-- [ ] **Backfill sends thread history:** But does it respect the requesting participant's join timestamp? Does it enforce the thread's backfill policy? Does it verify the requester actually has a participant in the thread?
-- [ ] **Rate limiting works per-client:** But is it also applied per federation source? A federated server is a different threat model than a single client -- it can send much higher volumes legitimately.
-- [ ] **Federation health monitoring exists:** But does it alert when federation is silently broken? (e.g., certificate expired, DNS pointing wrong, server identity stale). Silent federation failures are the most dangerous because no user reports them until they try to message someone on the broken server.
-- [ ] **Docker-compose demo works:** But does it test network partitions, certificate rotation, key rotation, and replay attacks? Or only the happy path of two healthy servers exchanging messages?
+- [ ] **WebSocket reconnection:** Often missing WiFi-to-cellular transition handling -- verify by toggling airplane mode during active streaming, then verifying reconnection and message gap-fill within 10 seconds
+- [ ] **Message signing:** Often only tested with ASCII content -- verify with emoji, CJK, RTL text, and messages containing all content block types (text + code + image + interactive)
+- [ ] **Streaming collapse:** Often missing the step where accumulated deltas are assembled into a permanent signed message and persisted to GRDB -- verify by killing the app mid-stream and checking if the partial message is recoverable on next launch
+- [ ] **Interactive block post-action state:** Often missing disabled/expired state handling -- verify that buttons and forms become non-interactive after the user submits an ActionBlock, and that expired approvals show their final state
+- [ ] **Offline message queue:** Often missing retry-with-backoff and deduplication -- verify by sending 10 messages offline, reconnecting, and checking all 10 arrive exactly once in correct order
+- [ ] **Pagination boundary:** Often missing the "load more" trigger when scrolling up -- verify by scrolling to the top of a 500+ message conversation and confirming older messages load without scroll position jumping
+- [ ] **Background-to-foreground sync:** Often missing the gap-fill for messages received while the app was suspended -- verify by backgrounding the app for 5+ minutes, sending messages from another client, then foregrounding and checking they appear
+- [ ] **Memory under load:** Often tested with 10 messages, not 1,000 -- verify by loading a conversation with 2,000+ messages and monitoring memory in Instruments (budget: <150MB)
+- [ ] **Fallback rendering:** Often not tested because dev server and client are always in sync -- verify by sending a message with a made-up block type (e.g., `"chart"`) and confirming the fallback text renders
+- [ ] **Key accessibility:** Often not tested with locked device -- verify that signing works after `beginBackgroundTask` when the device is locked (requires `AfterFirstUnlock` accessibility)
+- [ ] **UUIDv7 ordering vs server timestamp ordering:** Often only one ordering is implemented -- verify that optimistic (UUIDv7) ordering is shown immediately, then corrected to server timestamp ordering when the server confirms
 
 ## Recovery Strategies
 
-When federation pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Split-brain thread divergence after partition | MEDIUM | Origin server merges queued messages using causal ordering. If causality is ambiguous, insert a "thread was partitioned" system message and append all messages chronologically. Notify participants that message ordering may be approximate for the partition period |
-| mTLS certificate expired, federation broken | LOW | Renew certificate, update well-known endpoint with new fingerprint. Wait for remote servers to refresh cache (up to TTL). Force-refresh by contacting known federation partners out-of-band |
-| Server identity spoofed via DNS | HIGH | Rotate server Ed25519 key immediately. Notify all federation partners out-of-band. Audit messages received during the spoofing period. Consider key pinning registry for critical federation partners |
-| Relay queue overflow | LOW | Implement queue compaction (deduplicate, drop expired messages). Increase queue capacity. Add per-source quotas to prevent recurrence. Alert sending servers of rejected messages |
-| History leaked via permissive backfill | HIGH (data already exposed) | Cannot un-send leaked messages. Notify affected participants. Tighten backfill policy for future joins. Consider message expiry/deletion federation protocol for damage limitation |
-| Replay attack delivered duplicate messages | LOW | Remove duplicates from thread. Extend deduplication window. Add relay_timestamp validation. Investigate source of captured relay payload |
+| JCS canonicalization mismatch | MEDIUM | Write comprehensive cross-platform test suite with RFC 8785 vectors. Fix the Swift JCS implementation. Re-verify stored messages (signatures are immutable in messages). No data loss, but all messages sent with wrong canonicalization cannot be verified by other clients |
+| WebSocket lifecycle bugs | MEDIUM | Refactor to explicit state machine pattern. Add integration tests using Network Link Conditioner for simulated poor conditions. ~1 week effort to retrofit state machine if the initial implementation was ad-hoc |
+| Message list memory crash | HIGH | Requires architectural rewrite from "load all" to paginated windowed data source. Cannot be patched incrementally. Plan 1-2 weeks for list + observation + GRDB query redesign |
+| Streaming UI freeze | MEDIUM | Insert throttling layer between WebSocket and UI. Requires refactoring the delta processing pipeline (~3-5 days) but does not change the data model |
+| Lost Ed25519 keys | HIGH | If keys are lost and no recovery mechanism exists, the user's identity is permanently gone. Must design key backup/recovery before shipping. Cannot be retrofitted without identity migration. Recovery mechanism design: 1-2 weeks |
+| GRDB observation overload | LOW | Refactor observations to narrower queries and background delivery. Can be done incrementally. ~2-3 days per view that needs optimization |
+| Handshake contract violations | LOW | Add state machine enforcement. Queue outbound messages during handshake. ~1 day fix if caught early. Debugging intermittent failures from this bug can take much longer |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these federation pitfalls.
-
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Split-brain under partition (P1) | Phase 1: Relay Core | Network partition test suite passes with correct message ordering after heal |
-| mTLS certificate lifecycle (P2) | Phase 2: Authentication | Certificate rotation test: rotate cert, verify federation resumes within 5 minutes |
-| DNS/identity spoofing (P3) | Phase 2: Authentication | Key pinning test: change server key without attestation, verify federation rejects connection |
-| Signature verification bottleneck (P4) | Phase 1: Relay Core (caching); Phase 3: Performance (batch resolution) | Relay batch with 50 messages from 30 senders processes in < 2 seconds |
-| Cross-federation replay (P5) | Phase 2: Authentication | Replay captured relay payload after 5 minutes, verify rejection |
-| Backfill history leakage (P6) | Phase 2: Backfill | Join thread with `since_invite` policy, verify no messages before join timestamp are received |
-| Typing/presence notification storms (Performance Trap) | Phase 3: Performance | Thread with 100+ remote servers, verify typing notifications are rate-limited to < 10 requests/second |
-| Federation spam/abuse (from original PITFALLS.md P8) | Phase 3: Trust & Moderation | New server connects, verify rate limits applied; send 1000 messages, verify throttling activates |
-| Server message laundering (Security) | Phase 1: Relay Core | Relay message with `from` address on different server than `from_server`, verify rejection |
+| RFC 8785 JCS mismatch (P1) | Phase 1 (Foundation) | Cross-platform test: sign on iOS, verify on Rust; sign on Rust, verify on iOS. 100% pass on RFC 8785 official test vectors. Include Unicode, emoji, and multi-block messages |
+| WebSocket lifecycle (P2) | Phase 1 (Foundation) | Integration test: connect, exchange messages, toggle airplane mode, verify reconnection + handshake replay + gap-fill within 10 seconds |
+| Message list performance (P3) | Phase 2 (Core UI) | Instruments profiling: 60fps scroll through 2,000-message conversation. Memory <150MB. No blank frames during fast scroll |
+| Streaming UI starvation (P4) | Phase 3 (Streaming) | Stress test: 3 parallel blocks streaming at 100 tokens/sec. Taps register within 100ms. No main thread hangs in Instruments |
+| Ed25519 key storage (P5) | Phase 1 (Foundation) | Test matrix: create key, verify signing works after device lock, verify key does NOT sync to iCloud, verify key is gone after app delete + reinstall |
+| GRDB observation overload (P6) | Phase 2 (Core UI) | Test: write 50 messages to conversation B while viewing conversation A. Zero visible jank. CPU spike <5% on main thread |
+| ainm.initialize handshake (P7) | Phase 1 (Foundation) | Test: send message before handshake -> message queued. Reconnect after server restart -> handshake replays, queued messages flush. Capability mismatch -> user-visible error |
+| Interactive block action flow | Phase 4 (Interactive) | Test: submit form -> button disabled immediately -> ActionBlock appears in thread -> original block shows submitted state. Form state survives scroll-away-and-back |
+| Streaming collapse + persistence | Phase 3 (Streaming) | Test: complete stream -> collapsed message in GRDB with valid signature. Cancel stream -> partial content handled per spec. Kill app mid-stream -> partial content recoverable |
 
 ## Sources
 
-### Matrix Federation Lessons
-- [Matrix State Resolution v2 Explained](https://matrix.org/docs/older/stateres-v2/) -- Complexity of distributed state merging; why naive approaches fail
-- [Project Hydra: Improving State Resolution](https://matrix.org/blog/2025/08/project-hydra-improving-state-res/) -- CVE-2025-49090; state resets from crafted event sequences after 7+ years of v2
-- [Matrix Federation Security Pre-disclosure (July 2025)](https://matrix.org/blog/2025/07/security-predisclosure/) -- Coordinated security release across all Matrix server implementations
-- [Improving Federation Security (Matrix Conference 2025)](https://media.ccc.de/v/matrix-conf-2025-74569-improving-the-security-of-the-federation-protocol) -- Ongoing federation security improvements
-- [Auth Chain Difference Algorithm (Synapse)](https://github.com/matrix-org/synapse/blob/develop/docs/auth_chain_difference_algorithm.md) -- Naive implementation takes hundreds of seconds of DB time
-- [get_auth_chain_difference Performance Issue](https://github.com/matrix-org/synapse/issues/8622) -- Real-world performance bottleneck in federation
-- [Joining Large Rooms is Very Slow](https://github.com/matrix-org/synapse/issues/1211) -- Federation join performance degrades with room state size
-- [Typing Notifications Overload with 800 Homeservers](https://matrix.org/blog/2025/01/27/this-week-in-matrix-2025-01-27/) -- EDU federation scaling problem
-- [Synapse Refusing Large Federated Rooms](https://github.com/matrix-org/synapse/issues/2255) -- Performance impact of large federated rooms
+### Apple Documentation
+- [Storing CryptoKit Keys in the Keychain](https://developer.apple.com/documentation/cryptokit/storing-cryptokit-keys-in-the-keychain) -- Ed25519 keys stored as generic passwords, not SecKey
+- [Curve25519.Signing.PrivateKey](https://developer.apple.com/documentation/cryptokit/curve25519/signing/privatekey) -- API for Ed25519 signing in CryptoKit
+- [URLSessionWebSocketTask](https://developer.apple.com/documentation/foundation/urlsessionwebsockettask) -- Single-shot receive, lifecycle management
+- [NWPathMonitor](https://developer.apple.com/documentation/network/nwpathmonitor) -- Network transition detection
+- [Creating Performant Scrollable Stacks](https://developer.apple.com/documentation/swiftui/creating-performant-scrollable-stacks) -- Apple's guidance on LazyVStack performance
 
-### XMPP Federation Vulnerabilities
-- [XMPP Server Dialback Vulnerability](https://xmpp.org/community/security-notices/vulnerability-in-xmpp-server-dialback-implementations/) -- Unsolicited verification responses enabling domain spoofing
-- [XEP-0220: Server Dialback](https://xmpp.org/extensions/xep-0220.html) -- The protocol that was exploited; lessons on request-response state tracking
-- [Prosody S2S Documentation](https://prosody.im/doc/s2s) -- Server-to-server federation implementation details and issues
+### SwiftUI Message List Performance
+- [List or LazyVStack: Choosing the Right Container](https://fatbobman.com/en/posts/list-or-lazyvstack/) -- LazyVStack 52.3s vs List 5.53s for scroll-to-bottom; LazyVStack 78 hangs vs List 4.6
+- [SwiftUI List Performance: 10,000+ Items](https://medium.com/@chandra.welim/swiftui-list-performance-smooth-scrolling-for-10-000-items-c64116dc276f) -- Memory and scroll performance at scale
+- [Stream: How Our iOS Team Built the SwiftUI SDK Message List](https://getstream.io/blog/build-message-list-swiftui/) -- LazyVStack retains previous states; crash at ~5K messages
+- [Building Inverted Scroll for Messaging App](https://www.swiftwithvincent.com/blog/building-the-inverted-scroll-of-a-messaging-app) -- 180-degree rotation pattern for chat scroll
 
-### ActivityPub Federation Issues
-- [ActivityPub and HTTP Signatures](https://swicg.github.io/activitypub-http-signature/) -- Ephemeral signatures, version fragmentation, deadlock in authorized fetch
-- [HTTP Signatures Continue to Confound (SocialHub)](https://socialhub.activitypub.rocks/t/http-signatures-and-mastodon-continue-to-confound/3801/1) -- Implementation inconsistencies between Mastodon, Misskey, GoToSocial
-- [Misskey Federation Flakiness (GoToSocial)](https://github.com/superseriousbusiness/gotosocial/issues/540) -- Real-world interoperability issues
-- [The Sisyphean Effort of ActivityPub Migration](https://voidfox.com/blog/the_sisyphean_effort_of_activitypub_migration/) -- No two implementations behave identically
-- [Fedify: Building ActivityPub Servers Without the Pain (FOSDEM 2026)](https://fosdem.org/2026/schedule/event/KSEUZT-fedify/) -- Community response to implementation complexity
+### Streaming and Real-time Rendering
+- [From Stream to Screen: Handling GenAI Rich Responses in SwiftUI](https://medium.com/safe-engineering/from-stream-to-screen-handling-genai-rich-responses-in-swiftui-da138acfaa05) -- Background processing and throttling for streaming text
+- [Real-time with WebSockets and Swift Concurrency](https://medium.com/@thomsmed/real-time-with-websockets-and-swift-concurrency-8b44a8808d0d) -- AsyncThrowingStream wrapping URLSessionWebSocketTask
+- [Iterating over WebSocket Messages with async/await](https://www.donnywals.com/iterating-over-web-socket-messages-with-async-await-in-swift/) -- Single-shot receive pitfall and AsyncStream solution
 
-### Email Federation Lessons
-- [Open Mail Relay History](https://en.wikipedia.org/wiki/Open_mail_relay) -- How SMTP's trust-everyone model was exploited for spam
-- [SMTP Open Relay Vulnerabilities](https://www.duocircle.com/email-security/smtp-open-relay-vulnerabilities-how-to-prevent-security-breaches) -- Security breach patterns from open relay abuse
-- [SPF, DKIM, DMARC Common Setup Mistakes](https://www.infraforge.ai/blog/spf-dkim-dmarc-common-setup-mistakes) -- Email authentication pitfalls directly relevant to server identity
-- [Spamhaus: Return of Open Relays](https://www.spamhaus.org/resource-hub/email-security/the-return-of-the-open-relays/) -- Modern open relay abuse patterns
+### GRDB Performance
+- [GRDB Performance Wiki](https://github.com/groue/GRDB.swift/wiki/Performance) -- insert() vs save(), batch operations
+- [Large Insert Performance Discussion](https://github.com/groue/GRDB.swift/issues/1004) -- Encoder initialization overhead, query cache costs
 
-### mTLS and Certificate Management
-- [Step v0.8.3: Federation Root Rotation](https://smallstep.com/blog/step-v0.8.3-federation-root-rotation/) -- Certificate rotation in federated PKI
-- [mTLS Complete Guide (GitGuardian)](https://blog.gitguardian.com/mutual-tls-mtls-authentication/) -- Operational complexity, trust store gaps, rotation pitfalls
-- [mTLS Architecture and Troubleshooting (Axelspire)](https://axelspire.com/vault/architecture/mtls-mutual-tls/) -- Certificate lifecycle challenges at scale
+### JSON Canonicalization
+- [RFC 8785: JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785) -- The specification; UTF-16 sorting, ECMAScript float formatting
+- [JCS Reference Implementation + Test Vectors](https://github.com/cyberphone/json-canonicalization) -- Cross-platform test vectors for verification
+- [serde_json_canonicalizer (Rust)](https://docs.rs/serde_json_canonicalizer/latest/serde_json_canonicalizer/) -- The Rust implementation the AINM server uses
 
-### Federation Design
-- [The Perils of Federated Protocols (LWN.net)](https://lwn.net/Articles/687294/) -- Fundamental tension between federation and rapid iteration
-- [Wire: Federating Security or Spam](https://wire.com/en/blog/federating-security-or-spam) -- Open vs. closed federation trust models
-- [Matrix Decomposition: Academic Analysis](https://matrix.org/blog/2020/06/16/matrix-decomposition-an-independent-academic-analysis-of-matrix-state-resolution/) -- Formal analysis of state resolution correctness
+### WebSocket Lifecycle on iOS
+- [WebSockets and Swift: Client-side Engineering Challenges (Ably)](https://ably.com/topic/websockets-swift) -- Reconnection, network drops, interface switches
+- [Apple Developer Forums: WebSocket Background Execution](https://developer.apple.com/forums/thread/66157) -- iOS does not allow background WebSocket; use APNs
 
 ---
-*Federation pitfalls research for: AINM v3.2 multi-server federation milestone*
-*Researched: 2026-03-28*
+*iOS Reference Client pitfalls research for: AINM v3.3*
+*Researched: 2026-03-29*
