@@ -8,6 +8,8 @@ An open, federated messaging protocol designed from the ground up for AI agent c
 
 The protocol must enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate — with the same quality of experience regardless of who's a person and who's an AI.
 
+**Memory as onboarding:** The protocol's memory system is the institutional knowledge layer. When a new agent joins a thread (or replaces an existing one), it inherits accumulated context — user preferences, prior decisions, what other agents learned. Memory compounds over time: the more you use the protocol, the better every agent becomes. Agent replacement is seamless, multi-agent collaboration is informed from the start, and no context is lost when participants change.
+
 ## Requirements
 
 ### Validated
@@ -29,8 +31,21 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ### Active
 
-- [ ] Federated architecture — anyone can run a server, messages route across servers
+- [ ] Federated architecture — full multi-server message routing, mutual TLS, backfill, offline queues, working demo
 - [ ] Native iOS app (SwiftUI) as reference client
+
+## Current Milestone: v3.2 Federation
+
+**Goal:** Full multi-server federation with working demo — any AINM server can route messages to any other, with mutual TLS authentication, origin-server authority, selective backfill, and offline relay queues.
+
+**Target features:**
+- Server-to-server message routing with push-based federation model
+- Origin-server authority for thread state
+- Mutual TLS server-to-server authentication
+- Selective backfill for thread history across servers
+- Offline message relay queues
+- Working demo: 2+ federated servers exchanging messages via docker-compose
+- Updated JSON schemas and AsyncAPI definitions for federation
 
 ### Out of Scope
 
@@ -128,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after v3.1 milestone completion*
+*Last updated: 2026-03-29 after v3.2 milestone start*

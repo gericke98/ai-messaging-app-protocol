@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v3.1
-milestone_name: AI-Native Messaging Protocol v1 Specification & Demo
-status: completed
-stopped_at: Milestone v3.1 archived
-last_updated: "2026-03-29T01:10:00.000Z"
+milestone: v3.2
+milestone_name: Federation
+status: defining_requirements
+stopped_at: Milestone v3.2 started
+last_updated: "2026-03-29T01:30:00.000Z"
 last_activity: 2026-03-29
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Milestone v3.1 complete. Planning next milestone.
+**Current focus:** Milestone v3.2 — Federation
 
 ## Current Position
 
-Phase: All complete
-Plan: All complete
-Status: Milestone v3.1 shipped
-Last activity: 2026-03-29
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-29 — Milestone v3.2 started
 
-Progress: [##########] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
@@ -44,10 +44,10 @@ None.
 
 ### Blockers/Concerns
 
-None active. All v3.1 blockers resolved.
+None active.
 
 ## Session Continuity
 
 Last session: 2026-03-29
-Stopped at: Milestone v3.1 archived
+Stopped at: Milestone v3.2 started
 Resume file: None
