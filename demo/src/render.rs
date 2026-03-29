@@ -361,6 +361,16 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                 }
             }
         }
+        "evicted" => {
+            let key = params
+                .get("key")
+                .and_then(|k| k.as_str())
+                .unwrap_or("unknown");
+            println!(
+                "  {}",
+                format!("Evicted archival fact: {}", key).green()
+            );
+        }
         _ => {}
     }
 }

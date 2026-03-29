@@ -406,6 +406,97 @@ async fn handle_agent_connection(
                             let _ = to_human_tx.send(serde_json::to_string(&context_frame).unwrap());
                         }
                     }
+                    "ainm.memory.evict" => {
+                        if let Some(params) = parsed.get("params") {
+                            let tier = params
+                                .get("tier")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
+                            let thread_id = params
+                                .get("thread_id")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            if tier != "archival" {
+                                if has_id {
+                                    let err = protocol::new_error(
+                                        parsed.get("id").cloned().unwrap(),
+                                        -32051,
+                                        "Only archival tier supports eviction",
+                                    );
+                                    let mut sender = ws_sender.lock().await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&err).unwrap().into(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let key = params
+                                    .get("key")
+                                    .and_then(|k| k.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                if key.is_empty() {
+                                    if has_id {
+                                        let err = protocol::new_error(
+                                            parsed.get("id").cloned().unwrap(),
+                                            -32053,
+                                            "Missing required parameter: key",
+                                        );
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender
+                                            .send(Message::Text(
+                                                serde_json::to_string(&err).unwrap().into(),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    let mut store = archival_store.lock().await;
+                                    let evicted = store.remove(&key).is_some();
+
+                                    if evicted {
+                                        if has_id {
+                                            let resp = protocol::new_response(
+                                                parsed.get("id").cloned().unwrap(),
+                                                serde_json::json!({ "evicted": true }),
+                                            );
+                                            let mut sender = ws_sender.lock().await;
+                                            let _ = sender
+                                                .send(Message::Text(
+                                                    serde_json::to_string(&resp).unwrap().into(),
+                                                ))
+                                                .await;
+                                        }
+                                        let evict_notify = protocol::new_notification(
+                                            "ainm.memory.evicted",
+                                            serde_json::json!({
+                                                "thread_id": thread_id,
+                                                "key": key,
+                                                "status": "evicted"
+                                            }),
+                                        );
+                                        let _ = to_human_tx
+                                            .send(serde_json::to_string(&evict_notify).unwrap());
+                                    } else if has_id {
+                                        let err = protocol::new_error(
+                                            parsed.get("id").cloned().unwrap(),
+                                            -32054,
+                                            "Fact not found",
+                                        );
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender
+                                            .send(Message::Text(
+                                                serde_json::to_string(&err).unwrap().into(),
+                                            ))
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     "ainm.stream.start"
                     | "ainm.stream.delta"
                     | "ainm.stream.end"

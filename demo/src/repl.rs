@@ -219,6 +219,11 @@ async fn handle_incoming(
                             render::render_memory_event("context_frame", params);
                         }
                     }
+                    "ainm.memory.evicted" => {
+                        if let Some(params) = parsed.get("params") {
+                            render::render_memory_event("evicted", params);
+                        }
+                    }
                     "ainm.presence.update" => {
                         if let Some(params) = parsed.get("params") {
                             let detail = params
@@ -283,6 +288,7 @@ fn run_repl_loop(
                         println!("    button   - ButtonBlock demo");
                         println!("    /card    - View Agent Card");
                         println!("    /memory  - Demo memory store, query, and context frame operations");
+                        println!("    /evict   - Demo memory eviction (run /memory first)");
                         println!("    /bridge  - Demo MCP and A2A bridge compatibility mappings");
                         println!("    /help    - Show this help");
                         println!("    /quit    - Exit demo");
@@ -358,6 +364,46 @@ fn run_repl_loop(
                                     "source": "user",
                                     "text": "/bridge",
                                     "fallback": "/bridge"
+                                }
+                            ]
+                        });
+
+                        if let Err(e) = signing::sign_envelope(&identity.key_pair, &mut envelope) {
+                            println!("  Signing error: {}", e);
+                            continue;
+                        }
+
+                        let req = protocol::new_request(
+                            "ainm.message.send",
+                            envelope,
+                            serde_json::json!(protocol::new_message_id()),
+                        );
+                        let text = serde_json::to_string(&req).unwrap();
+
+                        let rt = tokio::runtime::Handle::current();
+                        let sender = ws_sender.clone();
+                        if let Err(e) = rt.block_on(async {
+                            let mut s = sender.lock().await;
+                            s.send(Message::Text(text.into())).await
+                        }) {
+                            println!("  Send error: {}", e);
+                        }
+                    }
+                    "/evict" => {
+                        println!("  Starting memory evict demo...");
+                        let mut envelope = serde_json::json!({
+                            "id": protocol::new_message_id(),
+                            "from": identity.address,
+                            "thread_id": thread_id,
+                            "timestamp": protocol::now_rfc3339(),
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "version": "1.0",
+                                    "source": "user",
+                                    "text": "/evict",
+                                    "fallback": "/evict"
                                 }
                             ]
                         });

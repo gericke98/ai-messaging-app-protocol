@@ -90,6 +90,8 @@ pub async fn run(
                             handle_button(&mut ws_sender, &identity, &thread_id).await?;
                         } else if lower.starts_with("/memory") {
                             handle_memory(&mut ws_sender, &identity, &thread_id).await?;
+                        } else if lower.starts_with("/evict") {
+                            handle_evict(&mut ws_sender, &identity, &thread_id).await?;
                         } else if lower.starts_with("/bridge") {
                             handle_bridge(&mut ws_sender, &identity, &thread_id).await?;
                         } else {
@@ -467,6 +469,51 @@ async fn handle_memory(
         .map_err(|e| anyhow::anyhow!("send memory query: {}", e))?;
 
     // 4. The server will automatically send ainm.context.frame after the query
+
+    Ok(())
+}
+
+/// Scenario 8: Memory evict demo.
+async fn handle_evict(
+    ws_sender: &mut WsSender,
+    identity: &Identity,
+    thread_id: &str,
+) -> Result<()> {
+    let mut intro = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [
+            {
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "Demonstrating AINM memory eviction: removing a previously stored archival fact.",
+                "fallback": "Demonstrating AINM memory eviction: removing a previously stored archival fact."
+            }
+        ]
+    });
+    signing::sign_envelope(&identity.key_pair, &mut intro)?;
+    send_message(ws_sender, &intro).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let evict_req = protocol::new_request(
+        "ainm.memory.evict",
+        serde_json::json!({
+            "thread_id": thread_id,
+            "tier": "archival",
+            "key": "user_preference.demo"
+        }),
+        serde_json::json!(protocol::new_message_id()),
+    );
+    let evict_text = serde_json::to_string(&evict_req)?;
+    ws_sender
+        .send(Message::Text(evict_text.into()))
+        .await
+        .map_err(|e| anyhow::anyhow!("send memory evict: {}", e))?;
 
     Ok(())
 }
