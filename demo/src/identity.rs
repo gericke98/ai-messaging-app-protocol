@@ -172,6 +172,12 @@ impl RemoteServerCache {
             .find(|id| id.tls_fingerprint == fingerprint)
             .cloned()
     }
+
+    /// Return all cached server_id strings.
+    /// Used by federation routing to discover known remote servers for relay.
+    pub fn keys(&self) -> Vec<String> {
+        self.inner.lock().unwrap().keys().cloned().collect()
+    }
 }
 
 /// Axum handler: `GET /.well-known/ainm/server`

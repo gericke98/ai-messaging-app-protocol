@@ -29,6 +29,7 @@ pub struct FederationContext {
     pub thread_registry: federation::ThreadRegistry,
     pub relay_sender: Arc<relay::RelaySender>,
     pub local_delivery_tx: broadcast::Sender<String>,
+    pub remote_cache: crate::identity::RemoteServerCache,
 }
 
 /// Shared server state accessible by all handlers.
@@ -670,8 +671,13 @@ async fn handle_human_connection(
                         // with origin domain embedded per D-12
                         let thread_id = if let Some(ref fed) = state.federation {
                             let tid = fed.thread_registry.create_thread(&fed.server_id);
-                            // If there's a remote server, add it as participant
-                            // The remote will be discovered from relay messages
+                            // Pre-populate thread with all known remote servers
+                            // so the first human message gets relayed immediately
+                            for remote_id in fed.remote_cache.keys() {
+                                if remote_id != fed.server_id {
+                                    fed.thread_registry.add_server(&tid, &remote_id);
+                                }
+                            }
                             tid
                         } else {
                             parsed
@@ -741,16 +747,21 @@ async fn handle_human_connection(
                                         }
                                     }
 
-                                    // If we know the remote server, add it to thread
-                                    // and relay even if not yet registered
-                                    // For the demo, enqueue to all known remotes
-                                    // that aren't in the thread registry yet
+                                    // Relay to known remotes not yet in the thread registry
                                     let remote_domains: Vec<String> = {
-                                        // Simple approach: relay to any known remote
-                                        // The relay sender has the remote_cache
-                                        vec![]
+                                        let registered: std::collections::HashSet<String> = fed
+                                            .thread_registry
+                                            .get_info(thread_id)
+                                            .map(|(_, servers)| servers)
+                                            .unwrap_or_default();
+                                        fed.remote_cache
+                                            .keys()
+                                            .into_iter()
+                                            .filter(|id| id != &fed.server_id && !registered.contains(id))
+                                            .collect()
                                     };
                                     for domain in remote_domains {
+                                        fed.thread_registry.add_server(thread_id, &domain);
                                         fed.relay_sender.enqueue(&domain, params.clone());
                                     }
                                 } else {

@@ -279,6 +279,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         thread_registry: thread_registry.clone(),
         relay_sender: relay_sender.clone(),
         local_delivery_tx: local_delivery_tx.clone(),
+        remote_cache: remote_cache.clone(),
     };
 
     let (server_addr, server_handle) = server::start_federation(
