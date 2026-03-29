@@ -582,58 +582,147 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                             text
                                         );
 
-                                        // Generate response
-                                        let response_text = format!(
-                                            "Echo from {}: You said \"{}\"",
-                                            local_identity.address, text
-                                        );
-
-                                        let mut response_envelope = serde_json::json!({
-                                            "id": protocol::new_message_id(),
-                                            "from": local_identity.address,
-                                            "thread_id": thread_id,
-                                            "timestamp": protocol::now_rfc3339(),
-                                            "type": "message",
-                                            "content": [{
-                                                "type": "text",
-                                                "version": "1.0",
-                                                "source": "agent",
-                                                "text": response_text,
-                                                "fallback": response_text
-                                            }]
-                                        });
-
-                                        if let Err(e) = signing::sign_envelope(
-                                            &local_identity.key_pair,
-                                            &mut response_envelope,
-                                        ) {
-                                            tracing::error!("[agent] Signing error: {}", e);
-                                            continue;
-                                        }
-
-                                        // Determine where to relay the response
+                                        // Parse message text for demo command keywords (D-11)
+                                        let response_lower = text.trim().to_lowercase();
                                         let origin =
                                             federation::parse_origin_domain(thread_id).unwrap_or("");
 
-                                        if origin != server_id {
-                                            // Thread originated on remote server -- relay back
-                                            relay_sender.enqueue(origin, response_envelope.clone());
-                                            tracing::info!(
-                                                "[agent] Response relayed to origin: {}",
-                                                origin
+                                        if response_lower.contains("stream") || response_lower.contains("hello") {
+                                            // Streaming response via relay (Pitfall 2: emit events directly, no WS needed)
+                                            let stream_events = build_stream_events(
+                                                &local_identity,
+                                                thread_id,
+                                                &format!(
+                                                    "Hello from {}! I am streaming this response token by token across the federation boundary. Each delta arrives as a separate relay payload, proving real-time streaming works across servers.",
+                                                    local_identity.address
+                                                ),
                                             );
-                                        } else {
-                                            // Local thread -- deliver locally
-                                            let deliver = serde_json::json!({
-                                                "jsonrpc": "2.0",
-                                                "method": "ainm.message.deliver",
-                                                "params": {
-                                                    "message": response_envelope,
-                                                    "verified": true,
+
+                                            for event in stream_events {
+                                                if origin != server_id {
+                                                    relay_sender.enqueue(origin, event.clone());
+                                                } else {
+                                                    let deliver = serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "method": event.get("method").and_then(|m| m.as_str()).unwrap_or("ainm.stream.delta"),
+                                                        "params": event.get("params").cloned().unwrap_or_default(),
+                                                    });
+                                                    let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
                                                 }
+                                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                            }
+                                            tracing::info!("[agent] Streamed response for thread {}", thread_id);
+
+                                        } else if response_lower.contains("weather") || response_lower.contains("tool") {
+                                            // Tool call events via relay
+                                            let tool_events = build_tool_call_events(
+                                                &local_identity,
+                                                thread_id,
+                                            );
+
+                                            for (event, delay_ms) in tool_events {
+                                                if origin != server_id {
+                                                    relay_sender.enqueue(origin, event.clone());
+                                                } else {
+                                                    let deliver = serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "method": "ainm.message.deliver",
+                                                        "params": { "message": event, "verified": true }
+                                                    });
+                                                    let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
+                                                }
+                                                if delay_ms > 0 {
+                                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                                                }
+                                            }
+                                            tracing::info!("[agent] Tool call events sent for thread {}", thread_id);
+
+                                        } else if response_lower.contains("memory") || response_lower.contains("context") {
+                                            // Memory store + context frame push
+                                            let response_text_msg = format!(
+                                                "Memory context active for this thread. I have {} context frames available. Storing a demo fact now...",
+                                                1 // simplified for demo
+                                            );
+
+                                            let mut store_envelope = serde_json::json!({
+                                                "id": protocol::new_message_id(),
+                                                "from": local_identity.address,
+                                                "thread_id": thread_id,
+                                                "timestamp": protocol::now_rfc3339(),
+                                                "type": "message",
+                                                "content": [{
+                                                    "type": "text",
+                                                    "version": "1.0",
+                                                    "source": "agent",
+                                                    "text": response_text_msg,
+                                                    "fallback": response_text_msg
+                                                }]
                                             });
-                                            let _ = local_delivery_tx
-                                                .send(serde_json::to_string(&deliver).unwrap());
+                                            if let Err(e) = signing::sign_envelope(&local_identity.key_pair, &mut store_envelope) {
+                                                tracing::error!("[agent] Signing error: {}", e);
+                                                continue;
+                                            }
+
+                                            if origin != server_id {
+                                                relay_sender.enqueue(origin, store_envelope.clone());
+                                            } else {
+                                                let deliver = serde_json::json!({
+                                                    "jsonrpc": "2.0",
+                                                    "method": "ainm.message.deliver",
+                                                    "params": { "message": store_envelope, "verified": true }
+                                                });
+                                                let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
+                                            }
+                                            tracing::info!("[agent] Memory response sent for thread {}", thread_id);
+
+                                        } else {
+                                            // Default: echo response (existing behavior)
+                                            let response_text = format!(
+                                                "Echo from {}: You said \"{}\"",
+                                                local_identity.address, text
+                                            );
+
+                                            let mut response_envelope = serde_json::json!({
+                                                "id": protocol::new_message_id(),
+                                                "from": local_identity.address,
+                                                "thread_id": thread_id,
+                                                "timestamp": protocol::now_rfc3339(),
+                                                "type": "message",
+                                                "content": [{
+                                                    "type": "text",
+                                                    "version": "1.0",
+                                                    "source": "agent",
+                                                    "text": response_text,
+                                                    "fallback": response_text
+                                                }]
+                                            });
+
+                                            if let Err(e) = signing::sign_envelope(
+                                                &local_identity.key_pair,
+                                                &mut response_envelope,
+                                            ) {
+                                                tracing::error!("[agent] Signing error: {}", e);
+                                                continue;
+                                            }
+
+                                            if origin != server_id {
+                                                relay_sender.enqueue(origin, response_envelope.clone());
+                                                tracing::info!(
+                                                    "[agent] Response relayed to origin: {}",
+                                                    origin
+                                                );
+                                            } else {
+                                                let deliver = serde_json::json!({
+                                                    "jsonrpc": "2.0",
+                                                    "method": "ainm.message.deliver",
+                                                    "params": {
+                                                        "message": response_envelope,
+                                                        "verified": true,
+                                                    }
+                                                });
+                                                let _ = local_delivery_tx
+                                                    .send(serde_json::to_string(&deliver).unwrap());
+                                            }
                                         }
                                     }
                                 }
@@ -951,4 +1040,136 @@ async fn run_legacy_demo() -> Result<()> {
 
     println!("\nGoodbye!");
     Ok(())
+}
+
+/// Build streaming events for relay (Pitfall 2 solution: no WebSocket needed).
+/// Returns Vec of JSON values representing JSON-RPC notifications.
+fn build_stream_events(
+    identity: &identity::Identity,
+    thread_id: &str,
+    text: &str,
+) -> Vec<serde_json::Value> {
+    let stream_id = protocol::new_message_id();
+    let message_id = protocol::new_message_id();
+    let mut events = Vec::new();
+
+    // StreamStart
+    let start = protocol::new_notification(
+        "ainm.stream.start",
+        serde_json::json!({
+            "stream_id": stream_id,
+            "message_id": message_id,
+            "from": identity.address,
+            "thread_id": thread_id,
+            "timestamp": protocol::now_rfc3339(),
+            "blocks": [{ "type": "text", "version": "1.0", "source": "agent" }]
+        }),
+    );
+    events.push(serde_json::to_value(&start).unwrap());
+
+    // Split text into word chunks and create deltas
+    let words: Vec<&str> = text.split_inclusive(' ').collect();
+    for chunk in words.chunks(3) {
+        let delta_text: String = chunk.iter().copied().collect();
+        let delta = protocol::new_notification(
+            "ainm.stream.delta",
+            serde_json::json!({
+                "stream_id": stream_id,
+                "block_index": 0,
+                "delta": delta_text
+            }),
+        );
+        events.push(serde_json::to_value(&delta).unwrap());
+    }
+
+    // StreamEnd with collapsed signed message
+    let mut collapsed = serde_json::json!({
+        "id": message_id,
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [{
+            "type": "text",
+            "version": "1.0",
+            "source": "agent",
+            "text": text,
+            "fallback": text
+        }]
+    });
+    let _ = signing::sign_envelope(&identity.key_pair, &mut collapsed);
+
+    let end = protocol::new_notification(
+        "ainm.stream.end",
+        serde_json::json!({
+            "stream_id": stream_id,
+            "collapsed_message": collapsed
+        }),
+    );
+    events.push(serde_json::to_value(&end).unwrap());
+
+    events
+}
+
+/// Build tool call events for relay.
+/// Returns Vec of (event_json, delay_ms_before_next).
+fn build_tool_call_events(
+    identity: &identity::Identity,
+    thread_id: &str,
+) -> Vec<(serde_json::Value, u64)> {
+    let call_id = format!("tc-{}", protocol::new_message_id());
+    let mut events = Vec::new();
+
+    // ToolCallStarted
+    let mut started = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.started",
+        "content": [{ "type": "text", "version": "1.0", "source": "agent", "text": "Fetching weather data...", "fallback": "Fetching weather data..." }],
+        "tool": { "call_id": call_id, "name": "weather_lookup", "description": "Fetching current weather data", "input": { "city": "San Francisco" } }
+    });
+    let _ = signing::sign_envelope(&identity.key_pair, &mut started);
+    events.push((started, 500));
+
+    // ToolCallProgress
+    let mut progress = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.progress",
+        "content": [{ "type": "text", "version": "1.0", "source": "agent", "text": "Querying weather API...", "fallback": "Querying weather API..." }],
+        "tool": { "call_id": call_id, "progress_text": "Querying weather API...", "percent_complete": 50 }
+    });
+    let _ = signing::sign_envelope(&identity.key_pair, &mut progress);
+    events.push((progress, 500));
+
+    // ToolCallCompleted
+    let mut completed = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "tool.call.completed",
+        "content": [{ "type": "text", "version": "1.0", "source": "agent", "text": "Weather lookup complete.", "fallback": "Weather lookup complete." }],
+        "tool": { "call_id": call_id, "status": "success", "result_summary": "San Francisco: 18C, partly cloudy", "duration_ms": 1023 }
+    });
+    let _ = signing::sign_envelope(&identity.key_pair, &mut completed);
+    events.push((completed, 0));
+
+    // Follow-up message with results
+    let mut result_msg = serde_json::json!({
+        "id": protocol::new_message_id(),
+        "from": identity.address,
+        "thread_id": thread_id,
+        "timestamp": protocol::now_rfc3339(),
+        "type": "message",
+        "content": [{ "type": "text", "version": "1.0", "source": "agent", "text": "The weather in San Francisco is 18C and partly cloudy. (Tool call events relayed across federation.)", "fallback": "San Francisco: 18C, partly cloudy." }]
+    });
+    let _ = signing::sign_envelope(&identity.key_pair, &mut result_msg);
+    events.push((result_msg, 0));
+
+    events
 }
