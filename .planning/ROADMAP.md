@@ -49,7 +49,7 @@ Plans:
 - [x] 08-02-PLAN.md — Replay protection (relay_timestamp + relay_id) and TOFU key pinning with cert rotation
 - [x] 08-03-PLAN.md — Persistent offline queue replacing in-memory VecDeque, background cleanup
 - [x] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
-- [ ] 08-05-PLAN.md — Demo scripts for partition healing (DEMO-03) and cert rotation (DEMO-04)
+- [x] 08-05-PLAN.md — Demo scripts for partition healing (DEMO-03) and cert rotation (DEMO-04)
 
 ### Phase 9: AI-Native Federation & Full Demo
 **Goal**: AINM's unique AI-native features — agent discovery, tool call transparency, memory propagation, and streaming — work seamlessly across federation boundaries
