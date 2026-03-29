@@ -123,7 +123,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Memory evict end-to-end + Agent Card ETag caching
+- [x] 06-01-PLAN.md -- Memory evict end-to-end + Agent Card ETag caching
 - [ ] 06-02-PLAN.md -- Dead code removal + cargo warning elimination
 
 ## Progress

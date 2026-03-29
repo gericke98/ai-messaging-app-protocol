@@ -187,13 +187,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | DISC-02 | Phase 2, 4, 5 | Complete |
 | DISC-03 | Phase 2 | Complete |
 | DISC-04 | Phase 2 | Complete |
-| DISC-05 | Phase 2, 6 | Pending |
+| DISC-05 | Phase 2, 6 | Complete |
 | TOOL-01 | Phase 2, 4 | Complete |
 | TOOL-02 | Phase 2, 4 | Complete |
 | TOOL-03 | Phase 2, 4 | Complete |
 | TOOL-04 | Phase 2 | Complete |
 | TOOL-05 | Phase 2 | Complete |
-| MEMO-01 | Phase 2, 4, 6 | Pending |
+| MEMO-01 | Phase 2, 4, 6 | Complete |
 | MEMO-02 | Phase 2, 4 | Complete |
 | MEMO-03 | Phase 2, 4 | Complete |
 | MEMO-04 | Phase 2, 4 | Complete |
