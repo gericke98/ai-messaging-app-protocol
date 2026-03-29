@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 9
-Plan: Not started
-Status: Ready to execute
+Plan: 1 of 4 complete
+Status: Executing
 Last activity: 2026-03-29
 
-Progress: [##░░░░░░░░] 20%
+Progress: [###░░░░░░░] 30%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [##░░░░░░░░] 20%
 | Phase 08 P03 | 4min | 2 tasks | 3 files |
 | Phase 08 P04 | 5min | 3 tasks | 2 files |
 | Phase 08 P05 | 4m40s | 3 tasks | 4 files |
+| Phase 09 P01 | 3m43s | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Used match dispatch in relay_handler for ainm.relay vs ainm.backfill method routing
 - [Phase 08]: Post-join visibility via max(after_sequence, join_seq) prevents pre-join history access
 - [Phase 08]: Added --additional-fingerprint CLI arg for dual-fingerprint rotation window during cert rotation
+- [Phase 09]: Tool call events relay via existing ainm.message.send path -- no separate relay needed for AINF-02
+- [Phase 09]: Stream-to-thread HashMap tracks stream_id->thread_id for delta/end relay (these lack thread_id)
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T09:13:12.842Z
-Stopped at: Phase 9 context gathered
+Last session: 2026-03-29T18:31:52Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: .planning/phases/09-ai-native-federation-full-demo/09-CONTEXT.md

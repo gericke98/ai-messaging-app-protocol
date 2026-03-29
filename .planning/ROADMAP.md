@@ -63,7 +63,7 @@ Plans:
 **Plans**: 4 plans
 Plans:
 - [ ] 09-00-PLAN.md — Protocol spec for ainm.context-push (transport.md, JSON Schema, AsyncAPI)
-- [ ] 09-01-PLAN.md — Agent card discovery, streaming/tool event relay, /discover command
+- [x] 09-01-PLAN.md — Agent card discovery, streaming/tool event relay, /discover command
 - [ ] 09-02-PLAN.md — Memory context propagation via ainm.context-push
 - [ ] 09-03-PLAN.md — Full-featured headless agent and comprehensive demo script
 
@@ -76,4 +76,4 @@ Phases execute in numeric order: 7 → 8 → 9
 |-------|-----------|----------------|--------|-----------|
 | 7. Federation Relay Core | v3.2 | 4/5 | In Progress | - |
 | 8. Security Hardening, Reliability & Backfill | v3.2 | 1/5 | In Progress | - |
-| 9. AI-Native Federation & Full Demo | v3.2 | 0/TBD | Not started | - |
+| 9. AI-Native Federation & Full Demo | v3.2 | 1/4 | In Progress | - |

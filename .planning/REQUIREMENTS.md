@@ -40,10 +40,10 @@ Requirements for full multi-server federation with working demo.
 
 ### AI-Native Federation
 
-- [ ] **AINF-01**: Agent Cards are discoverable across federation boundaries (resolve remote agent's @provider to fetch card)
-- [ ] **AINF-02**: Tool call visibility events (started/progress/completed) are relayed across federated servers
+- [x] **AINF-01**: Agent Cards are discoverable across federation boundaries (resolve remote agent's @provider to fetch card)
+- [x] **AINF-02**: Tool call visibility events (started/progress/completed) are relayed across federated servers
 - [ ] **AINF-03**: Memory context is propagated to agents on remote servers when they join a federated thread
-- [ ] **AINF-04**: Streaming responses (start/delta/end) are relayed across federation in real-time
+- [x] **AINF-04**: Streaming responses (start/delta/end) are relayed across federation in real-time
 
 ### Federation Demo
 
