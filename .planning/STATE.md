@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-28)
+See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 05 — demo-handshake-discovery-conformance
+**Current focus:** Phase 06 — demo-feature-gaps-cleanup
 
 ## Current Position
 
@@ -124,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T00:12:08.072Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-03-29
+Stopped at: Phase 05 complete, ready to plan Phase 06
 Resume file: None
