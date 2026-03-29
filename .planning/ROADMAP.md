@@ -42,7 +42,14 @@ Plans:
   3. When a remote server goes offline, messages are persisted to disk and automatically delivered with exponential backoff when it comes back — surviving server restarts
   4. A remote server can request thread history via backfill, receiving only post-join messages by default, with pagination for large threads and authorization that rejects servers without a legitimate participant
   5. Demo scenarios prove partition healing (stop server, queue, restart, verify delivery) and certificate rotation (rotate cert, verify federation continues)
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Foundation: spec updates, redb persistence module, ServerIdentity fingerprint array migration
+- [ ] 08-02-PLAN.md — Replay protection (relay_timestamp + relay_id) and TOFU key pinning with cert rotation
+- [ ] 08-03-PLAN.md — Persistent offline queue replacing in-memory VecDeque, background cleanup
+- [ ] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
+- [ ] 08-05-PLAN.md — Demo scripts for partition healing (DEMO-03) and cert rotation (DEMO-04)
 
 ### Phase 9: AI-Native Federation & Full Demo
 **Goal**: AINM's unique AI-native features — agent discovery, tool call transparency, memory propagation, and streaming — work seamlessly across federation boundaries
@@ -63,5 +70,5 @@ Phases execute in numeric order: 7 → 8 → 9
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 7. Federation Relay Core | v3.2 | 4/5 | In Progress | - |
-| 8. Security Hardening, Reliability & Backfill | v3.2 | 0/TBD | Not started | - |
+| 8. Security Hardening, Reliability & Backfill | v3.2 | 0/5 | Planned | - |
 | 9. AI-Native Federation & Full Demo | v3.2 | 0/TBD | Not started | - |
