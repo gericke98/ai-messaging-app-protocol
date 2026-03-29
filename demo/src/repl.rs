@@ -41,6 +41,11 @@ pub async fn run(
         tracing::info!("REPL connected and initialized");
     }
 
+    // Send ainm.initialized confirmation notification (transport.md Section 4.3)
+    let initialized_notif = protocol::new_notification("ainm.initialized", serde_json::json!({}));
+    let initialized_text = serde_json::to_string(&initialized_notif)?;
+    ws_sender.send(Message::Text(initialized_text.into())).await?;
+
     // Create a thread
     let thread_id = protocol::new_message_id();
     let create_req = protocol::new_request(

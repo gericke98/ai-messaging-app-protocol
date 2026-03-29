@@ -50,6 +50,11 @@ pub async fn run(
         tracing::info!("Agent connected and initialized");
     }
 
+    // Send ainm.initialized confirmation notification (transport.md Section 4.3)
+    let initialized_notif = protocol::new_notification("ainm.initialized", serde_json::json!({}));
+    let initialized_text = serde_json::to_string(&initialized_notif)?;
+    ws_sender.send(Message::Text(initialized_text.into())).await?;
+
     // Listen for incoming messages from the server
     let mut first_message = true;
     while let Some(Ok(msg)) = ws_receiver.next().await {
