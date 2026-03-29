@@ -6,6 +6,7 @@ services:
       - "8443:8443"
     volumes:
       - ./certs:/certs:ro
+      - server-a-data:/data
     command:
       - "--mode"
       - "human"
@@ -23,6 +24,8 @@ services:
       - "/certs/ca.pem"
       - "--remote"
       - "server-b:9443"
+      - "--data-dir"
+      - "/data"
     networks:
       federation:
         aliases:
@@ -37,6 +40,7 @@ services:
       - "9443:9443"
     volumes:
       - ./certs:/certs:ro
+      - server-b-data:/data
     command:
       - "--mode"
       - "agent"
@@ -54,6 +58,8 @@ services:
       - "/certs/ca.pem"
       - "--remote"
       - "server-a:8443"
+      - "--data-dir"
+      - "/data"
     networks:
       federation:
         aliases:
@@ -64,3 +70,7 @@ services:
 networks:
   federation:
     driver: bridge
+
+volumes:
+  server-a-data:
+  server-b-data:

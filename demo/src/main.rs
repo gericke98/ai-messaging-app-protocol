@@ -422,6 +422,27 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 12. Start relay send loop
     let _relay_handle = relay_sender.start_send_loop();
 
+    // 12b. Start background cleanup task (D-12: hourly dedup + queue retention cleanup)
+    let cleanup_persistence = persistence.clone();
+    let _cleanup_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            // Clean dedup cache: remove entries older than 10 minutes (generous beyond 5-min window)
+            match cleanup_persistence.cleanup_expired_dedup(chrono::Duration::minutes(10)) {
+                Ok(n) if n > 0 => tracing::info!("[cleanup] Removed {} expired dedup entries", n),
+                Err(e) => tracing::error!("[cleanup] Dedup cleanup failed: {}", e),
+                _ => {}
+            }
+            // Clean offline queue: remove entries older than 7 days (D-12: 7-day retention)
+            match cleanup_persistence.cleanup_expired_queue(chrono::Duration::days(7)) {
+                Ok(n) if n > 0 => tracing::info!("[cleanup] Removed {} expired queue entries", n),
+                Err(e) => tracing::error!("[cleanup] Queue cleanup failed: {}", e),
+                _ => {}
+            }
+        }
+    });
+
     // 13. Print federation banner
     println!();
     println!("========================================");
