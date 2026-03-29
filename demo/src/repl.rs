@@ -289,6 +289,7 @@ fn run_repl_loop(
                         println!("    tool     - Tool visibility demo");
                         println!("    button   - ButtonBlock demo");
                         println!("    /card    - View Agent Card");
+                        println!("    /discover agent@domain - Discover remote agent capabilities");
                         println!("    /memory  - Demo memory store, query, and context frame operations");
                         println!("    /evict   - Demo memory eviction (run /memory first)");
                         println!("    /bridge  - Demo MCP and A2A bridge compatibility mappings");
@@ -431,6 +432,34 @@ fn run_repl_loop(
                             println!("  Send error: {}", e);
                         }
                     }
+                    line if line.starts_with("/discover ") => {
+                        let target = line.trim_start_matches("/discover ").trim();
+                        if target.is_empty() {
+                            println!("  Usage: /discover agent@server-domain");
+                            continue;
+                        }
+                        let parts: Vec<&str> = target.splitn(2, '@').collect();
+                        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+                            println!("  Invalid format. Use: /discover agent@server-domain");
+                            continue;
+                        }
+                        let agent_name = parts[0];
+                        let domain = parts[1];
+
+                        let url = format!(
+                            "https://{}/.well-known/ainm/{}/agent-card.json",
+                            domain, agent_name
+                        );
+                        println!("  Discovering {}...", target);
+                        let rt = tokio::runtime::Handle::current();
+                        match rt.block_on(fetch_remote_agent_card(&url)) {
+                            Ok(card) => {
+                                println!("  Agent Card resolved for {}:", target);
+                                render::render_agent_card(&card);
+                            }
+                            Err(e) => println!("  Failed to discover {}: {}", target, e),
+                        }
+                    }
                     _ => {
                         // Build and sign message envelope
                         let mut envelope = serde_json::json!({
@@ -488,6 +517,19 @@ fn run_repl_loop(
     }
 
     Ok(())
+}
+
+/// Fetch a remote agent card via HTTPS, accepting self-signed certs for the demo.
+async fn fetch_remote_agent_card(url: &str) -> Result<serde_json::Value> {
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()?;
+    let resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("HTTP {}", resp.status());
+    }
+    let card: serde_json::Value = resp.json().await?;
+    Ok(card)
 }
 
 /// Fetch Agent Card via HTTP GET.
