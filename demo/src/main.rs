@@ -545,95 +545,129 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                 .get("method")
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("");
-                            if method == "ainm.message.deliver" {
-                                if let Some(message) =
-                                    parsed.get("params").and_then(|p| p.get("message"))
-                                {
-                                    let from = message
-                                        .get("from")
-                                        .and_then(|f| f.as_str())
-                                        .unwrap_or("unknown");
-                                    let thread_id = message
-                                        .get("thread_id")
-                                        .and_then(|t| t.as_str())
-                                        .unwrap_or("");
-                                    let text = message
-                                        .get("content")
-                                        .and_then(|c| c.as_array())
-                                        .and_then(|blocks| {
-                                            blocks.iter().find_map(|b| {
-                                                if b.get("type").and_then(|t| t.as_str())
-                                                    == Some("text")
-                                                {
-                                                    b.get("text")
-                                                        .and_then(|t| t.as_str())
-                                                        .map(|s| s.to_string())
-                                                } else {
-                                                    None
-                                                }
+                            match method {
+                                "ainm.message.deliver" => {
+                                    if let Some(message) =
+                                        parsed.get("params").and_then(|p| p.get("message"))
+                                    {
+                                        let from = message
+                                            .get("from")
+                                            .and_then(|f| f.as_str())
+                                            .unwrap_or("unknown");
+                                        let thread_id = message
+                                            .get("thread_id")
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("");
+                                        let text = message
+                                            .get("content")
+                                            .and_then(|c| c.as_array())
+                                            .and_then(|blocks| {
+                                                blocks.iter().find_map(|b| {
+                                                    if b.get("type").and_then(|t| t.as_str())
+                                                        == Some("text")
+                                                    {
+                                                        b.get("text")
+                                                            .and_then(|t| t.as_str())
+                                                            .map(|s| s.to_string())
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
                                             })
-                                        })
-                                        .unwrap_or_default();
+                                            .unwrap_or_default();
 
-                                    tracing::info!(
-                                        "[agent] Received from {}: \"{}\"",
-                                        from,
-                                        text
-                                    );
-
-                                    // Generate response
-                                    let response_text = format!(
-                                        "Echo from {}: You said \"{}\"",
-                                        local_identity.address, text
-                                    );
-
-                                    let mut response_envelope = serde_json::json!({
-                                        "id": protocol::new_message_id(),
-                                        "from": local_identity.address,
-                                        "thread_id": thread_id,
-                                        "timestamp": protocol::now_rfc3339(),
-                                        "type": "message",
-                                        "content": [{
-                                            "type": "text",
-                                            "version": "1.0",
-                                            "source": "agent",
-                                            "text": response_text,
-                                            "fallback": response_text
-                                        }]
-                                    });
-
-                                    if let Err(e) = signing::sign_envelope(
-                                        &local_identity.key_pair,
-                                        &mut response_envelope,
-                                    ) {
-                                        tracing::error!("[agent] Signing error: {}", e);
-                                        continue;
-                                    }
-
-                                    // Determine where to relay the response
-                                    let origin =
-                                        federation::parse_origin_domain(thread_id).unwrap_or("");
-
-                                    if origin != server_id {
-                                        // Thread originated on remote server -- relay back
-                                        relay_sender.enqueue(origin, response_envelope.clone());
                                         tracing::info!(
-                                            "[agent] Response relayed to origin: {}",
-                                            origin
+                                            "[agent] Received from {}: \"{}\"",
+                                            from,
+                                            text
                                         );
-                                    } else {
-                                        // Local thread -- deliver locally
-                                        let deliver = serde_json::json!({
-                                            "jsonrpc": "2.0",
-                                            "method": "ainm.message.deliver",
-                                            "params": {
-                                                "message": response_envelope,
-                                                "verified": true,
-                                            }
+
+                                        // Generate response
+                                        let response_text = format!(
+                                            "Echo from {}: You said \"{}\"",
+                                            local_identity.address, text
+                                        );
+
+                                        let mut response_envelope = serde_json::json!({
+                                            "id": protocol::new_message_id(),
+                                            "from": local_identity.address,
+                                            "thread_id": thread_id,
+                                            "timestamp": protocol::now_rfc3339(),
+                                            "type": "message",
+                                            "content": [{
+                                                "type": "text",
+                                                "version": "1.0",
+                                                "source": "agent",
+                                                "text": response_text,
+                                                "fallback": response_text
+                                            }]
                                         });
-                                        let _ = local_delivery_tx
-                                            .send(serde_json::to_string(&deliver).unwrap());
+
+                                        if let Err(e) = signing::sign_envelope(
+                                            &local_identity.key_pair,
+                                            &mut response_envelope,
+                                        ) {
+                                            tracing::error!("[agent] Signing error: {}", e);
+                                            continue;
+                                        }
+
+                                        // Determine where to relay the response
+                                        let origin =
+                                            federation::parse_origin_domain(thread_id).unwrap_or("");
+
+                                        if origin != server_id {
+                                            // Thread originated on remote server -- relay back
+                                            relay_sender.enqueue(origin, response_envelope.clone());
+                                            tracing::info!(
+                                                "[agent] Response relayed to origin: {}",
+                                                origin
+                                            );
+                                        } else {
+                                            // Local thread -- deliver locally
+                                            let deliver = serde_json::json!({
+                                                "jsonrpc": "2.0",
+                                                "method": "ainm.message.deliver",
+                                                "params": {
+                                                    "message": response_envelope,
+                                                    "verified": true,
+                                                }
+                                            });
+                                            let _ = local_delivery_tx
+                                                .send(serde_json::to_string(&deliver).unwrap());
+                                        }
                                     }
+                                }
+                                "ainm.context.frame" => {
+                                    // D-07/D-08: Receive and log context frames pushed by origin server
+                                    if let Some(params) = parsed.get("params") {
+                                        let thread_id = params
+                                            .get("thread_id")
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("");
+                                        let frames = params
+                                            .get("context_frames")
+                                            .and_then(|f| f.as_array());
+                                        if let Some(frames) = frames {
+                                            tracing::info!(
+                                                "[agent] Received {} context frames for thread {}",
+                                                frames.len(),
+                                                thread_id
+                                            );
+                                            for frame in frames {
+                                                let key = frame
+                                                    .get("key")
+                                                    .and_then(|k| k.as_str())
+                                                    .unwrap_or("unknown");
+                                                tracing::info!(
+                                                    "[agent] Context frame: key={}",
+                                                    key
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    // Ignore other notifications
                                 }
                             }
                         }
