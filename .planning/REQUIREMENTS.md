@@ -42,7 +42,7 @@ Requirements for full multi-server federation with working demo.
 
 - [ ] **AINF-01**: Agent Cards are discoverable across federation boundaries (resolve remote agent's @provider to fetch card)
 - [ ] **AINF-02**: Tool call visibility events (started/progress/completed) are relayed across federated servers
-- [ ] **AINF-03**: Memory context is propagated to agents on remote servers when they join a federated thread
+- [x] **AINF-03**: Memory context is propagated to agents on remote servers when they join a federated thread
 - [ ] **AINF-04**: Streaming responses (start/delta/end) are relayed across federation in real-time
 
 ### Federation Demo
@@ -108,7 +108,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | BKFL-04 | Phase 8 | Complete |
 | AINF-01 | Phase 9 | Pending |
 | AINF-02 | Phase 9 | Pending |
-| AINF-03 | Phase 9 | Pending |
+| AINF-03 | Phase 9 | Complete |
 | AINF-04 | Phase 9 | Pending |
 | DEMO-01 | Phase 7 | Complete |
 | DEMO-02 | Phase 7 | Complete |
