@@ -6,6 +6,7 @@ mod repl;
 mod server;
 mod signing;
 mod streaming;
+mod tls;
 
 use anyhow::Result;
 
