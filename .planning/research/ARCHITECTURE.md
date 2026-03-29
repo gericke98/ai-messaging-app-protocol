@@ -1,915 +1,804 @@
-# Architecture Patterns for Federated Messaging Systems
+# Architecture Patterns: Federation Integration
 
-**Domain:** Federated AI-native messaging protocol + reference server + iOS client
-**Researched:** 2026-03-27
-**Overall confidence:** HIGH (based on analysis of Matrix, XMPP, ActivityPub, SMTP -- all mature, well-documented federated systems)
-
----
-
-## 1. How Existing Federated Systems Are Structured
-
-### 1.1 The Universal Pattern
-
-Every successful federated messaging system shares the same fundamental architecture, regardless of era or technology:
-
-```
-+-------------------+          +-------------------+
-|   Client (MUA)    |          |   Client (MUA)    |
-|  iOS / Web / CLI  |          |  iOS / Web / CLI  |
-+--------+----------+          +--------+----------+
-         |  Client-Server API           |  Client-Server API
-+--------v----------+          +--------v----------+
-|  Home Server (A)  | <------> |  Home Server (B)  |
-|                   |  Server  |                   |
-|  - Auth           |  Server  |  - Auth           |
-|  - Message Store  |   API    |  - Message Store  |
-|  - Federation     | (S2S)    |  - Federation     |
-|  - Identity       |          |  - Identity       |
-+-------------------+          +-------------------+
-```
-
-This pattern holds across all four systems:
-
-| System | Client | Server | Federation Transport | Identity Format | Data Model |
-|--------|--------|--------|---------------------|-----------------|------------|
-| **SMTP/Email** | MUA (Thunderbird, Mail.app) | MTA+MDA (Postfix, Dovecot) | SMTP over TCP/TLS, MX DNS records | `user@domain` | Individual messages with headers |
-| **XMPP** | Client (Conversations, Monal) | Server (ejabberd, Prosody) | XML streams over TCP/TLS, SRV DNS records | `user@domain/resource` | XML stanzas (message, presence, iq) |
-| **Matrix** | Client (Element, FluffyChat) | Homeserver (Synapse, Conduit) | HTTPS + JSON, SRV DNS records | `@user:domain` | Events in a DAG per room |
-| **ActivityPub** | Client (Mastodon Web, Ice Cubes) | Server (Mastodon, Akkoma) | HTTPS POST to inbox URLs | `@user@domain` (WebFinger) | Activities + Objects (JSON-LD) |
-
-**Key insight:** The architecture separates into exactly three APIs: Client-Server (C2S), Server-Server (S2S/Federation), and Identity/Discovery. Every system has all three. The protocol spec must define all three.
-
-### 1.2 Matrix Architecture (Most Relevant Precedent)
-
-Matrix is the closest architectural precedent because it handles persistent group conversations with rich events, full history replication, and end-to-end encryption -- all requirements for this project.
-
-**Core Concepts:**
-- **Rooms** are the fundamental unit. Every conversation is a room. 1:1, group, public channels -- all rooms.
-- **Events** are immutable JSON objects. Everything is an event: messages, state changes (member joins, room name changes, permissions), redactions.
-- **Event Graph (DAG)** -- events in a room form a Directed Acyclic Graph. Each event references its parent events via `prev_events`. This creates a partial ordering that handles concurrent events from multiple servers.
-- **State Events** -- special events that define room configuration (name, topic, join rules, power levels). The current "state" of a room is the set of latest state events of each type.
-- **State Resolution** -- when servers diverge (network partition), their DAGs fork. When they reconnect, a deterministic state resolution algorithm merges the forks. This is Matrix's hardest problem -- v1 had "state resets" (malicious rollbacks), v2 fixed most issues but remains complex and counter-intuitive.
-
-**Matrix Spec Structure (v1.18, released 2026-03-26):**
-1. **Client-Server API** -- how clients talk to their homeserver (auth, sync, rooms, events, media, push rules, typing indicators, read receipts, presence)
-2. **Server-Server API (Federation)** -- how homeservers talk to each other (event exchange, state queries, key exchange, backfill, device lists)
-3. **Application Service API** -- bridging external services (IRC, Slack, Discord bridges)
-4. **Identity Service API** -- mapping third-party identifiers (email, phone) to Matrix IDs
-5. **Push Gateway API** -- delivering push notifications to mobile devices
-6. **Room Versions** -- 12 versions documenting protocol evolution
-7. **Olm/Megolm** -- end-to-end encryption specifications
-
-**Lesson for us:** Matrix's 5-API structure is the right granularity. Our protocol needs at minimum: Client-Server, Server-Server (Federation), and Agent Discovery. The Application Service API equivalent is how external agents plug in.
-
-### 1.3 XMPP Architecture
-
-XMPP takes a fundamentally different approach from Matrix -- it is event-based (process and forward) rather than document-based (replicate and sync).
-
-**Core Concepts:**
-- **XML Streams** -- a persistent TCP connection over which XML stanzas flow. The connection IS the session.
-- **Three Stanza Types:** `<message>` (one-way content delivery), `<presence>` (availability broadcast), `<iq>` (info/query request-response).
-- **JID (Jabber ID)** -- `user@domain/resource` where resource identifies a specific device/session. A user can have multiple resources (phone, desktop) simultaneously.
-- **Extensions (XEPs)** -- the core protocol is intentionally minimal. Features are added via XEP extension specifications (there are 400+ XEPs covering everything from file transfer to MUC to OMEMO encryption).
-- **Server-to-Server Federation** -- servers discover each other via DNS SRV records, establish TLS connections, and validate using SASL or dialback.
-
-**Key Architectural Differences from Matrix:**
-- XMPP does NOT replicate full conversation history by default. Messages are routed and delivered; persistence is optional (via XEP-0313 MAM).
-- No DAG, no state resolution -- simpler, but also means no offline-first guarantee and no censorship resistance.
-- Presence is a first-class concept (online/away/busy/offline) -- Matrix added this but it's not as deeply integrated.
-
-**Lesson for us:** XMPP's extensibility model (minimal core + extensions) is a better fit than Matrix's monolithic spec. We should define a small core protocol and use a formal extension mechanism for features like streaming, rich content, memory management, and agent capabilities. The resource concept in JIDs (`user@domain/device`) is useful for multi-device support.
-
-### 1.4 ActivityPub Architecture
-
-ActivityPub powers the Fediverse (Mastodon, Lemmy, PeerTube). It is the simplest federated protocol architecturally.
-
-**Core Concepts:**
-- **Actors** -- entities with an Inbox and an Outbox. An actor can be a person, group, application, or service.
-- **Activities** -- JSON-LD objects representing actions (Create, Follow, Like, Announce, Delete).
-- **Inbox/Outbox** -- each actor has two HTTP endpoints. POST to inbox = deliver activity to actor. GET outbox = read actor's public activities.
-- **Shared Inbox** -- optimization where a server accepts activities for all its local actors at one endpoint, avoiding N copies for N followers.
-- **WebFinger** -- discovery protocol. `GET /.well-known/webfinger?resource=acct:user@domain` returns the actor's profile URL.
-
-**Key Design Decisions:**
-- Push-based: the sending server delivers to each recipient's inbox. No pull/sync mechanism.
-- No conversation model: there's no "room" or "thread" -- conversations are reconstructed from reply chains, which is why Mastodon threads are often incomplete (your server only has the replies it received).
-- JSON-LD: semantic web heritage. In practice, most implementations treat it as regular JSON with `@context`.
-
-**Lesson for us:** ActivityPub's actor model (inbox/outbox) maps cleanly to our agent model. Each agent IS an actor with message endpoints. WebFinger is the right discovery mechanism for email-like identities. But ActivityPub's lack of a conversation/room primitive is a clear anti-pattern -- we need rooms/threads as first-class objects. The push-based delivery model is simpler than Matrix's state replication but loses the "full history on every server" guarantee.
-
-### 1.5 SMTP Architecture
-
-Email is the oldest and most successful federated system. 50+ years of operation.
-
-**Core Components:**
-- **MUA** (Mail User Agent) -- the email client
-- **MSA** (Mail Submission Agent) -- accepts messages from the client, enforces policy
-- **MTA** (Mail Transfer Agent) -- routes messages between servers via SMTP
-- **MDA** (Mail Delivery Agent) -- delivers messages to the recipient's mailbox
-- **MX Records** -- DNS records that tell senders which server handles mail for a domain
-
-**Why Email Succeeded at Federation:**
-- Dead-simple discovery: look up MX record, connect, deliver.
-- No state synchronization: messages are fire-and-forget. The receiving server decides what to do.
-- Minimal coordination: servers don't need to agree on room state, membership, or history.
-- Graceful degradation: if a server is down, the sending MTA queues and retries.
-
-**Lesson for us:** Email-like addressing (`name@provider`) is the right identity model -- it's the most human-readable and intuitive format for federation. MX-record-style DNS discovery is battle-tested and should be the basis of server discovery. Email's weakness (no conversations, no real-time, no presence) is exactly what we're adding, but we should preserve email's simplicity of message delivery.
+**Domain:** Federated AI-native messaging -- integrating multi-server federation into existing single-server Axum architecture
+**Researched:** 2026-03-28
+**Overall confidence:** HIGH (based on existing spec, Matrix/XMPP federation precedents, current codebase analysis)
 
 ---
 
-## 2. Recommended Architecture for AI-Native Messaging Protocol
+## 1. Current Architecture Baseline
 
-### 2.1 System Components
-
-Based on analysis of all four federated systems, the protocol defines these components:
+The existing demo server (`demo/src/server.rs`) is a single-process Axum application with these components:
 
 ```
-+------------------------------------------------------------------+
-|                        CLIENTS                                    |
-|  +------------------+  +------------------+  +------------------+ |
-|  | iOS App (ref)    |  | Web Client       |  | Agent SDK        | |
-|  | SwiftUI + SDK    |  | (future)         |  | (headless)       | |
-|  +--------+---------+  +--------+---------+  +--------+---------+ |
-+-----------|----------------------|----------------------|---------+
-            |                      |                      |
-            +----------------------+----------------------+
-                                   | Client-Server API (C2S)
-                                   | WebSocket + HTTPS
-+----------------------------------v-----------------------------------+
-|                         HOME SERVER (Rust/Axum)                      |
-|                                                                      |
-|  +------------------+  +------------------+  +--------------------+  |
-|  | Connection Mgr   |  | Auth & Identity  |  | Agent Registry     |  |
-|  | (WebSocket/HTTP)  |  | (keys, tokens)   |  | (capability cards) |  |
-|  +--------+---------+  +--------+---------+  +--------+----------+  |
-|           |                      |                      |            |
-|  +--------v---------+  +--------v---------+  +--------v----------+  |
-|  | Message Router   |  | Thread Manager   |  | Stream Manager    |  |
-|  | (local + fed)    |  | (rooms/threads)  |  | (real-time tokens)|  |
-|  +--------+---------+  +--------+---------+  +--------+----------+  |
-|           |                      |                      |            |
-|  +--------v--------------------------------------------------+      |
-|  |                    Event Store (PostgreSQL)                |      |
-|  |  (append-only log of all events per thread)               |      |
-|  +--------+--------------------------------------------------+      |
-|           |                                                          |
-|  +--------v---------+  +--------------------+  +------------------+  |
-|  | Federation Sender|  | Push Gateway       |  | Media Store      |  |
-|  | (outbound S2S)   |  | (APNs, FCM)       |  | (attachments)    |  |
-|  +--------+---------+  +--------------------+  +------------------+  |
-+-----------|------------------------------------------------------+
-            | Server-Server API (S2S / Federation)
-            | HTTPS + mutual TLS (rustls)
-+-----------|------------------------------------------------------+
-|           v                                                      |
-|  +------------------+                                            |
-|  | Federation Recv  |  REMOTE HOME SERVER                       |
-|  | (inbound S2S)    |                                            |
-|  +------------------+                                            |
-+------------------------------------------------------------------+
+                          Axum Router
+                         /          \
+                        /            \
+              WebSocket Handler    HTTP Handler
+              (ws_upgrade_handler) (agent_card_handler)
+                      |
+              handle_ws_connection
+                   /        \
+    handle_agent_connection  handle_human_connection
 ```
 
-### 2.2 Component Responsibilities
+**Current state (in-memory, no persistence):**
 
-#### Client Layer
+| Component | Implementation | What It Does |
+|-----------|---------------|--------------|
+| `ServerState` | Struct with `Clone` | Holds all shared state |
+| `IdentityStore` | `Arc<Mutex<HashMap>>` | Maps `address -> IdentityRecord` |
+| `to_agent_tx` / `to_human_tx` | `broadcast::Sender<String>` | Routes messages between agent and human connections |
+| `threads` | `Arc<Mutex<Vec<String>>>` | Tracks active thread IDs |
+| `archival_store` | `Arc<Mutex<HashMap>>` | In-memory archival fact storage |
+
+**Critical observation:** The current routing is hard-coded for exactly two participants (one human, one agent) using broadcast channels. There is no concept of "which server does this participant live on?" -- all participants are local. Federation requires fundamentally rethinking message routing.
+
+### 1.1 What Can Be Preserved
+
+| Component | Keep? | Rationale |
+|-----------|-------|-----------|
+| Axum Router structure | **YES** | Add federation routes alongside existing WebSocket/HTTP routes |
+| WebSocket handshake flow | **YES** | Client-to-server protocol is unchanged by federation |
+| Ed25519 signing/verification | **YES** | Federation adds server-level signatures on top of existing message signatures |
+| JSON-RPC framing | **YES** | Both C2S and S2S use JSON-RPC 2.0 |
+| `IdentityStore` interface | **MODIFY** | Must add remote identity resolution (HTTP fetch from `.well-known`) |
+| `broadcast::Sender` routing | **REPLACE** | Cannot route to remote servers. Need participant-addressed routing |
+| In-memory `threads` | **REPLACE** | Threads need persistent storage with origin-server metadata |
+
+### 1.2 What Must Be Added
+
+| New Component | Purpose |
+|---------------|---------|
+| **Federation Router** | Axum handler for `POST /ainm/v1/relay` endpoint |
+| **Server Identity** | `GET /.well-known/ainm/server` endpoint + server Ed25519 keypair |
+| **Message Router** | Decides local delivery vs remote relay per-participant |
+| **Federation Sender** | Outbound queue with per-destination retry logic |
+| **Remote Identity Resolver** | HTTP client to fetch `.well-known/ainm/{name}` from remote providers |
+| **Thread Registry** | Persistent thread metadata with origin-server tracking |
+| **Offline Queue** | Store-and-forward for messages to offline local participants |
+| **Backfill Handler** | Serves thread history to remote servers requesting it |
+| **mTLS Client/Server** | Mutual TLS for all server-to-server connections |
+
+---
+
+## 2. Federation Architecture Design
+
+### 2.1 Recommended Architecture
+
+```
+                              AINM Server
+  ================================================================
+  |                                                              |
+  |  +------------------+    +------------------+               |
+  |  | WebSocket        |    | HTTP             |               |
+  |  | Handler (C2S)    |    | Handlers         |               |
+  |  |                  |    |                  |               |
+  |  | - ainm.initialize|    | - /.well-known/  |               |
+  |  | - ainm.message   |    |   ainm/{name}    |               |
+  |  |   .send          |    | - /.well-known/  |               |
+  |  | - ainm.thread    |    |   ainm/server    |               |
+  |  |   .create        |    | - /.well-known/  |               |
+  |  | - ainm.stream.*  |    |   ainm/register  |               |
+  |  | - ainm.memory.*  |    | - /ainm/v1/relay |               |
+  |  +--------+---------+    | - /ainm/v1/      |               |
+  |           |               |   backfill       |               |
+  |           |               +--------+---------+               |
+  |           v                        v                         |
+  |  +------------------------------------------------+         |
+  |  |              Message Router                     |         |
+  |  |                                                 |         |
+  |  |  For each participant in thread:                |         |
+  |  |    - Local + online? -> deliver via WebSocket   |         |
+  |  |    - Local + offline? -> queue in offline store |         |
+  |  |    - Remote? -> enqueue in federation sender    |         |
+  |  +----------+--------------------+---------+------+         |
+  |             |                    |         |                 |
+  |    +--------v------+    +-------v----+ +--v-----------+    |
+  |    | Local Delivery |    | Offline    | | Federation   |    |
+  |    | (Session Mgr)  |    | Queue      | | Sender       |    |
+  |    |                |    |            | |              |    |
+  |    | DashMap:       |    | Per-user   | | Per-server   |    |
+  |    |  session_id -> |    | message    | | destination  |    |
+  |    |  ws_sender     |    | queue      | | queue with   |    |
+  |    +----------------+    +------------+ | retry/backoff|    |
+  |                                         +---------+---+    |
+  |                                                   |         |
+  |                                          +--------v---+    |
+  |                                          | HTTP Client |    |
+  |                                          | (mTLS)      |    |
+  |                                          | reqwest +   |    |
+  |                                          | rustls      |    |
+  |                                          +-------------+    |
+  |                                                              |
+  |  +------------------------------------------------+         |
+  |  |              Thread Registry                    |         |
+  |  |                                                 |         |
+  |  |  thread_id -> {                                 |         |
+  |  |    origin_server,                               |         |
+  |  |    participants: [{identity, home_server}],     |         |
+  |  |    created_at, title, parent_thread_id          |         |
+  |  |  }                                              |         |
+  |  +------------------------------------------------+         |
+  |                                                              |
+  |  +------------------------------------------------+         |
+  |  |              Identity Resolver                  |         |
+  |  |                                                 |         |
+  |  |  Local: HashMap lookup (existing IdentityStore) |         |
+  |  |  Remote: HTTPS GET -> cache with TTL            |         |
+  |  +------------------------------------------------+         |
+  ================================================================
+```
+
+### 2.2 Component Boundaries
 
 | Component | Responsibility | Communicates With |
 |-----------|---------------|-------------------|
-| **iOS App** (reference client) | Human-facing UI. Renders messages, threads, agent cards, rich content, streaming responses. SwiftUI + @Observable + Swift Concurrency. | Home Server via C2S API |
-| **Agent SDK** | Headless client for AI agents. Sends/receives messages, declares capabilities, streams responses. TypeScript primary, Python secondary. | Home Server via C2S API |
-| **Protocol SDK** (shared library) | Core protocol logic: message serialization, crypto, event validation. Used by both iOS app and Agent SDK. | N/A (library) |
-
-#### Server Layer
-
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| **Connection Manager** | Maintains WebSocket connections (tokio-tungstenite) for real-time streaming. Upgrades HTTP to WS. Handles connection lifecycle, heartbeats, reconnection. | Clients (C2S), Stream Manager |
-| **Auth & Identity** | Ed25519 keypair management (ring crate). Account registration. Session tokens. Server key signing. Identity verification. | Clients (C2S), Federation (S2S) |
-| **Agent Registry** | Stores and serves Agent Cards (capability manifests). Handles capability queries. Serves `/.well-known/agent-card.json`. | Clients (C2S), Federation (S2S) |
-| **Message Router** | Receives events from clients or federation. Routes to correct thread. Determines local vs. federated delivery. Uses tokio broadcast channels for fan-out. | Connection Mgr, Thread Mgr, Federation Sender |
-| **Thread Manager** | Manages thread (room) state: membership, permissions, metadata. Handles join/leave/invite. | Message Router, Event Store |
-| **Stream Manager** | Manages real-time streaming sessions. Buffers partial tokens from agents. Broadcasts stream chunks to thread participants via tokio channels. | Connection Mgr, Message Router |
-| **Event Store** | Append-only persistent storage (PostgreSQL via sqlx) of all events. Supports pagination, backfill, search. Each thread has an ordered event log. | All server components |
-| **Federation Sender** | Queues and delivers events to remote servers. Handles retries, backoff, transaction batching. Signs outgoing events with Ed25519. | Remote servers (S2S) |
-| **Federation Receiver** | Accepts inbound events from remote servers. Validates signatures, checks authorization, passes to Message Router. | Remote servers (S2S), Message Router |
-| **Push Gateway** | Sends push notifications (APNs for iOS, FCM for Android). Formats notification payloads. Respects user preferences. | iOS devices via APNs |
-| **Media Store** | Stores and serves file attachments, images, artifacts. Content-addressable. CDN-ready. | Clients (C2S), Federation (S2S) |
-
-### 2.3 The Three APIs
-
-Following the universal federated pattern, the protocol defines three APIs:
-
-#### API 1: Client-Server (C2S)
-
-How clients (iOS app, agent SDKs) communicate with their home server.
-
-**Transport:** HTTPS for request-response operations. WebSocket for real-time streaming and sync. JSON-RPC 2.0 as the message envelope (aligned with MCP and A2A).
-
-**Capabilities:**
-- Authentication (register, login, token refresh, key management)
-- Thread operations (create, join, leave, invite, set permissions)
-- Message sending (text, rich content blocks, agent UI, artifacts)
-- Sync (receive new events since last sync -- inspired by Matrix `/sync`)
-- Streaming (open a stream, send tokens, receive streamed responses)
-- Agent discovery (query agent capabilities, browse agent registry)
-- Media upload/download
-- Push notification registration
-- Presence (online, busy, away, offline)
-- Typing indicators and read receipts
-
-**Why WebSocket for C2S (not just HTTPS):**
-Streaming agent responses require persistent connections. Matrix's long-polling `/sync` works but is inefficient. XMPP's persistent TCP stream is the right model, modernized as WebSocket. The C2S API should support both: HTTPS for simple operations (send message, fetch history) and WebSocket for real-time features (sync, streaming, presence, typing). HTTP + SSE as fallback when WebSocket is blocked.
-
-#### API 2: Server-Server (S2S / Federation)
-
-How home servers communicate with each other.
-
-**Transport:** HTTPS with mutual TLS (rustls) and signed requests (inspired by Matrix's Federation API and email's SMTP).
-
-**Capabilities:**
-- Event exchange (push events from one server to another)
-- State queries (request current thread state from another server)
-- Backfill (request historical events to fill gaps)
-- Key exchange (servers verify each other's signing keys)
-- Agent card exchange (servers share agent capability information)
-- Media transfer (proxied or direct)
-- Server discovery (DNS SRV records + well-known URIs, like email MX records)
-
-**Federation Model Decision -- Push-Based (like ActivityPub/SMTP), NOT Full Replication (like Matrix):**
-
-Matrix replicates the full event DAG across all participating servers. This provides:
-- Censorship resistance (no single server can delete history)
-- Offline access to full history
-- But: massive storage overhead, complex state resolution, state reset bugs
-
-For our protocol, use push-based federation with selective backfill:
-- Events are pushed from originating server to participating servers (like ActivityPub inbox delivery / SMTP relay)
-- Servers store only the events they receive, not the full history
-- Clients can request backfill (historical events) from any server that has them
-- No DAG, no state resolution algorithm -- thread state is authoritative on the creating server (the "origin server" model)
-
-**Rationale:** The DAG and state resolution are Matrix's most painful architectural decisions. State resolution v2 took years to get right and is still described as "counter-intuitive" by its creators. For a v1 protocol, the complexity cost outweighs the censorship-resistance benefit. An origin-server model (the server that created the thread is authoritative for state) is simpler, works for 99% of use cases, and can be evolved toward a more decentralized model later.
-
-#### API 3: Agent Discovery
-
-How agents and servers are discovered on the network.
-
-**Transport:** HTTPS (standard web requests).
-
-**Capabilities:**
-- **Well-Known Discovery**: `GET /.well-known/ai-messaging` returns server configuration (endpoints, supported protocol version, public keys)
-- **WebFinger**: `GET /.well-known/webfinger?resource=acct:agent@provider` returns the agent's profile (home server, public key, agent card URL)
-- **Agent Cards**: JSON documents describing agent capabilities (skills, input/output types, supported interaction modes, authentication requirements) -- inspired by A2A Agent Cards
-- **DNS SRV Records**: `_aim._tcp.provider.com` for server-to-server discovery (like XMPP's `_xmpp-server._tcp` and email's MX records)
+| **WebSocket Handler** (existing, modified) | Client connections, JSON-RPC dispatch, session lifecycle | Message Router, Thread Registry, Session Manager |
+| **Federation Relay Handler** (new) | Receives `ainm.relay` from remote servers, validates triple-layer security | Message Router, Identity Resolver, Server Identity |
+| **Message Router** (new, core) | Determines delivery path for each message per-participant | Session Manager, Offline Queue, Federation Sender, Thread Registry |
+| **Session Manager** (new, replaces broadcast channels) | Tracks active WebSocket sessions by participant identity | WebSocket Handler |
+| **Federation Sender** (new) | Per-destination outbound queues, retry with exponential backoff, batch messages | HTTP Client, Server Identity Store |
+| **Thread Registry** (new, replaces `Vec<String>`) | Thread metadata, participant lists, origin-server tracking | Message Router, Backfill Handler |
+| **Identity Resolver** (modified from IdentityStore) | Local identity lookup + remote HTTPS resolution with caching | All components needing identity data |
+| **Server Identity** (new) | This server's Ed25519 keypair, TLS cert fingerprint, served at `/.well-known/ainm/server` | Federation Relay Handler, Federation Sender |
+| **Offline Queue** (new) | Persists messages for offline local participants, drains on reconnect | Message Router, WebSocket Handler (on reconnect) |
+| **Backfill Handler** (new) | Serves thread history to remote servers | Thread Registry, Message Store |
+| **mTLS HTTP Client** (new) | Makes outbound federation requests with mutual TLS | Federation Sender |
 
 ---
 
-## 3. Data Flow: How a Message Moves Through the System
+## 3. Data Flow: Federated Message Lifecycle
 
-### 3.1 Local Message (Same Server)
-
-```
-Human (iOS) types message in thread with Agent (same server)
-    |
-    v
-iOS App serializes event -> WebSocket -> Connection Manager
-    |
-    v
-Auth validates session token
-    |
-    v
-Message Router: destination is local thread
-    |
-    v
-Thread Manager: validates sender has permission to post
-    |
-    v
-Event Store: appends event with sequential ID (PostgreSQL)
-    |
-    v
-Connection Manager: broadcasts event to all connected
-thread participants via their WebSocket connections
-(tokio broadcast channel -> per-connection tasks)
-    |
-    v
-Agent SDK receives event -> Agent processes -> Agent
-sends response event (possibly streamed)
-    |
-    v
-Stream Manager: if streaming, buffers tokens and
-broadcasts chunks to thread participants in real-time
-    |
-    v
-iOS App renders streamed tokens progressively
-```
-
-### 3.2 Federated Message (Cross-Server)
+### 3.1 Local Sender to Remote Recipient
 
 ```
-Human on Server A sends message to Agent on Server B
-    |
-    v
-iOS App -> WebSocket -> Server A Connection Manager
-    |
-    v
-Server A Auth validates, Message Router identifies
-remote participant (agent@serverB.com)
-    |
-    v
-Server A Thread Manager validates permissions
-    |
-    v
-Server A Event Store appends event
-    |
-    v
-Server A Federation Sender:
-  1. Looks up Server B via DNS SRV / well-known
-  2. Signs event with Server A's Ed25519 key (ring crate)
-  3. POST event to Server B's federation endpoint (mutual TLS)
-    |
-    v
-Server B Federation Receiver:
-  1. Validates Server A's signature against known keys
-  2. Validates event format and authorization
-  3. Passes to Server B Message Router
-    |
-    v
-Server B Event Store appends event
-    |
-    v
-Server B Connection Manager delivers to
-Agent SDK via WebSocket
-    |
-    v
-Agent processes, sends streamed response back
-through Server B -> Federation -> Server A -> iOS App
+Alice@server-a.com sends message to thread with Bob@server-b.com
+
+1. Alice's client -> WebSocket -> server-a.com
+   |  ainm.message.send { from: "alice@server-a.com", thread_id: "..." }
+
+2. Server A: WebSocket Handler
+   |  Verify Alice's Ed25519 signature (existing logic)
+   |  Respond: { accepted: true, server_timestamp: "..." }
+
+3. Server A: Message Router
+   |  Look up thread participants from Thread Registry
+   |  For each participant:
+   |    alice@server-a.com -> local, online -> Session Manager delivers
+   |    bob@server-b.com   -> remote -> Federation Sender queue
+
+4. Server A: Federation Sender
+   |  Resolve server-b.com server identity (GET /.well-known/ainm/server)
+   |  Build relay payload: { messages: [...], from_server, server_signature }
+   |  Sign relay payload with Server A's Ed25519 key
+   |  POST https://server-b.com/ainm/v1/relay (mTLS)
+
+5. Server B: Federation Relay Handler
+   |  Validate mTLS certificate fingerprint
+   |  Verify server_signature against server-a.com's public key
+   |  Verify Alice's message signature against alice@server-a.com's public key
+   |  Pass to Message Router
+
+6. Server B: Message Router
+   |  bob@server-b.com -> local, online -> Session Manager delivers
+   |  bob@server-b.com -> local, offline -> Offline Queue stores
+
+7. Server B -> Bob's client: ainm.message.deliver { ... }
 ```
 
-### 3.3 Streamed Agent Response (The Novel Flow)
-
-This is the flow no existing federated protocol handles well. This is where we innovate.
+### 3.2 Thread Creation Across Servers
 
 ```
-Agent begins generating response
-    |
-    v
-Agent SDK opens stream on home server:
-  JSON-RPC method: "stream.start" {thread_id}
-  Returns: stream_id
-    |
-    v
-Agent SDK sends token chunks via WebSocket:
-  JSON-RPC notification: "stream.chunk"
-  {stream_id, tokens: "Here is the"}
-  {stream_id, tokens: " analysis of"}
-  {stream_id, tokens: " your data..."}
-    |
-    v
-Stream Manager on agent's home server:
-  - Buffers chunks (in-memory via dashmap)
-  - Broadcasts to local participants via tokio broadcast
-  - Pushes to federated servers for remote participants
-    |
-    v
-Remote server's Connection Manager:
-  - Forwards stream chunks to connected clients
-    |
-    v
-iOS App renders tokens progressively with streaming cursor
-(AsyncStream -> @Observable ViewModel -> SwiftUI)
-    |
-    v
-Agent SDK closes stream:
-  JSON-RPC method: "stream.complete"
-  {stream_id, final_event: {full message event}}
-    |
-    v
-Stream Manager finalizes: replaces stream with
-a complete message event in the Event Store
+Alice@server-a.com creates thread with Bob@server-b.com
+
+1. Alice's client -> ainm.thread.create {
+     thread_id: "...",
+     participants: ["alice@server-a.com", "bob@server-b.com"]
+   }
+
+2. Server A: WebSocket Handler
+   |  For each participant, resolve identity:
+   |    alice@server-a.com -> local lookup
+   |    bob@server-b.com   -> remote HTTPS fetch /.well-known/ainm/bob
+   |  Validate all identities exist
+
+3. Server A: Thread Registry
+   |  Store thread with origin_server = "server-a.com"
+   |  Participants include home_server for each identity
+
+4. Server A: Federation Sender
+   |  Send thread.create event to server-b.com via relay
+   |  (As a message with type: "thread.create")
+
+5. Server B: Federation Relay Handler
+   |  Receive thread.create, store in own Thread Registry
+   |  Mark origin_server = "server-a.com" (Server B is NOT the authority)
+   |  Deliver thread.create notification to Bob if online
 ```
 
-**Critical design decision:** Streams are ephemeral. When complete, they collapse into a single immutable event in the Event Store. Clients that were online see the stream in real-time. Clients that come online later see the final message. This avoids the complexity of persisting partial stream state.
+### 3.3 Routing Decision Flowchart
+
+```
+Message arrives (from client OR from federation relay)
+  |
+  v
+Verify sender signature
+  |
+  v
+Look up thread_id in Thread Registry
+  |-- Not found?
+  |     |-- From local client? -> Error -32024 (thread not found)
+  |     |-- From federation relay? -> Accept if it's a thread.create,
+  |           otherwise request backfill from origin server
+  |
+  v
+For each participant in thread:
+  |
+  +-- Is participant local? (provider matches our domain)
+  |     |
+  |     +-- Is participant online? (session exists in Session Manager)
+  |     |     |-- YES -> deliver via WebSocket (ainm.message.deliver)
+  |     |     |-- NO  -> enqueue in Offline Queue
+  |     |
+  +-- Is participant remote?
+        |-- Group by home_server domain
+        |-- Enqueue in Federation Sender (per-destination queue)
+```
 
 ---
 
-## 4. What the Protocol Specification Document Should Contain
+## 4. Lessons from Matrix and XMPP
 
-Based on analysis of Matrix (5 APIs, 12 room versions, 2 crypto specs), XMPP (3 core RFCs + 400 XEPs), and ActivityPub (1 W3C Recommendation), the spec should be structured as follows:
+### 4.1 What Matrix Gets Right (Adopt)
 
-### 4.1 Recommended Spec Structure
+| Pattern | Matrix Implementation | AINM Adaptation |
+|---------|----------------------|-----------------|
+| **Per-destination send queues** | Synapse's `per_destination_queue.py` -- each remote server has its own outbound queue with independent retry/backoff state | Federation Sender maintains a `DashMap<ServerDomain, DestinationQueue>`. Each queue has its own backoff timer. If server-b.com is down, messages to server-c.com are unaffected. |
+| **Layered validation** | mTLS + server signatures + event signatures (3 layers) | Already specified in transport.md Section 5.4. Implement exactly as specced. |
+| **Server identity at well-known URL** | `/.well-known/matrix/server` for delegation | Already specced at `/.well-known/ainm/server`. |
+| **Backfill API** | `GET /_matrix/federation/v1/backfill/{roomId}` returns events before a given point | Implement `GET /ainm/v1/backfill/{thread_id}` returning messages in reverse chronological order from a given message_id. |
+| **Transaction batching** | Up to 50 PDUs per transaction | Batch up to 50 messages per relay request. Reduces HTTP overhead for chatty threads. |
+| **Caching remote server identity** | 1-hour TTL on server key responses | Cache `/.well-known/ainm/server` responses per the Cache-Control header, default 1 hour. |
 
-Published as a Docusaurus site with Markdown prose + JSON Schema definitions + AsyncAPI transport bindings.
+### 4.2 What Matrix Gets Wrong (Avoid)
 
-```
-AI-Native Messaging Protocol Specification
-============================================
+| Anti-Pattern | Matrix Problem | AINM Design |
+|-------------|----------------|-------------|
+| **DAG-based event ordering** | Events form a DAG with `prev_events` references. Fork/merge creates state resolution nightmares. State resets plagued early Matrix. State Resolution v2 is 2000+ lines of complex algorithm. | **Use origin-server authority instead.** Threads have a single authoritative server (where the thread was created). That server assigns `server_timestamp` ordering. No DAG, no forks, no state resolution needed. |
+| **Full room state replication** | Every server in a room gets a full copy of all state events. Joining a large room downloads megabytes of state. | **Selective state.** Remote servers store thread metadata (participants, title, origin) but do NOT replicate full thread state. They request backfill on demand. |
+| **Complex join handshake** | `make_join` / `send_join` is a multi-step dance involving auth chains, state snapshots, and room version negotiation. | **Simple join via relay.** Thread creator's server is authoritative. To add a remote participant, the origin server sends a `thread.create` or `thread.join` event via normal relay. No handshake dance. |
+| **Unbounded state accumulation** | Rooms accumulate state events forever. Large rooms (Matrix HQ) have enormous state. | **Bounded thread metadata.** Thread metadata is the participant list + title. Memory/archival is per-server, not replicated via federation. |
 
-1. Introduction
-   1.1 Goals and Non-Goals
-   1.2 Protocol Overview (box-and-arrows diagram)
-   1.3 Terminology and Conventions (MUST/SHOULD/MAY per RFC 2119)
-   1.4 Versioning Policy
+### 4.3 What XMPP Gets Right (Adopt)
 
-2. Architecture
-   2.1 System Model (clients, servers, federation)
-   2.2 Identifiers (thread IDs, event IDs, user/agent IDs)
-   2.3 Identity Model (name@provider addressing)
-   2.4 Threat Model
+| Pattern | XMPP Implementation | AINM Adaptation |
+|---------|---------------------|-----------------|
+| **Persistent S2S connections** (optional) | XMPP maintains long-lived TCP connections between servers for high-traffic pairs | Consider connection pooling (not persistent WebSocket but HTTP/2 connection reuse via reqwest) for high-volume server pairs. Start with stateless HTTP POST. |
+| **Simple identity model** | `user@domain` -- domain IS the server | Already using `name@provider`. Provider domain hosts `.well-known` endpoints. |
+| **SRV DNS records** for server discovery | `_xmpp-server._tcp.example.com` | Optional future enhancement. For v1, `/.well-known/ainm/server` is sufficient. |
 
-3. Data Model
-   3.1 Events (base event schema, extensibility)
-   3.2 Event Types (message, state, ephemeral, stream)
-   3.3 Threads (lifecycle, membership, permissions)
-   3.4 Agent Cards (capability manifests)
-   3.5 Rich Content Blocks (typed content: text, code, table,
-       form, chart, approval, artifact)
-   3.6 Memory/Context Objects (active, conversational, archival)
+### 4.4 What XMPP Gets Wrong (Avoid)
 
-4. Client-Server API
-   4.1 Transport (HTTPS + WebSocket, JSON-RPC 2.0 envelope)
-   4.2 Authentication (registration, login, key management)
-   4.3 Sync (event delivery to clients)
-   4.4 Thread Operations (CRUD, membership, permissions)
-   4.5 Messaging (sending events, rich content)
-   4.6 Streaming (opening, sending chunks, closing streams)
-   4.7 Agent Discovery (querying capabilities)
-   4.8 Media (upload, download, thumbnails)
-   4.9 Presence (online state, typing, read receipts)
-   4.10 Push Notifications (registration, payload format)
-
-5. Server-Server API (Federation)
-   5.1 Transport (HTTPS + mutual TLS)
-   5.2 Server Discovery (DNS SRV, well-known)
-   5.3 Server Authentication (key exchange, signatures)
-   5.4 Event Exchange (pushing events, transaction model)
-   5.5 Backfill (requesting historical events)
-   5.6 State Queries (thread state from remote servers)
-   5.7 Media Federation (proxying, direct transfer)
-
-6. Agent Discovery API
-   6.1 Well-Known URIs
-   6.2 WebFinger Integration
-   6.3 Agent Card Schema
-   6.4 DNS SRV Records
-
-7. Security
-   7.1 Cryptographic Primitives (Ed25519, key derivation)
-   7.2 Message Signing (canonical JSON per RFC 8785, then Ed25519)
-   7.3 Identity Verification
-   7.4 Anti-Prompt-Injection (trust annotations, content boundaries)
-   7.5 End-to-End Encryption (future -- not v1)
-
-8. Extension Mechanism
-   8.1 How to Define Extensions (XMPP XEP-inspired model)
-   8.2 Extension Namespacing
-   8.3 Capability Negotiation
-   8.4 Registry of Standard Extensions
-
-Appendices
-   A. JSON Schemas for All Data Types
-   B. Error Codes and Error Handling
-   C. Example Flows (with full JSON payloads)
-   D. AsyncAPI Transport Binding Definitions
-```
-
-### 4.2 What to Defer vs. Include in v1
-
-| Include in v1 | Defer to later |
-|---------------|---------------|
-| Core event model, thread model | End-to-end encryption (complex, needs Olm/Megolm equivalent) |
-| C2S API (full) | Application Service API (bridges to other systems) |
-| S2S Federation (basic) | Advanced federation (DAG-based replication, state resolution) |
-| Agent Discovery + Cards | Agent marketplace/store |
-| Streaming protocol | Voice/video |
-| Rich content blocks | Custom renderer extensions |
-| Ed25519 signing | Advanced key management (cross-signing, device verification) |
-| Basic presence | Rich presence (status messages, activity sharing) |
+| Anti-Pattern | XMPP Problem | AINM Avoidance |
+|-------------|--------------|----------------|
+| **Dialback verification** | Weak authentication via DNS -- subject to DNS poisoning | Use mTLS with certificate fingerprint pinning (already specced in transport.md) |
+| **XML stanza complexity** | Verbose, hard to parse, poor tooling | JSON-RPC 2.0 -- already decided and correct |
+| **No message history federation** | XMPP has no built-in backfill protocol for federated chat history | Backfill API is a first-class federation feature |
 
 ---
 
-## 5. How the Reference Server Should Be Structured
+## 5. Thread Ownership Model: Origin-Server Authority
 
-### 5.1 Technology Choice
+This is the most critical architectural decision for AINM federation. The choice is between Matrix-style distributed authority (DAG + state resolution) and origin-server authority.
 
-Use **Rust with Axum** for the reference server. Rationale:
-- Memory safety without GC pauses -- critical for real-time streaming where predictable p99 latency matters
-- Matrix's Conduit homeserver proves Rust works for federated messaging (32 MiB RAM fresh install vs Synapse's hundreds)
-- Compile-time concurrency safety prevents bugs that plague protocol implementations
-- Native async/await via Tokio matches the event-driven architecture perfectly
-- Excellent crypto ecosystem (ring crate for Ed25519, rustls for TLS)
-- JSON handling via serde is fast and ergonomic despite being a systems language
+**Recommendation: Origin-server authority.** The server where a thread was created is the authoritative source for that thread's state.
 
-See STACK.md for full technology justification and alternatives considered.
-
-### 5.2 Server Module Structure
+### 5.1 How It Works
 
 ```
-reference-server/
-  src/
-    main.rs                      # Entry point, Axum router setup
-    config.rs                    # Server configuration (YAML-based)
+Thread created on server-a.com:
 
-    core/
-      events.rs                  # Event model, validation, serialization
-      threads.rs                 # Thread state, membership, permissions
-      identity.rs                # Identity model, addressing
-      crypto.rs                  # Ed25519 signing via ring, JCS canonicalization
+  server-a.com (ORIGIN)           server-b.com (PARTICIPANT)
+  ========================        ========================
+  Thread Registry:                Thread Registry:
+    thread_id: "abc-123"            thread_id: "abc-123"
+    origin_server: self             origin_server: "server-a.com"
+    participants: [                 participants: [
+      alice@server-a.com,             alice@server-a.com,
+      bob@server-b.com                bob@server-b.com
+    ]                               ]
+    messages: [full history]        messages: [locally cached]
 
-    api/
-      c2s/                       # Client-Server API handlers
-        mod.rs                   # Axum router for C2S
-        auth.rs                  # Registration, login, tokens
-        sync.rs                  # Event delivery via WebSocket
-        threads.rs               # Thread CRUD, membership
-        messages.rs              # Send events, rich content
-        streaming.rs             # Stream lifecycle management
-        agents.rs                # Agent discovery, card queries
-        media.rs                 # Upload, download, thumbnails
-        presence.rs              # Online state, typing, receipts
-      s2s/                       # Server-Server API handlers
-        mod.rs                   # Axum router for S2S
-        federation.rs            # Event exchange, transactions
-        discovery.rs             # Well-known, keys
-        backfill.rs              # Historical event requests
-        state.rs                 # Thread state queries
-      discovery/                 # Agent Discovery API
-        wellknown.rs             # /.well-known/ handlers
-        webfinger.rs             # WebFinger endpoint
-        agentcards.rs            # Agent card serving
-
-    transport/
-      http.rs                    # Axum HTTPS server setup
-      websocket.rs               # tokio-tungstenite connection management
-      connection_manager.rs      # Client connection lifecycle, heartbeats
-
-    federation/
-      sender.rs                  # Outbound event delivery, queuing
-      receiver.rs                # Inbound event validation
-      resolver.rs                # DNS SRV, well-known resolution
-      keystore.rs                # Remote server key management (dashmap)
-
-    storage/
-      mod.rs                     # Storage trait definitions
-      event_store.rs             # Append-only event persistence (sqlx)
-      thread_store.rs            # Thread state persistence
-      user_store.rs              # Account data
-      agent_store.rs             # Agent cards, capabilities
-      media_store.rs             # File storage
-
-    stream/
-      stream_manager.rs          # Active stream tracking (dashmap)
-      stream_buffer.rs           # Token chunk buffering
-      stream_broadcaster.rs      # Fan-out via tokio broadcast channels
-
-    push/
-      apns.rs                    # Apple Push Notification Service
-
-  migrations/                    # sqlx database migrations
-  tests/
-    unit/
-    integration/
-    federation/                  # Multi-server federation tests (docker-compose)
+  Authority:                      Authority:
+    - Assigns server_timestamp      - Caches participant list
+    - Authoritative participant     - Requests backfill from
+      list                            server-a.com on demand
+    - Accepts/rejects joins         - Forwards thread ops to
+    - Serves backfill                  server-a.com
 ```
 
-### 5.3 Database Design
+### 5.2 Origin-Server Responsibilities
 
-Use **PostgreSQL 16+** with **sqlx** (compile-time verified SQL). The event store is the critical component.
+| Operation | Origin Server | Participant Server |
+|-----------|--------------|-------------------|
+| **Message ordering** | Assigns `server_timestamp` to all messages (local and relayed) | Uses origin's `server_timestamp` for ordering |
+| **Participant management** | Authoritative add/remove of participants | Forwards `thread.join`/`thread.leave` to origin via relay |
+| **Thread metadata** | Authoritative title, settings | Caches metadata, refreshes from origin |
+| **Message storage** | Full message history | Stores messages it has seen (for local participant access) |
+| **Backfill** | Serves history via `/ainm/v1/backfill/{thread_id}` | Requests history from origin when client requests older messages |
 
-**Core Tables:**
+### 5.3 Why Not Distributed Authority (Matrix-Style)
 
-```sql
--- Accounts (both humans and agents)
-accounts (
-  id          UUID PRIMARY KEY,     -- UUIDv7 for time-ordered
-  address     TEXT UNIQUE NOT NULL,  -- name@provider
-  public_key  BYTEA NOT NULL,        -- Ed25519 public key
-  created_at  TIMESTAMPTZ NOT NULL,
-  account_type TEXT NOT NULL          -- 'human' | 'agent'
-)
+| Criterion | Origin-Server Authority | Distributed (DAG) |
+|-----------|------------------------|-------------------|
+| **Complexity** | Simple -- one server decides | Extremely complex state resolution algorithms |
+| **Consistency** | Strong -- single source of truth | Eventual -- forks must merge |
+| **Message ordering** | Total order via `server_timestamp` | Partial order via DAG, requires resolution |
+| **Failure mode** | Origin server down = thread read-only temporarily | Any server can accept messages, but conflicts accumulate |
+| **Implementation effort** | Weeks | Months (Matrix state resolution is 2000+ LOC of edge cases) |
+| **Trade-off** | Single point of failure per thread | No single point of failure but complex failure modes |
 
--- Threads (conversations)
-threads (
-  id            UUID PRIMARY KEY,
-  origin_server TEXT NOT NULL,       -- the server that created this thread
-  created_at    TIMESTAMPTZ NOT NULL,
-  state         JSONB NOT NULL        -- current thread state snapshot
-)
+**The trade-off is acceptable for v1.** If the origin server goes down, the thread becomes temporarily unavailable for new messages. Participant servers still have cached messages for offline reading. This is the same model as email -- if gmail.com goes down, you cannot send FROM gmail, but existing messages are cached locally.
 
--- Thread membership
-thread_members (
-  thread_id   UUID REFERENCES threads(id),
-  account_id  UUID,                   -- NULL for federated remote members
-  address     TEXT NOT NULL,           -- canonical address
-  role        TEXT NOT NULL,           -- 'admin' | 'member' | 'observer'
-  joined_at   TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (thread_id, address)
-)
+### 5.4 Future Migration Path
 
--- Events (the core append-only log)
-events (
-  id               UUID PRIMARY KEY,
-  thread_id        UUID REFERENCES threads(id),
-  sender           TEXT NOT NULL,      -- sender address
-  type             TEXT NOT NULL,      -- 'message' | 'state' | 'stream.start' | ...
-  content          JSONB NOT NULL,     -- the event payload
-  origin_server_ts TIMESTAMPTZ NOT NULL, -- timestamp from origin server
-  received_ts      TIMESTAMPTZ NOT NULL, -- timestamp on this server
-  signature        BYTEA NOT NULL,     -- Ed25519 signature
-  sequence         BIGINT NOT NULL     -- per-thread monotonic ordering
-)
--- Index: (thread_id, sequence) for efficient pagination
--- Index: (thread_id, type) for state event queries
+If origin-server authority proves too limiting (e.g., origin server permanently lost), a future protocol version can add:
+- **Thread migration:** Transfer origin-server authority to another server
+- **Multi-master writes:** Allow participant servers to accept messages during origin outage, with reconciliation on recovery
 
--- Agent capability cards
-agent_cards (
-  agent_address TEXT PRIMARY KEY,
-  card          JSONB NOT NULL,
-  updated_at    TIMESTAMPTZ NOT NULL
-)
-
--- Federation key cache
-federation_keys (
-  server_name TEXT NOT NULL,
-  key_id      TEXT NOT NULL,
-  public_key  BYTEA NOT NULL,
-  valid_until TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (server_name, key_id)
-)
-
--- Media storage metadata
-media (
-  id           TEXT PRIMARY KEY,      -- content-addressable hash
-  content_type TEXT NOT NULL,
-  size_bytes   BIGINT NOT NULL,
-  storage_path TEXT NOT NULL,
-  uploaded_by  TEXT NOT NULL
-)
-```
-
-**Key decision: Linear ordering, NOT a DAG.** Events within a thread on a single server have a monotonic sequence number. When federated events arrive, they are assigned the next sequence number on the receiving server. This means different servers may have different orderings for concurrent events, but each server has a consistent, simple, queryable order. This avoids Matrix's state resolution complexity entirely.
+These are additive -- they do not require rearchitecting the v1 design.
 
 ---
 
-## 6. How the iOS Client Should Be Architected
+## 6. New Components: Detailed Design
 
-### 6.1 Architecture Pattern: MVVM + Repository
+### 6.1 Message Router (Core New Component)
 
-Following the updated STACK.md recommendation, use a four-layer architecture with MVVM + Repository pattern and @Observable for state management:
+The Message Router replaces the current `broadcast::Sender` pattern with participant-aware routing.
 
-```
-+------------------------------------------------------+
-|  UI LAYER (SwiftUI Views)                            |
-|  - ThreadListView, ThreadView, MessageBubble,        |
-|    AgentCardView, StreamingMessageView, RichContent   |
-+------------------------------------------------------+
-|  PRESENTATION LAYER (ViewModels, @Observable)        |
-|  - ThreadListViewModel, ThreadViewModel,              |
-|    AgentBrowserViewModel                              |
-+------------------------------------------------------+
-|  DOMAIN LAYER (Repositories + Services)              |
-|  - ThreadRepository, MessageRepository,               |
-|    AuthService, StreamService, AgentDiscoveryService   |
-+------------------------------------------------------+
-|  PROTOCOL LAYER (SDK)                                |
-|  - AIMClient (WebSocket + HTTP), EventSerializer,     |
-|    CryptoService (CryptoKit Ed25519), ConnectionMgr   |
-+------------------------------------------------------+
-```
+```rust
+// Conceptual structure -- not literal implementation
+pub struct MessageRouter {
+    session_manager: SessionManager,
+    federation_sender: FederationSender,
+    offline_queue: OfflineQueue,
+    thread_registry: ThreadRegistry,
+    local_domain: String,
+}
 
-### 6.2 Module Structure
+impl MessageRouter {
+    /// Route a validated message to all thread participants
+    pub async fn route(&self, message: &SignedMessage) -> Result<()> {
+        let thread = self.thread_registry.get(&message.thread_id)?;
 
-```
-AINativeMessaging/
-  App/
-    AINativeMessagingApp.swift        # Entry point
-    AppState.swift                    # @Observable root state (auth, connectivity)
+        for participant in &thread.participants {
+            let provider = participant.identity.split('@').nth(1).unwrap();
 
-  SDK/                                # Protocol SDK (separate Swift Package)
-    Client/
-      AIMClient.swift                 # Primary API interface
-      WebSocketTransport.swift        # URLSessionWebSocketTask
-      HTTPTransport.swift             # URLSession HTTPS requests
-      SyncManager.swift               # Event sync loop (AsyncStream)
-    Model/
-      Event.swift                     # Core event types (Codable)
-      Thread.swift                    # Thread model
-      Identity.swift                  # Address, keys
-      AgentCard.swift                 # Agent capabilities
-      RichContent.swift               # Content block types
-    Crypto/
-      Signing.swift                   # CryptoKit Curve25519.Signing
-      KeyStore.swift                  # Keychain-backed key storage
-    Storage/
-      LocalEventStore.swift           # GRDB.swift SQLite cache
-
-  Features/
-    Auth/
-      LoginViewModel.swift            # @Observable
-      LoginView.swift
-      RegisterViewModel.swift
-      RegisterView.swift
-    ThreadList/
-      ThreadListViewModel.swift       # @Observable
-      ThreadListView.swift
-      ThreadListItemView.swift
-    Thread/
-      ThreadViewModel.swift           # @Observable
-      ThreadView.swift
-      MessageViews/
-        TextMessageView.swift
-        StreamingMessageView.swift    # Live token rendering
-        RichContentView.swift         # Forms, tables, code, charts
-        AgentActivityView.swift       # Tool-use indicators
-        ApprovalView.swift            # Human-in-the-loop
-      InputBar/
-        MessageInputView.swift
-        AttachmentPicker.swift
-    AgentDiscovery/
-      AgentBrowserViewModel.swift
-      AgentBrowserView.swift
-      AgentCardDetailView.swift
-    Settings/
-      SettingsView.swift
-      AccountView.swift
-
-  Repositories/
-    ThreadRepository.swift            # Network + local cache coordination
-    MessageRepository.swift           # Event fetching, caching, pagination
-    AgentRepository.swift             # Agent card fetching and caching
-
-  Navigation/
-    AppNavigationPath.swift           # NavigationStack + NavigationPath
-    DeepLinkHandler.swift             # Open specific thread/agent
-
-  Shared/
-    Components/
-      AvatarView.swift
-      StatusBadge.swift
-      LoadingIndicator.swift
-    Extensions/
-    Theme/
+            if provider == self.local_domain {
+                // Local participant
+                if self.session_manager.is_online(&participant.identity) {
+                    self.session_manager.deliver(&participant.identity, message).await?;
+                } else {
+                    self.offline_queue.enqueue(&participant.identity, message).await?;
+                }
+            } else {
+                // Remote participant -- group by server and batch
+                let home_server = &participant.home_server;
+                self.federation_sender.enqueue(home_server, message).await?;
+            }
+        }
+        Ok(())
+    }
+}
 ```
 
-### 6.3 Key iOS Architecture Decisions
+**Key design decisions:**
+- The router does NOT know about WebSocket specifics -- it delegates to `SessionManager`
+- Remote messages are grouped by destination server, not individual recipient
+- The router is called from both the WebSocket handler (client sends) AND the Federation Relay handler (remote server sends)
 
-**State management: @Observable (iOS 17+)** -- simpler than ObservableObject, less boilerplate, Apple's recommended approach from WWDC 2024+. ViewModels are @Observable classes, views observe them automatically.
+### 6.2 Session Manager (Replaces Broadcast Channels)
 
-**Navigation: NavigationStack + NavigationPath** -- type-safe, programmatic navigation. Works for deep linking (open specific thread from push notification).
+```rust
+pub struct SessionManager {
+    // Maps participant identity -> active WebSocket sender
+    sessions: DashMap<String, Arc<Mutex<SplitSink<WebSocket, Message>>>>,
+}
 
-**Local storage: GRDB.swift** -- for caching events and thread state locally. Not CoreData (too heavy, poor concurrency model). Not SwiftData (immature -- no background tasks, poor large dataset performance). GRDB is lightweight, Swift-native, and performant for append-only event logs.
+impl SessionManager {
+    pub fn register(&self, identity: &str, sender: Arc<Mutex<SplitSink<WebSocket, Message>>>);
+    pub fn unregister(&self, identity: &str);
+    pub fn is_online(&self, identity: &str) -> bool;
+    pub async fn deliver(&self, identity: &str, message: &SignedMessage) -> Result<()>;
+}
+```
 
-**Networking: URLSession + URLSessionWebSocketTask** -- no third-party HTTP libraries. Native Apple networking with built-in TLS, certificate pinning, and background session support.
+**Why DashMap instead of broadcast channels:** The current architecture uses two broadcast channels (`to_agent_tx`, `to_human_tx`) which hard-codes exactly two participants. `DashMap` supports any number of concurrent sessions with lock-free reads. This is the pattern Conduit uses for connection tracking.
 
-**Async patterns: Swift Concurrency (async/await + AsyncStream)** -- not Combine (Apple has stopped evolving it) or RxSwift (third-party). AsyncStream is the natural fit for WebSocket message handling and streaming token delivery.
+### 6.3 Federation Sender (Per-Destination Queues)
 
-**Crypto: Apple CryptoKit** -- native Ed25519 via Curve25519.Signing. Hardware-accelerated. No third-party crypto dependency.
+Modeled after Synapse's `per_destination_queue.py` and Conduit's `sending::Service`:
 
-**Rich content rendering: Native SwiftUI components, NOT WebViews.** Following A2UI's "UI as data" principle, agents send JSON content blocks that the client maps to native SwiftUI components. This is faster, more accessible, and more secure than rendering HTML/WebViews. Define a component catalog (text, code, table, form, chart, button, approval) and render each natively.
+```rust
+pub struct FederationSender {
+    // Per-destination outbound queues
+    queues: DashMap<String, DestinationQueue>,
+    server_identity: ServerIdentity,
+    http_client: reqwest::Client,  // configured with mTLS
+}
 
-**Streaming rendering:** Use a custom `StreamingTextView` that appends characters as they arrive via WebSocket/AsyncStream, with a blinking cursor. This is the single most important UX feature that differentiates us from every existing messaging app.
+pub struct DestinationQueue {
+    messages: VecDeque<SignedMessage>,
+    state: DestinationState,
+    last_attempt: Option<Instant>,
+    retry_count: u32,
+}
+
+pub enum DestinationState {
+    Ready,
+    Sending,
+    BackingOff { until: Instant },
+    Failed { reason: String },
+}
+```
+
+**Retry strategy (matching Matrix best practices):**
+1. Immediate first attempt
+2. On failure: exponential backoff starting at 1s, doubling to max 60s
+3. After 10 consecutive failures: mark destination as `Failed`, stop retrying
+4. Background task periodically retries `Failed` destinations every 5 minutes
+5. Successful send resets backoff to `Ready`
+
+**Batching:** Queue accumulates messages. When a send attempt fires, batch up to 50 messages into a single `ainm.relay` request. This is critical for chatty threads -- sending one HTTP request per message would be prohibitively expensive.
+
+### 6.4 Thread Registry
+
+```rust
+pub struct ThreadRegistry {
+    threads: DashMap<String, FederatedThread>,
+}
+
+pub struct FederatedThread {
+    pub thread_id: String,
+    pub title: Option<String>,
+    pub origin_server: String,  // Domain of the server where thread was created
+    pub created_at: String,
+    pub created_by: String,
+    pub parent_thread_id: Option<String>,
+    pub parent_message_id: Option<String>,
+    pub participants: Vec<FederatedParticipant>,
+}
+
+pub struct FederatedParticipant {
+    pub identity: String,       // e.g., "alice@server-a.com"
+    pub participant_type: String, // "human" or "agent"
+    pub home_server: String,    // e.g., "server-a.com"
+    pub joined_at: String,
+    pub role: String,           // "creator" or "member"
+}
+```
+
+**Key addition vs current:** Every participant now carries a `home_server` field, derived from the identity's provider domain during identity resolution. This is what the Message Router uses to decide local vs remote delivery.
+
+### 6.5 Identity Resolver (Extended)
+
+```rust
+pub struct IdentityResolver {
+    // Local identities (registered on this server)
+    local_store: DashMap<String, IdentityRecord>,
+    // Cached remote identities with TTL
+    remote_cache: DashMap<String, CachedIdentity>,
+    http_client: reqwest::Client,
+    local_domain: String,
+}
+
+pub struct CachedIdentity {
+    pub record: IdentityRecord,
+    pub fetched_at: Instant,
+    pub ttl: Duration,  // from Cache-Control header, default 1 hour
+}
+
+impl IdentityResolver {
+    /// Resolve an identity -- local lookup first, then remote HTTPS fetch
+    pub async fn resolve(&self, address: &str) -> Result<IdentityRecord> {
+        let provider = address.split('@').nth(1).ok_or(Error::InvalidAddress)?;
+
+        if provider == self.local_domain {
+            // Local lookup
+            self.local_store.get(address)
+                .map(|r| r.clone())
+                .ok_or(Error::IdentityNotFound)
+        } else {
+            // Check cache first
+            if let Some(cached) = self.remote_cache.get(address) {
+                if cached.fetched_at.elapsed() < cached.ttl {
+                    return Ok(cached.record.clone());
+                }
+            }
+            // Fetch from remote provider
+            let url = format!("https://{}/.well-known/ainm/{}", provider, name);
+            let record = self.http_client.get(&url).send().await?.json().await?;
+            self.remote_cache.insert(address.to_string(), CachedIdentity {
+                record: record.clone(),
+                fetched_at: Instant::now(),
+                ttl: Duration::from_secs(3600),
+            });
+            Ok(record)
+        }
+    }
+}
+```
+
+### 6.6 Backfill Protocol
+
+When a remote server needs thread history (e.g., a new participant joins and their client scrolls up):
+
+```
+GET /ainm/v1/backfill/{thread_id}?before={message_id}&limit={n}
+
+Response:
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "messages": [ ... ],  // Signed message envelopes, reverse chronological
+    "has_more": true
+  }
+}
+```
+
+**Access control:** Only servers with at least one participant in the thread may request backfill. The backfill handler checks the requesting server's identity against the thread's participant list.
+
+**Selective backfill (not full replication):** Unlike Matrix which replicates the entire room DAG, AINM backfill is on-demand. A participant server only fetches history when its local client requests it. This dramatically reduces federation bandwidth and storage requirements.
+
+### 6.7 Offline Queue
+
+```rust
+pub struct OfflineQueue {
+    // Per-participant queues for messages awaiting delivery
+    queues: DashMap<String, VecDeque<QueuedMessage>>,
+}
+
+pub struct QueuedMessage {
+    pub message: SignedMessage,
+    pub queued_at: Instant,
+}
+
+impl OfflineQueue {
+    pub async fn enqueue(&self, identity: &str, message: &SignedMessage);
+
+    /// Drain all queued messages for a participant (called on reconnect)
+    pub async fn drain(&self, identity: &str) -> Vec<SignedMessage>;
+}
+```
+
+Messages are drained in chronological order when a client reconnects and completes `ainm.initialized`. The spec requires at least 7 days retention (transport.md Section 6.2).
 
 ---
 
-## 7. Key Architectural Decisions Summary
+## 7. Server Identity and mTLS
 
-| Decision | Chosen | Rejected | Rationale |
-|----------|--------|----------|-----------|
-| Event ordering | Linear per-server sequence | DAG (Matrix-style) | DAG + state resolution is the #1 source of complexity and bugs in Matrix. Linear ordering is simpler, sufficient for v1, and can be evolved. |
-| Federation model | Push-based with selective backfill | Full history replication (Matrix) | Avoids massive storage overhead. Origin server is authoritative. Simpler to implement and operate. |
-| C2S transport | WebSocket + HTTPS (JSON-RPC 2.0) | Long-polling only (Matrix `/sync`) or TCP stream (XMPP) | WebSocket is the modern equivalent of XMPP's persistent stream. JSON-RPC 2.0 aligns with MCP and A2A. HTTPS for non-realtime operations. SSE as fallback. |
-| S2S transport | HTTPS with signed requests + mutual TLS | Custom TCP (XMPP) or HTTPS only (ActivityPub) | HTTPS is firewall-friendly, well-understood, and allows request-level signing. Mutual TLS via rustls for server authentication. |
-| Server discovery | DNS SRV + well-known | Custom registry, blockchain-based (ANP) | DNS is the proven approach used by email, XMPP, and Matrix. Well-known URIs add flexibility. |
-| Identity format | `name@provider` | `@name:provider` (Matrix), JID with resource | Email-like is the most universally understood format. Resource/device identifiers go in session metadata, not the address. |
-| Spec extensibility | Core spec + formal extensions (XMPP XEP model) | Monolithic spec (Matrix), informal extensions | Allows the protocol to grow without breaking changes. Extensions can be independently versioned and adopted. |
-| Reference server | Rust / Axum | TypeScript, Go, Python | Predictable latency for streaming, memory safety for protocol correctness, proven by Conduit (Matrix's Rust homeserver). See STACK.md. |
-| iOS architecture | MVVM + Repository with @Observable | TCA, Coordinator+MVVM, VIPER | @Observable is Apple's modern pattern. Repository pattern cleanly separates network + cache. Simpler than TCA, more structured than bare MVVM. |
-| Rich content | Native SwiftUI components from JSON schema | WebViews, HTML rendering | Faster, more secure (no code injection), better accessibility, follows A2UI principle. |
-| Thread state authority | Origin server authoritative | Distributed consensus, DAG-based | Dramatically simpler. One server is the source of truth for thread state. If that server goes down, the thread is read-only on other servers until it returns. Acceptable trade-off for v1. |
+### 7.1 Server Identity Endpoint
+
+New Axum route: `GET /.well-known/ainm/server`
+
+```rust
+async fn server_identity_handler(State(state): State<ServerState>) -> impl IntoResponse {
+    Json(json!({
+        "server_id": state.server_identity.domain,
+        "public_key": state.server_identity.public_key_b64(),
+        "relay_endpoint": format!("https://{}/ainm/v1/relay", state.server_identity.domain),
+        "tls_fingerprint": state.server_identity.tls_fingerprint(),
+        "supported_versions": ["0.1.0"]
+    }))
+}
+```
+
+### 7.2 Server Ed25519 Keypair
+
+Separate from participant keypairs. The server has its own Ed25519 identity used exclusively for:
+1. Signing relay payloads (`server_signature` field)
+2. Publishing at `/.well-known/ainm/server`
+
+This key is generated once at server startup and persisted. It is NOT the same as any participant's key.
+
+### 7.3 mTLS for Federation
+
+| Direction | Certificate | Verification |
+|-----------|-------------|-------------|
+| Outbound relay | This server presents its TLS certificate | Remote server verifies against our `tls_fingerprint` |
+| Inbound relay | Remote server presents its TLS certificate | We verify against their published `tls_fingerprint` at `/.well-known/ainm/server` |
+
+**Implementation:** Use `reqwest` with `rustls` for the HTTP client. Configure `ClientConfig` with client certificates for mTLS. Use `axum-server` with `rustls` for the HTTPS listener accepting federation connections.
 
 ---
 
-## 8. Build Order (Dependencies)
+## 8. Modified Components: What Changes
 
-The components have clear dependency chains that dictate build order:
+### 8.1 WebSocket Handler Changes
 
-### Phase 1: Protocol Specification (No Dependencies)
-1. **Data Model** -- Event schema, thread model, identity model, agent card schema (JSON Schema files)
-2. **Crypto** -- Ed25519 signing/verification specification (canonical JSON + signature format)
-3. **Protocol Spec Draft** -- Sections 1-3 (Introduction, Architecture, Data Model) + AsyncAPI transport bindings
-4. **Spec Website** -- Docusaurus site with published schemas
-
-### Phase 2: Single-Server (Depends on Phase 1)
-5. **Event Store** -- PostgreSQL schema + sqlx queries (the foundation everything else reads/writes)
-6. **C2S API: Auth** -- Registration, login, session management (Axum handlers)
-7. **C2S API: Threads** -- Create, join, send messages
-8. **C2S API: Sync** -- Deliver events to connected clients (WebSocket via tokio-tungstenite)
-9. **Basic iOS Client** -- Login, thread list, send/receive text messages (SwiftUI + GRDB)
-
-### Phase 3: Agent Features (Depends on Phase 2)
-10. **Streaming Protocol** -- Stream lifecycle, token buffering, fan-out (tokio broadcast)
-11. **Agent Registry** -- Agent cards, capability queries
-12. **Rich Content Blocks** -- Define content block types, iOS renderers
-13. **Agent SDK** -- TypeScript headless client library for agents
-14. **iOS: Streaming UI** -- Render streamed responses progressively (AsyncStream -> @Observable)
-15. **iOS: Rich Content** -- Native SwiftUI renderers for all content block types
-
-### Phase 4: Federation (Depends on Phase 2)
-16. **S2S API** -- Event exchange, server authentication, key management (mutual TLS via rustls)
-17. **Server Discovery** -- DNS SRV, well-known, WebFinger
-18. **Federation Sender/Receiver** -- Queue, deliver, validate remote events
-19. **Backfill** -- Request historical events from remote servers
-20. **Federation Tests** -- Multi-server integration test suite (docker-compose with 2+ servers)
-
-### Phase 5: Production Hardening (Depends on Phases 3+4)
-21. **Push Notifications** -- APNs integration
-22. **Media Store** -- File upload/download, thumbnails
-23. **Presence** -- Online state, typing indicators, read receipts
-24. **Memory/Context** -- Hierarchical context management (active, conversational, archival)
-25. **Protocol Spec v1.0** -- Complete, reviewed specification document
-26. **iOS Polish** -- Full feature parity with spec, performance optimization
-
-### Dependency Graph
-
+**Before (current):**
 ```
-Phase 1: Spec + Data Model + Crypto + AsyncAPI + Docusaurus
-    |
-    v
-Phase 2: Event Store -> Auth -> Threads -> Sync -> Basic iOS
-    |                                          |
-    +---> Phase 3: Streaming -> Agent          |
-    |     Registry -> Rich Content ->          |
-    |     Agent SDK -> iOS Streaming/Rich      |
-    |                                          |
-    +---> Phase 4: S2S API -> Discovery ->     |
-          Fed Sender/Recv -> Backfill          |
-                    |                          |
-                    v                          v
-              Phase 5: Push + Media + Presence + Memory + Spec v1.0
+handle_ws_connection
+  -> is_agent? handle_agent_connection : handle_human_connection
+  -> Hard-coded broadcast channel routing
 ```
 
-**Critical path:** Phases 3 and 4 can run in parallel. The agent features (streaming, rich content) and federation are independent concerns that converge in Phase 5. This parallelism is a significant advantage of the architecture.
+**After:**
+```
+handle_ws_connection
+  -> authenticate via ainm.initialize (unchanged)
+  -> register session in SessionManager (NEW)
+  -> drain offline queue for this identity (NEW)
+  -> dispatch JSON-RPC methods to handlers
+  -> on disconnect: unregister from SessionManager (NEW)
+```
+
+The handler no longer distinguishes agent vs human. All participants are handled uniformly. The Message Router handles delivery logic.
+
+### 8.2 Message Send Handler Changes
+
+**Before:** Directly broadcasts to the other channel (`to_agent_tx` or `to_human_tx`).
+
+**After:**
+1. Verify signature (unchanged)
+2. Check thread membership (unchanged)
+3. Assign `server_timestamp` (unchanged -- but only if we are the origin server for this thread)
+4. Pass to Message Router (NEW)
+5. Message Router handles local/remote/offline delivery
+
+### 8.3 Thread Create Handler Changes
+
+**Before:** Pushes thread_id to `Vec<String>`.
+
+**After:**
+1. Validate participants (resolve all identities, including remote) (MODIFIED)
+2. Create `FederatedThread` in Thread Registry with `origin_server = self` (NEW)
+3. For each remote participant's home server, relay the `thread.create` event via Federation Sender (NEW)
 
 ---
 
-## 9. Anti-Patterns to Avoid
+## 9. Build Order (Dependency-Aware)
 
-### Anti-Pattern 1: Matrix's State Resolution Complexity
-**What:** Implementing a DAG-based event graph with algorithmic state resolution.
-**Why bad:** Matrix's state resolution v1 took years to stabilize and still had critical bugs (state resets). V2 is functional but "counter-intuitive" by the creators' own admission. For a new protocol, this is an enormous complexity tax with diminishing returns.
-**Instead:** Use origin-server authority for thread state. Simple, predictable, debuggable.
+The components have clear dependencies. Build in this order:
 
-### Anti-Pattern 2: XMPP's XML Verbosity
-**What:** Using XML for the wire format.
-**Why bad:** XML parsing is heavier, XML schemas are more complex to write and validate, and JSON has won the ecosystem (every LLM, every API, every modern protocol uses JSON).
-**Instead:** JSON everywhere. JSON Schema for validation. Content-type negotiation if binary efficiency is needed later (MessagePack, CBOR, or optional Protobuf encoding).
+```
+Phase 1: Foundation (no external dependencies)
+  |
+  +-- 1a. Server Identity (keypair generation, well-known endpoint)
+  +-- 1b. Identity Resolver (extend IdentityStore with remote HTTPS fetch + cache)
+  +-- 1c. Session Manager (DashMap-based, replaces broadcast channels)
+  |
+  v
+Phase 2: Local Routing Refactor
+  |
+  +-- 2a. Thread Registry (replace Vec<String> with FederatedThread)
+  +-- 2b. Message Router (local-only first: Session Manager + Offline Queue)
+  +-- 2c. Offline Queue (per-participant message storage)
+  +-- 2d. Refactor WebSocket handler to use Session Manager + Message Router
+  |       (This phase must produce a working single-server system
+  |        equivalent to the current demo -- no regression)
+  |
+  v
+Phase 3: Federation Send Path
+  |
+  +-- 3a. mTLS HTTP client (reqwest + rustls with client certs)
+  +-- 3b. Federation Sender (per-destination queues, batching, retry)
+  +-- 3c. Extend Message Router to route remote participants to Federation Sender
+  |
+  v
+Phase 4: Federation Receive Path
+  |
+  +-- 4a. Relay endpoint (POST /ainm/v1/relay with triple-layer validation)
+  +-- 4b. Remote server identity verification (fetch + validate .well-known/ainm/server)
+  +-- 4c. Inbound message processing (validate -> Message Router -> local delivery)
+  |
+  v
+Phase 5: Thread Federation
+  |
+  +-- 5a. Thread creation across servers (origin-server creates, relays to participants)
+  +-- 5b. Thread join/leave across servers (forward to origin server)
+  +-- 5c. Participant management with remote identities
+  |
+  v
+Phase 6: Backfill & History
+  |
+  +-- 6a. Message persistence (store messages for backfill -- even in-memory for demo)
+  +-- 6b. Backfill endpoint (GET /ainm/v1/backfill/{thread_id})
+  +-- 6c. Backfill client (request history from origin server)
+  |
+  v
+Phase 7: Demo & Validation
+  |
+  +-- 7a. docker-compose with 2+ federated servers
+  +-- 7b. Cross-server thread creation and messaging demo
+  +-- 7c. Offline queue + reconnection demo
+  +-- 7d. Backfill demo
+  +-- 7e. Updated JSON schemas and AsyncAPI definitions
+```
 
-### Anti-Pattern 3: ActivityPub's Missing Conversation Model
-**What:** Relying on reply chains to reconstruct conversations instead of having a first-class thread/room concept.
-**Why bad:** ActivityPub threads are notoriously broken in Mastodon -- you frequently see incomplete conversations because your server only has the replies it received. This is fundamentally unsuitable for messaging.
-**Instead:** Threads are first-class objects with explicit membership. All participants receive all events.
+**Why this order:**
+- Phase 1 has no dependencies -- pure additive components
+- Phase 2 refactors the core routing without adding federation. This is the riskiest phase because it changes existing behavior. Must verify no regression before adding federation complexity.
+- Phases 3-4 are the federation send/receive paths. Send before receive because we can test send against a mock/echo server.
+- Phase 5 builds on 3+4 for thread lifecycle across servers
+- Phase 6 is backfill, which requires message persistence from Phase 2+
+- Phase 7 is the integration demo proving everything works together
 
-### Anti-Pattern 4: Slack's Undocumented Payload Limits
-**What:** Having implicit, undocumented limits that developers discover only at runtime.
-**Why bad:** Block Kit's real limit is ~13KB, not the documented 50 blocks. This causes silent failures in production.
-**Instead:** Every limit is explicit in the spec. Error responses include the specific limit that was exceeded.
+---
 
-### Anti-Pattern 5: Over-Engineering the Identity System
-**What:** Building W3C DID / blockchain-based decentralized identity for v1 (as ANP proposes).
-**Why bad:** Adds enormous complexity for a theoretical benefit. No consumer messaging app has succeeded with blockchain-based identity.
-**Instead:** `name@provider` addressing with Ed25519 keypairs. Simple, familiar, works. Decentralized identity can be layered on later as an extension.
+## 10. Scalability Considerations
 
-### Anti-Pattern 6: Synapse's Python/Twisted Performance Issues
-**What:** Choosing a garbage-collected runtime for a real-time messaging server.
-**Why bad:** GC pauses spike p99 latency during streaming. Synapse's Python/Twisted architecture is the primary reason Matrix moved to the Rust SDK. Higher per-connection memory means fewer concurrent connections per server.
-**Instead:** Rust with Tokio provides predictable latency, minimal per-connection overhead, and compile-time safety for concurrent protocol handling.
+| Concern | At 2 servers (demo) | At 10 servers | At 100+ servers |
+|---------|--------------------|--------------|--------------------|
+| **Federation send queues** | 1 destination queue | 9 destination queues | Per-destination queues in DashMap, background task pool |
+| **Identity resolution** | 1-2 remote lookups | Cache becomes critical, TTL-based expiry | Consider DNS-style hierarchical caching |
+| **Thread participant scatter** | 2-3 participants, 1-2 servers | 10+ participants across multiple servers | Group relay by destination server (already designed) |
+| **Backfill volume** | Minimal | Moderate -- cache responses | Rate limit backfill requests per-server |
+| **mTLS connections** | 1 peer | 9 peers, consider HTTP/2 connection reuse | Connection pooling via reqwest, idle timeout management |
+| **Message storage** | In-memory HashMap | SQLite or PostgreSQL for persistence | PostgreSQL with partitioned message tables |
+
+---
+
+## 11. Patterns to Follow
+
+### Pattern 1: Participant-Addressed Routing (Not Topic-Based)
+**What:** Every message routes to individual participants via their home server, not broadcast to a "room" that all servers subscribe to.
+**When:** All message delivery.
+**Why:** Simpler than Matrix's room-based replication. Only servers with active participants receive messages. A server that had a participant who left stops receiving messages immediately.
+
+### Pattern 2: Origin-Server Timestamp Authority
+**What:** The server where a thread was created assigns the authoritative `server_timestamp` to all messages in that thread, whether from local or remote senders.
+**When:** Every message in a federated thread.
+**Why:** Provides total ordering without a DAG. Remote servers relay messages to the origin for timestamp assignment, then the origin relays to all participants.
+
+**Important nuance for remote messages:** When Server B relays a message from Bob to a thread owned by Server A, Server A assigns the `server_timestamp` and then relays the timestamped message to all participants (including back to Server B for Bob's confirmation). This means remote messages have slightly higher latency (one extra hop through origin) but gain guaranteed ordering.
+
+### Pattern 3: Lazy History (Backfill on Demand)
+**What:** Participant servers do NOT proactively replicate thread history. They request it from the origin server only when a local client scrolls up.
+**When:** Client requests messages older than what the server has locally.
+**Why:** Dramatically reduces federation bandwidth. Most users never scroll past the recent 50 messages.
+
+---
+
+## 12. Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Full State Replication
+**What:** Replicating all thread state and history to every participating server.
+**Why bad:** Exponential storage growth. Privacy concerns (departed participants' servers still have history). Consistency nightmares.
+**Instead:** Origin-server authority with selective backfill.
+
+### Anti-Pattern 2: Synchronous Federation
+**What:** Waiting for remote server acknowledgment before confirming message to the local sender.
+**Why bad:** A slow/unreachable remote server blocks local users. Federation is inherently asynchronous.
+**Instead:** Accept message immediately, queue for async federation delivery. Local sender gets instant `{ accepted: true }`. Remote delivery is eventually-consistent.
+
+### Anti-Pattern 3: Global Ordering Without a Central Authority
+**What:** Trying to maintain a total ordering across all servers without an origin-server.
+**Why bad:** Impossible without consensus protocols (Raft, Paxos) which add enormous complexity and latency.
+**Instead:** Origin-server provides total ordering for each thread. Different threads may have different origin servers, distributing the load.
+
+### Anti-Pattern 4: Persistent Server-to-Server Connections
+**What:** Maintaining long-lived WebSocket or TCP connections between federated servers.
+**Why bad:** N servers = N*(N-1)/2 connections. Connection management complexity explodes. Servers behind NAT/firewalls have trouble accepting inbound connections.
+**Instead:** Stateless HTTP POST for federation relay. Connection per-request with HTTP/2 connection reuse for efficiency.
 
 ---
 
 ## Sources
 
-### Specifications and Official Documentation
-- [Matrix Specification v1.18](https://spec.matrix.org/latest/) -- MEDIUM confidence (reviewed spec structure, not all details)
-- [Matrix Server-Server API](https://spec.matrix.org/v1.6/server-server-api/) -- HIGH confidence (reviewed federation model)
-- [XMPP Core RFC 6120](https://xmpp.org/rfcs/rfc6120.html) -- HIGH confidence (well-established standard)
-- [ActivityPub W3C Recommendation](https://www.w3.org/TR/activitypub/) -- HIGH confidence (W3C standard)
-- [Agent Messaging Protocol (AMP)](https://github.com/agentmessaging/protocol) -- MEDIUM confidence (reviewed spec structure and addressing)
-- [A2A Protocol](https://github.com/a2aproject/A2A) -- MEDIUM confidence (reviewed Agent Cards and task model)
-- [A2UI Spec](https://a2ui.org/) -- MEDIUM confidence (reviewed UI-as-data approach)
-- [RFC 2360 - Guide for Internet Standards Writers](https://datatracker.ietf.org/doc/html/rfc2360) -- HIGH confidence (IETF standard)
-- [RFC 4101 - Writing Protocol Models](https://www.rfc-editor.org/rfc/rfc4101) -- HIGH confidence (IETF standard)
-- [RFC 8785 - JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785) -- HIGH confidence (IETF standard for deterministic JSON signing)
-
-### Architecture References
-- [Synapse Architecture Overview (DeepWiki)](https://deepwiki.com/matrix-org/synapse/1.2-architecture-overview) -- HIGH confidence (detailed codebase analysis)
-- [Element X iOS Architecture (DeepWiki)](https://deepwiki.com/element-hq/element-x-ios/1-overview) -- HIGH confidence (detailed codebase analysis)
-- [Matrix State Resolution v2](https://matrix.org/docs/older/stateres-v2/) -- HIGH confidence (official Matrix documentation)
-- [Matrix Decomposition (academic analysis)](https://matrix.org/blog/2020/06/16/matrix-decomposition-an-independent-academic-analysis-of-matrix-state-resolution/) -- HIGH confidence (peer-reviewed)
-- [Matrix vs XMPP Comparison (ProcessOne)](https://www.process-one.net/blog/xmpp-matrix/) -- MEDIUM confidence (vendor perspective, but technically detailed)
-- [Conduit (Rust Matrix homeserver)](https://conduit.rs/) -- HIGH confidence (proves Rust viability for federated messaging)
-
-### Implementation References
-- [Element X iOS GitHub](https://github.com/element-hq/element-x-ios) -- HIGH confidence (active reference implementation)
-- [Matrix Rust SDK](https://github.com/element-hq/matrix-rust-components-swift) -- HIGH confidence (production SDK)
-- [Email Architecture (IETF draft)](https://bbiw.net/specifications/draft-crocker-email-arch-03.html) -- HIGH confidence (IETF author)
-- [AsyncAPI v3.1.0 Specification](https://www.asyncapi.com/docs/reference/specification/v3.1.0) -- HIGH confidence (standard for event-driven API specs)
+- [Matrix Server-Server API Specification v1.9](https://spec.matrix.org/v1.9/server-server-api/)
+- [Matrix State Resolution v2](https://matrix.org/docs/older/stateres-v2/)
+- [Conduit Architecture Overview (DeepWiki)](https://deepwiki.com/timokoesters/conduit/1-overview)
+- [Synapse per_destination_queue.py](https://github.com/matrix-org/synapse/blob/develop/synapse/federation/sender/per_destination_queue.py)
+- [XMPP Server Dialback (XEP-0220)](https://xmpp.org/extensions/xep-0220.html)
+- [XMPP Inter-Domain Federation Protocol Flows (XEP-0238)](https://xmpp.org/extensions/xep-0238.html)
+- [Prosody IM S2S Documentation](https://prosody.im/doc/s2s)
+- [Linearized Matrix Proposal (MSC3995)](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/linearized-matrix/proposals/3995-linearized-matrix.md)
+- [Conduit/Tuwunel (Successor)](https://github.com/matrix-construct/tuwunel)
+- AINM Spec: `transport.md` Section 5 (HTTP Transport Binding / Federation Relay)
+- AINM Spec: `identity.md` Section 4 (Identity Resolution)
+- AINM Spec: `security.md` (Message Signing / Verification)
+- AINM Spec: `threading.md` (Thread Model)
+- AINM Demo: `demo/src/server.rs` (Current architecture baseline)
