@@ -71,7 +71,8 @@ pub async fn start(
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
-            "/.well-known/ainm/helper/agent-card.json",
+            // Demo: single agent -- production would look up by agent_name
+            "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
         .with_state(state);
@@ -110,7 +111,8 @@ pub async fn start_federation(
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
-            "/.well-known/ainm/helper/agent-card.json",
+            // Demo: single agent -- production would look up by agent_name
+            "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
         .with_state(state);
