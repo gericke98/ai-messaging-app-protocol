@@ -8,9 +8,65 @@ mod signing;
 mod streaming;
 
 use anyhow::Result;
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(name = "ainm-demo", about = "AINM Protocol Demo")]
+struct Cli {
+    /// Server mode: human (REPL) or agent (headless)
+    #[arg(long)]
+    mode: Option<String>,
+
+    /// Local WebSocket port
+    #[arg(long, default_value = "8080")]
+    port: u16,
+
+    /// Federation relay port (mTLS)
+    #[arg(long, default_value = "8443")]
+    federation_port: u16,
+
+    /// Server identity domain (e.g., server-a.local)
+    #[arg(long)]
+    identity: Option<String>,
+
+    /// Path to TLS certificate PEM
+    #[arg(long)]
+    cert: Option<String>,
+
+    /// Path to TLS private key PEM
+    #[arg(long)]
+    key: Option<String>,
+
+    /// Path to CA certificate PEM for mTLS verification
+    #[arg(long)]
+    ca_cert: Option<String>,
+
+    /// Remote server to federate with (e.g., server-b.local:8443)
+    #[arg(long)]
+    remote: Option<String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.mode.as_deref() {
+        None => run_legacy_demo().await,
+        Some(mode @ ("human" | "agent")) => {
+            println!(
+                "Federation mode: {} (not yet implemented, see plans 02-04)",
+                mode
+            );
+            Ok(())
+        }
+        Some(unknown) => {
+            eprintln!("Unknown mode: '{}'. Valid modes: human, agent", unknown);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn run_legacy_demo() -> Result<()> {
     // Initialize tracing for debug output
     tracing_subscriber::fmt()
         .with_target(false)
