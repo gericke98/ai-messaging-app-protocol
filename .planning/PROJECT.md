@@ -113,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after Phase 5 (demo-handshake-discovery-conformance) completion — ainm.initialized handshake lifecycle implemented, Agent Card URL corrected to spec pattern*
+*Last updated: 2026-03-29 after Phase 6 (demo-feature-gaps-cleanup) completion — memory evict exercised, Agent Card ETag caching, zero cargo warnings, all dead code removed. Milestone v3.1 complete.*
