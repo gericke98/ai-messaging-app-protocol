@@ -1,126 +1,152 @@
-# Requirements: AI-Native Messaging Protocol — Federation
+# Requirements: AI-Native Messaging Protocol — iOS Reference Client
 
 **Defined:** 2026-03-29
 **Core Value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate — with the same quality of experience regardless of who's a person and who's an AI.
 
 ## v1 Requirements
 
-Requirements for full multi-server federation with working demo.
+Requirements for the native iOS reference client. Each maps to roadmap phases.
 
-### Relay Core
+### Networking & Identity
 
-- [x] **RELY-01**: Server can discover remote servers via .well-known endpoint resolution of the @provider domain
-- [x] **RELY-02**: Server can relay messages to remote servers via HTTP POST with JSON-RPC 2.0 framing
-- [x] **RELY-03**: Origin server is authoritative for thread state (participant list, ordering, metadata)
-- [x] **RELY-04**: Server uses push-based federation model (no polling) — messages are forwarded to remote servers immediately
-- [x] **RELY-05**: Server maintains per-destination send queues with exponential backoff for unreachable servers
+- [ ] **NET-01**: App connects to AINM server via WebSocket with JSON-RPC 2.0 framing
+- [ ] **NET-02**: App completes `ainm.initialize` handshake with capability negotiation
+- [ ] **NET-03**: User can set server URL and display name during onboarding (simple identity flow)
+- [ ] **NET-04**: App generates Ed25519 keypair and stores private key in iOS Keychain
+- [ ] **NET-05**: App signs all outgoing messages with Ed25519 via Apple CryptoKit
+- [ ] **NET-06**: App implements RFC 8785 JCS canonicalization matching Rust server output
 
-### Authentication & Security
+### Core Messaging
 
-- [x] **FAUT-01**: Servers authenticate via mutual TLS (both sides present certificates)
-- [x] **FAUT-02**: Server identity is verified by matching TLS certificate fingerprint against .well-known published fingerprint
-- [x] **FAUT-03**: Relay messages include server-level signature in addition to sender's Ed25519 message signature (triple-layer validation)
-- [x] **FAUT-04**: Server implements TOFU (Trust On First Use) key pinning for remote server certificates
-- [x] **FAUT-05**: Relay messages include relay_timestamp and relay_id to prevent replay attacks across federation boundaries
-- [x] **FAUT-06**: Server supports multiple TLS fingerprints (tls_fingerprints array) for certificate rotation without federation downtime
+- [ ] **MSG-01**: User can view conversation list with thread title, last message preview, and timestamps
+- [ ] **MSG-02**: User can view message thread with chronological messages and participant avatars
+- [ ] **MSG-03**: User can send text messages with Markdown rendering
+- [ ] **MSG-04**: App renders multi-block messages (text + code + image in sequence)
+- [ ] **MSG-05**: App renders CodeBlocks with syntax highlighting, language label, and copy button
+- [ ] **MSG-06**: App renders ImageBlocks with tap-to-fullscreen and size pre-layout
+- [ ] **MSG-07**: App renders FileBlocks with filename, size, and download capability
+- [ ] **MSG-08**: User can create threads with mixed human and agent participants
+- [ ] **MSG-09**: App displays agent identity distinctly (type badge, profile shows Agent Card data)
 
-### Reliability
+### Streaming & Real-Time
 
-- [x] **FREL-01**: Server persists offline relay queue to disk (survives server restart)
-- [x] **FREL-02**: Offline queue retries with exponential backoff when remote server becomes reachable
-- [x] **FREL-03**: Offline queue has bounded size and 7-day retention policy
-- [x] **FREL-04**: Server defines partition behavior — queues messages during origin-server unavailability and replays on reconnection
+- [ ] **STR-01**: App renders streaming responses token-by-token with cursor animation
+- [ ] **STR-02**: App shows typing/processing indicators for humans and agents
+- [ ] **STR-03**: User can cancel an active streaming response
+- [ ] **STR-04**: App handles parallel block streaming (multiple blocks receiving deltas simultaneously)
 
-### Backfill & History
+### Interactive Blocks
 
-- [x] **BKFL-01**: Remote server can request selective thread history via backfill endpoint
-- [x] **BKFL-02**: Backfill respects visibility levels (post-join messages only by default, pre-join with explicit permission)
-- [x] **BKFL-03**: Backfill endpoint requires authorization (requesting server must have a current participant in the thread)
-- [x] **BKFL-04**: Backfill supports pagination for large thread histories
+- [ ] **INT-01**: App renders ButtonBlocks with semantic styles and sends ActionBlock on tap
+- [ ] **INT-02**: App renders FormBlocks with all field types and client-side validation
+- [ ] **INT-03**: App renders TableBlocks with horizontal scroll and row actions
+- [ ] **INT-04**: App renders ApprovalBlocks with state machine (pending/approved/rejected/changes_requested)
+- [ ] **INT-05**: App renders fallback text for unrecognized block types
 
-### AI-Native Federation
+### AI-Native Features
 
-- [x] **AINF-01**: Agent Cards are discoverable across federation boundaries (resolve remote agent's @provider to fetch card)
-- [x] **AINF-02**: Tool call visibility events (started/progress/completed) are relayed across federated servers
-- [x] **AINF-03**: Memory context is propagated to agents on remote servers when they join a federated thread
-- [x] **AINF-04**: Streaming responses (start/delta/end) are relayed across federation in real-time
+- [ ] **AI-01**: App shows tool call visibility (collapsible indicators with lifecycle grouping)
+- [ ] **AI-02**: App supports @-mentions with highlighting and composer autocomplete
+- [ ] **AI-03**: User can browse agent discovery (Agent Cards with skills, tools, capabilities)
+- [ ] **AI-04**: App displays memory context (active context frames, conversation history)
+- [ ] **AI-05**: User can view, search, and delete archival memory facts per agent
 
-### Federation Demo
+### Persistence & Platform
 
-- [x] **DEMO-01**: docker-compose spins up 2+ AINM servers with distinct identities and certificates
-- [x] **DEMO-02**: Demo shows cross-server message exchange between a human on server A and an agent on server B
-- [x] **DEMO-03**: Demo tests partition healing (stop one server, queue messages, restart, verify delivery)
-- [x] **DEMO-04**: Demo tests certificate rotation (rotate cert, verify federation continues)
-- [x] **DEMO-05**: Demo shows cross-server streaming (agent on server B streams response to human on server A)
+- [ ] **PLT-01**: App caches messages, threads, and participants locally via GRDB.swift
+- [ ] **PLT-02**: App provides offline access to cached messages
+- [ ] **PLT-03**: App supports light and dark mode via SwiftUI semantic colors
+- [ ] **PLT-04**: User can branch sub-threads from any message (one level per spec)
+- [ ] **PLT-05**: App supports deep linking to specific threads and messages
 
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
 
-### Federation Advanced
+### Push & Background
 
-- **FADV-01**: Thread migration when origin server is permanently lost
-- **FADV-02**: Federated moderation and abuse prevention
-- **FADV-03**: Federation rate limiting with graduated trust for new servers
-- **FADV-04**: Federation admin dashboard and monitoring
+- **PUSH-01**: App receives push notifications for new messages via APNs
+- **PUSH-02**: Notification tap opens correct thread
+- **PUSH-03**: Server-side APNs device token registration protocol extension
 
-### iOS Reference Client
+### Platform Expansion
 
-- **IOSC-01**: Native SwiftUI iOS app implementing the protocol
-- **IOSC-02**: GRDB.swift local storage for offline message access
-- **IOSC-03**: Apple CryptoKit for Ed25519 signing
-- **IOSC-04**: APNs integration for background message delivery
-- **IOSC-05**: Native rendering of all content block types
+- **PLAT-01**: iPad layout with split view navigation
+- **PLAT-02**: Mac Catalyst support
+- **PLAT-03**: Accessibility audit (VoiceOver, Dynamic Type, reduced motion)
+
+### Advanced Features
+
+- **ADV-01**: Extension block plugin architecture for custom renderers
+- **ADV-02**: Verified message badges (cryptographic verification indicators)
+- **ADV-03**: Connection status indicator (connecting/connected/reconnecting/offline)
+- **ADV-04**: Tool call timeline (aggregate view of all tool calls in thread)
+- **ADV-05**: Haptic feedback on interactive block actions
+
+### Federation UI
+
+- **FED-01**: Federated identity display (show participant's server domain)
+- **FED-02**: Cross-server conversation support in UI
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Thread migration (origin server permanently lost) | Complex distributed consensus problem — defer to future milestone |
-| Federated moderation / abuse prevention | Requires trust reputation system — defer |
-| Federation rate limiting / graduated trust | Optimization — basic federation first |
-| Browser/web federation client | iOS and CLI clients only for now |
-| Federation admin dashboard | Operational tooling deferred |
-| End-to-end encryption across federation | E2EE is a separate milestone concern |
+| Voice/video messaging | Text and rich content only for v1 — massive WebRTC complexity |
+| Agent marketplace/store | Discovery yes, marketplace no — premature commerce layer |
+| End-to-end encryption | Server-visible messages needed for agent processing, search, memory |
+| Custom themes/skins | Light/dark mode only — focus on one polished visual identity |
+| Slash commands for bots | Old paradigm — AINM agents are @-mentioned participants, not command responders |
+| Read receipts | Not in AINM v1 protocol — presence indicators serve the purpose |
+| Message reactions (emoji) | Not in AINM v1 protocol — would create protocol divergence |
+| Offline message composition queue | Over-engineering for v1 — disable send when offline |
+| ChartBlock rendering | Deliberately excluded from protocol spec |
+| Self-hosting tools | App connects to servers, doesn't bundle one |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELY-01 | Phase 7 | Complete |
-| RELY-02 | Phase 7 | Complete |
-| RELY-03 | Phase 7 | Complete |
-| RELY-04 | Phase 7 | Complete |
-| RELY-05 | Phase 7 | Complete |
-| FAUT-01 | Phase 7 | Complete |
-| FAUT-02 | Phase 7 | Complete |
-| FAUT-03 | Phase 7 | Complete |
-| FAUT-04 | Phase 8 | Complete |
-| FAUT-05 | Phase 8 | Complete |
-| FAUT-06 | Phase 8 | Complete |
-| FREL-01 | Phase 8 | Complete |
-| FREL-02 | Phase 8 | Complete |
-| FREL-03 | Phase 8 | Complete |
-| FREL-04 | Phase 8 | Complete |
-| BKFL-01 | Phase 8 | Complete |
-| BKFL-02 | Phase 8 | Complete |
-| BKFL-03 | Phase 8 | Complete |
-| BKFL-04 | Phase 8 | Complete |
-| AINF-01 | Phase 9 | Pending |
-| AINF-02 | Phase 9 | Pending |
-| AINF-03 | Phase 9 | Complete |
-| AINF-04 | Phase 9 | Pending |
-| DEMO-01 | Phase 7 | Complete |
-| DEMO-02 | Phase 7 | Complete |
-| DEMO-03 | Phase 8 | Complete |
-| DEMO-04 | Phase 8 | Complete |
-| DEMO-05 | Phase 9 | Complete |
+| NET-01 | — | Pending |
+| NET-02 | — | Pending |
+| NET-03 | — | Pending |
+| NET-04 | — | Pending |
+| NET-05 | — | Pending |
+| NET-06 | — | Pending |
+| MSG-01 | — | Pending |
+| MSG-02 | — | Pending |
+| MSG-03 | — | Pending |
+| MSG-04 | — | Pending |
+| MSG-05 | — | Pending |
+| MSG-06 | — | Pending |
+| MSG-07 | — | Pending |
+| MSG-08 | — | Pending |
+| MSG-09 | — | Pending |
+| STR-01 | — | Pending |
+| STR-02 | — | Pending |
+| STR-03 | — | Pending |
+| STR-04 | — | Pending |
+| INT-01 | — | Pending |
+| INT-02 | — | Pending |
+| INT-03 | — | Pending |
+| INT-04 | — | Pending |
+| INT-05 | — | Pending |
+| AI-01 | — | Pending |
+| AI-02 | — | Pending |
+| AI-03 | — | Pending |
+| AI-04 | — | Pending |
+| AI-05 | — | Pending |
+| PLT-01 | — | Pending |
+| PLT-02 | — | Pending |
+| PLT-03 | — | Pending |
+| PLT-04 | — | Pending |
+| PLT-05 | — | Pending |
 
 **Coverage:**
-- v1 requirements: 28 total
-- Mapped to phases: 28
-- Unmapped: 0
+- v1 requirements: 34 total
+- Mapped to phases: 0
+- Unmapped: 34
 
 ---
 *Requirements defined: 2026-03-29*
-*Last updated: 2026-03-29 after roadmap creation*
+*Last updated: 2026-03-29 after initial definition*
