@@ -1,406 +1,286 @@
-# Feature Landscape: AI-Native Messaging Protocol
+# Feature Research: Federation for AINM v3.2
 
-**Domain:** Federated AI-native messaging protocol and reference client
-**Researched:** 2026-03-27
-**Overall confidence:** HIGH (grounded in existing protocol specs, published research, and OWASP security framework)
+**Domain:** Multi-server federation for AI-native messaging protocol
+**Researched:** 2026-03-28
+**Confidence:** HIGH
 
----
+## Existing AINM Infrastructure (Federation Foundations Already Built)
 
-## Table Stakes
+Before categorizing new features, here is what AINM v3.1 already provides that federation builds on:
 
-Features users and developers expect. Missing any of these means the protocol feels incomplete, untrustworthy, or not worth adopting over existing alternatives.
+| Existing Infrastructure | Spec | Federation Relevance |
+|------------------------|------|---------------------|
+| Email-like addressing (`name@provider`) | identity.md | Natural federation routing -- the `provider` portion determines the home server |
+| Identity resolution via `.well-known/ainm/{name}` | identity.md | Remote servers can resolve any participant's public key and home server |
+| Server identity at `.well-known/ainm/server` | transport.md | Federation discovery -- servers publish their relay endpoint, public key, TLS fingerprint |
+| HTTP relay endpoint `POST /ainm/v1/relay` | transport.md | The basic S2S message relay mechanism (defined but needs full implementation) |
+| Mutual TLS for S2S | transport.md | Bidirectional server authentication on relay connections |
+| Server-level Ed25519 signatures on relay payloads | transport.md | Relay payload integrity -- originating server signs the batch |
+| Per-message Ed25519 signatures | security.md | End-to-end message integrity across federation hops |
+| Three-layer relay validation (mTLS + server sig + message sig) | transport.md | Defense-in-depth already specified |
+| Store-and-forward for offline participants | transport.md | Messages queued when recipient is disconnected |
+| Ed25519 key rotation with history | identity.md | Historical key verification for messages signed with rotated keys |
+| JSON-RPC 2.0 framing | transport.md | Consistent wire format for both client-server and server-server |
+| UUIDv7 message IDs | security.md | Time-ordered, globally unique, deduplication-ready |
+| Thread-addressed delivery | threading.md | Messages go to threads, not individuals -- simplifies cross-server routing |
 
-### TS-1: Federated Message Routing
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Federation is the core promise. Without it, this is just another centralized chat API. Matrix and XMPP proved federation is achievable; email proved it scales. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-2 (Identity), TS-5 (Server-to-Server Transport) |
-| **Existing Coverage** | AMP defines REST + WebSocket + Relay Queue routing. Matrix uses event-based distributed replication. XMPP uses server-to-server XML streams. |
-| **How Well** | AMP is closest to our vision but is v0.1.2 with no production federation. Matrix is battle-tested but designed for human chat, not agent communication. Neither handles agent-specific routing needs (capability-based routing, load-aware routing). |
-| **Notes** | Must support offline delivery via relay queues. Message ordering guarantees are critical -- WhatsApp's lack of ordering guarantees is a known pain point. |
-
-### TS-2: Email-Like Identity (`name@provider`)
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Human-readable, familiar, works naturally with federation. Every competing approach (AMP, ANP, ANS) converges on addressable identity. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-1 (Federation -- identity must be routable across servers) |
-| **Existing Coverage** | AMP uses `agent-name@tenant.provider`. ANS uses `a2a://textProcessor.DocumentTranslation.AcmeCorp.v2.1`. ANP uses W3C DIDs. |
-| **How Well** | AMP's format is closest. ANS is too verbose for human use. ANP's DIDs are technically superior for decentralization but terrible UX. |
-| **Notes** | Both humans and agents get the same identity format. No second-class citizens. Identity must be cryptographically bound (see TS-7). |
-
-### TS-3: Agent Capability Discovery (Agent Cards)
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Without capability discovery, adding an agent to a conversation is a leap of faith. A2A's Agent Cards (JSON at `/.well-known/agent-card.json`) have become the de facto standard with 50+ enterprise partners. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-2 (Identity -- need to resolve who to query for capabilities) |
-| **Existing Coverage** | A2A Agent Cards (v0.3, digitally signable via JWS). AMP has no explicit capability discovery. MCP has tool/resource declarations per-server. |
-| **How Well** | A2A Agent Cards are well-designed and adopted. Must be compatible, not reinvented. Extend with messaging-specific fields (supported content types, threading preferences, streaming capabilities). |
-| **Notes** | Agent Cards should be fetchable by resolving the `@provider` portion of an identity. Cards must be cacheable but versioned. |
-
-### TS-4: Streaming Message Delivery
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Token-by-token streaming is the baseline UX for AI responses since ChatGPT. Every current messaging platform lacks this (Telegram/Slack simulate via message-edit hacks). AG-UI has proven the event model. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-5 (Transport -- streaming requires persistent connections or SSE) |
-| **Existing Coverage** | AG-UI defines ~16 event types including TEXT_MESSAGE_START/CONTENT/END, TOOL_CALL, STEP lifecycle events. A2A supports SSE-based streaming for task updates. A2UI supports progressive JSONL rendering. |
-| **How Well** | AG-UI's event model is production-proven (2M+ agent-user interactions/week). Adopt its event taxonomy, adapt transport for federation. |
-| **Notes** | Must support: token streaming for text, progress events for tool calls, lifecycle events (run started/step started/finished), and interrupts for human approval. |
-
-### TS-5: Transport Layer (Client-to-Server + Server-to-Server)
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Protocol is useless without a concrete transport. Must work for native iOS (persistent connections), real-time streaming (SSE/WebSocket), and server-to-server federation (HTTP/gRPC). |
-| **Complexity** | HIGH |
-| **Dependencies** | None -- foundational layer |
-| **Existing Coverage** | AMP: REST + WebSocket + Relay Queue. A2A v0.3: HTTP + SSE + gRPC. AG-UI: HTTP + WebSocket. Matrix: HTTP long-polling + WebSocket. MCP: HTTP + stdio (for local). |
-| **How Well** | No single protocol covers all three needs (native mobile, streaming, federation). Must define transport bindings for each context. |
-| **Notes** | WebSocket for client-to-server (real-time, bidirectional). HTTP/SSE for streaming agent responses. gRPC or HTTP for server-to-server. TLS 1.3 mandatory everywhere. |
-
-### TS-6: Mixed Human-Agent Threads
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | This is the core value proposition. No existing protocol handles mixed human-agent threads where both are equal participants. Every protocol handles either human-to-agent OR agent-to-agent, never both seamlessly. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-2 (Identity), TS-3 (Capability Discovery), TS-4 (Streaming) |
-| **Existing Coverage** | No protocol addresses this directly. A2A is agent-to-agent task delegation. AG-UI is agent-to-user in embedded app contexts. AMP is agent-to-agent messaging. |
-| **How Well** | This is the primary gap in the ecosystem. Nobody has solved it. |
-| **Notes** | Thread participants must have a uniform interface regardless of type. Agents can @-mention humans and vice versa. Typing indicators adapt per participant type (streaming cursor for agents, typing dots for humans). Presence semantics differ (humans: online/offline; agents: available/busy/processing). |
-
-### TS-7: Cryptographic Message Signing
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | OWASP Top 10 for Agentic Applications 2026 lists agent-to-agent communication lacking authentication as a critical risk. 48% of security professionals identify agentic AI as the #1 attack vector for 2026. Non-negotiable. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-2 (Identity -- keys bound to identity) |
-| **Existing Coverage** | AMP: Ed25519 signatures with canonical signing format (`from|to|subject|priority|in_reply_to|SHA256(payload)`). A2A v0.3: JWS-signed Agent Cards. ANP: W3C DID-based identity with cryptographic proofs. |
-| **How Well** | AMP's approach is practical and well-specified. Ed25519 is fast, widely supported, and appropriate for message signing. Use it. |
-| **Notes** | Every message must be signed. Verification must be efficient (Ed25519 is ~70x faster than RSA-2048 for verification). Key distribution via identity provider. Key rotation protocol needed. |
-
-### TS-8: End-to-End Encryption
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | E2E encryption has evolved from competitive advantage to baseline expectation in 2026. Users simply expect private conversations remain private. Matrix (Olm/Megolm) and Signal proved this is achievable in federated/group contexts. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-7 (Signing -- encryption builds on key infrastructure), TS-1 (Federation -- E2E across servers) |
-| **Existing Coverage** | Matrix: Olm (1:1) + Megolm (group). Signal Protocol: Double Ratchet. AMP: TLS 1.2+ transport-level only, no E2E spec. |
-| **How Well** | Matrix's Megolm for group encryption is the best model for multi-participant threads. But agent threads introduce unique challenges: agents may need to process plaintext (for LLM inference), creating inherent tension with E2E. |
-| **Notes** | Design decision needed: E2E between human participants with agents as trusted processors? Or full E2E with agents having their own keys? The former is more practical for v1. At minimum, transport encryption (TLS 1.3) is mandatory. Full E2E is table stakes for human-to-human messages within the protocol, with a clear trust model for agent access. |
-
-### TS-9: Basic Rich Content (Text, Code, Files, Images)
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Any messaging protocol that only supports plain text is DOA. Users expect markdown, code blocks with syntax highlighting, inline images, and file attachments. Every competitor has this. |
-| **Complexity** | LOW-MEDIUM |
-| **Dependencies** | TS-5 (Transport -- file transfer needs defined) |
-| **Existing Coverage** | Every messaging platform supports some subset. Slack's Block Kit is the richest (buttons, selects, etc.). AMP supports digest-verified attachments. |
-| **How Well** | None are designed for agent output (200-line code files, structured data, charts). Slack's 50-block limit and ~13KB payload cap fail for agent use cases. |
-| **Notes** | Message payload should be typed content blocks: text (markdown), code (with language, line numbers), image, file (with MIME type, digest). No arbitrary size limits -- let the client handle display. |
-
-### TS-10: Conversation Threading
-
-| Attribute | Detail |
-|-----------|--------|
-| **Why Expected** | Multi-participant conversations become unreadable without threading. Flat-by-default with optional sub-threading is the right model (matches the PROJECT.md design). |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-6 (Mixed Threads -- threading model must work for both humans and agents) |
-| **Existing Coverage** | Slack: native threads. Discord: thread channels. Telegram: reply-to chains (not true threads). Matrix: relations/threads. |
-| **How Well** | Slack's threading is the best UX reference. But no platform supports agent-initiated sub-threads (e.g., agent creates a sub-thread for a tool-call discussion). |
-| **Notes** | Flat by default. Any participant can start a sub-thread. Sub-threads inherit parent thread context. Agents can create sub-threads for side conversations (e.g., coordinating with another agent without cluttering the main thread). |
+**What this means:** AINM's v3.1 spec already defines the federation relay endpoint, server identity discovery, mTLS, and three-layer signature verification. The v3.2 milestone is about making this actually work end-to-end with full implementation, filling gaps the v3.1 spec sketched but did not exercise.
 
 ---
 
-## Differentiators
+## Feature Landscape
 
-Features that set the protocol apart. Not expected (users would adopt without them), but create competitive advantage and define the product's unique identity.
+### Table Stakes (Users/Developers Expect These)
 
-### D-1: Interactive Agent UI (Forms, Buttons, Charts, Approvals)
+Features that anyone evaluating a "federated messaging protocol" assumes exist. Missing any of these makes federation feel like a demo, not a real capability.
 
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Goes beyond text + code to declarative, interactive UI components rendered natively by the client. Agents can send forms, approval workflows, data visualizations, and interactive dashboards -- not as web links, but inline in the conversation. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-9 (Rich Content -- builds on typed content blocks), TS-4 (Streaming -- UI updates need real-time delivery) |
-| **Existing Coverage** | A2UI: declarative JSON spec, flat adjacency list model, LLM-friendly, SwiftUI renderer exists, moving toward v1.0. MCP Apps: sandboxed HTML iframes in chat (ChatGPT, Claude, VS Code support). Slack Block Kit: rich but limited (50 blocks, ~13KB). |
-| **How Well** | A2UI is the strongest model. "UI as data, not code" is the right security model -- agents reference a client-controlled component catalog, preventing UI injection. MCP Apps is powerful but iframe-based (not native). |
-| **Notes** | Adopt A2UI's declarative model. Define a component catalog for the protocol (Button, Form, Table, Chart, ApprovalFlow, CodeEditor, ProgressBar). Clients render using native components (SwiftUI for iOS). Agents can only reference catalog components, not inject arbitrary UI. |
+| # | Feature | Why Expected | Complexity | AINM Dependency | Notes |
+|---|---------|--------------|------------|-----------------|-------|
+| TS-1 | **Cross-server message delivery** | The fundamental promise of federation. alice@server-a.com sends a message, bob@server-b.com receives it. Without this, "federation" is a lie. | MEDIUM | Builds on existing `ainm.relay` endpoint in transport.md. Needs full implementation of relay request construction, sending, validation, and local delivery on the receiving side. | Matrix does this via transactions (PUT /send/{txnId}). XMPP does it via S2S TCP streams. Email does it via MX record lookup + SMTP. AINM's HTTP POST relay is closest to email's model. |
+| TS-2 | **Server discovery and identity verification** | Servers must find each other and prove they are who they claim to be. Without this, federation is insecure and unroutable. | LOW | `.well-known/ainm/server` endpoint already specified. Needs implementation of server identity resolution, caching, and TLS fingerprint verification during mTLS handshake. | Matrix uses `.well-known/matrix/server` + SRV records. XMPP uses `_xmpp-server._tcp` SRV records + STARTTLS + dialback. AINM's `.well-known` approach is simpler and sufficient -- no SRV records needed for v1. |
+| TS-3 | **Offline relay queues** | When Server B is unreachable, Server A must queue messages and retry delivery later. Without this, a brief outage means lost messages. | MEDIUM | Store-and-forward for clients exists in transport.md. Server-to-server queuing is new -- need persistent queue, retry with exponential backoff, delivery confirmation. | Email has this (SMTP retries for days). Matrix retries transactions. ActivityPub specifies async delivery with retry on network error. Queue retention policy matters: email retries for 5 days, Matrix retries indefinitely. |
+| TS-4 | **Message deduplication across federation** | At-least-once delivery means duplicates will arrive. Servers must not deliver the same message twice. | LOW | UUIDv7 deduplication already specified in security.md Section 7. Needs to be enforced at the relay level -- receiving server must track relayed message IDs to prevent re-delivery. | Already well-designed in AINM. UUIDv7's time-ordered nature makes sliding-window deduplication efficient. |
+| TS-5 | **Origin-server authority for thread state** | One server must be the authoritative source of truth for each thread's participant list, metadata, and ordering. Without this, split-brain on "who is in this thread" is inevitable. | HIGH | Thread metadata (threading.md) has `created_by` which implies origin. Needs explicit `origin_server` field on thread metadata, and rules for which server's state wins on conflict. | AINM deliberately chose NOT to use Matrix's DAG-based eventual consistency. Origin-server authority (like XMPP MUC where the room-hosting server is authoritative) is simpler and correct for AINM's flat threading model. This is the single most important architectural decision for federation. |
+| TS-6 | **Federated thread creation with remote participants** | Creating a thread with participants on different servers must work. Server A creates the thread, then notifies Server B that bob@server-b.com has been added. | MEDIUM | `ainm.thread.create` exists with participant list. Needs federation extension: origin server notifies each participant's home server of the thread creation + initial state. | Matrix uses an invite/join handshake (make_join/send_join). XMPP MUC has an explicit join flow. AINM should use a simpler push model: origin server sends a `thread.invite` relay to each remote participant's server. |
+| TS-7 | **Federated thread join/leave** | Participants on remote servers must be able to join and leave threads hosted on other servers, with state propagated to all participating servers. | MEDIUM | `ainm.thread.join` and `ainm.thread.leave` exist for client-server. Needs S2S equivalents: relay messages for join/leave events propagated to all participating servers. | The origin server is the authority. Join/leave requests go TO the origin server, which validates and then broadcasts the state change to all participating servers. |
+| TS-8 | **Cross-server identity resolution** | When Server A receives a message from alice@server-b.com, it must be able to resolve Alice's public key to verify the message signature. | LOW | Identity resolution via HTTPS GET to `.well-known/ainm/{name}` already fully specified. Needs caching implementation with TTL, cache invalidation on signature verification failure. | This is already designed. Implementation needs: HTTP client for identity resolution, local cache with 1-hour TTL, re-fetch on verification failure. |
+| TS-9 | **Federation rate limiting** | Servers must be able to throttle relay traffic from abusive or misconfigured peer servers. Without this, a single bad server can overwhelm the network. | MEDIUM | Error code `-32022` (Rate limited) already defined. Needs implementation: per-source-server rate limits on the relay endpoint, `retry_after` in error responses. | Matrix has had significant issues with federation rate limiting (PR #5621 fixing rate limiter bugs). ActivityPub specifies async delivery but leaves rate limiting to implementations. AINM should define sensible defaults (e.g., 100 relay requests/minute per source server). |
+| TS-10 | **Relay delivery confirmation/rejection** | The originating server must know whether the target server accepted or rejected each relayed message, with per-message error details. | LOW | Already specified in transport.md Section 5.3: response includes `accepted`, `rejected`, `errors` array with per-message details. Needs implementation. | Well-designed in existing spec. |
 
-### D-2: Hierarchical Memory / Context Management
+### Differentiators (Competitive Advantage)
 
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Protocol-level memory management so agents don't each need external databases. Conversation context is a first-class protocol concept, not an afterthought. No existing messaging platform provides this. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-10 (Threading -- memory scoped to conversations/threads), TS-6 (Mixed Threads -- memory shared across participant types) |
-| **Existing Coverage** | Letta/MemGPT: core memory (in-context), conversational memory (recent), archival memory (long-term). AG-UI: typed state store with event-sourced diffs. No messaging protocol has memory as a primitive. |
-| **How Well** | Letta's architecture is the best reference but is per-agent, not per-conversation. The protocol needs conversation-scoped memory that all participants (human and agent) can contribute to and read from. |
-| **Notes** | Three tiers: (1) Active context -- current thread + recent messages, always available to agents. (2) Conversation memory -- full thread history, queryable. (3) Archival memory -- cross-conversation knowledge, user preferences, long-term facts. Server-side persistence. Agents get a structured context payload, not raw message history. |
+Features that set AINM federation apart from Matrix/XMPP/ActivityPub. Not required for federation to "work," but valuable for AINM's AI-native positioning.
 
-### D-3: Tool-Use Visibility and Status
+| # | Feature | Value Proposition | Complexity | AINM Dependency | Notes |
+|---|---------|-------------------|------------|-----------------|-------|
+| DF-1 | **Selective thread backfill** | When a new server joins a thread (because a remote participant was added), the origin server provides selective history -- not the full DAG, not zero context, but a curated window of recent messages + context frame. This avoids Matrix's "download the entire room history" problem. | HIGH | Builds on memory.md's context frame system (`ainm.context.frame`). Needs a federation-specific backfill request: remote server asks origin for recent history of a thread. Origin responds with messages + context frame, bounded by configurable limits. | Matrix's backfill fetches raw event history (GET /backfill/{roomId}). AINM's memory system (active context + conversation history + archival) can provide *intelligent* backfill -- a context frame summarizing key decisions + recent messages. This is a genuine differentiator for AI agents joining threads. |
+| DF-2 | **Agent capability federation** | When an agent on Server A is added to a thread on Server B, Server B can resolve the agent's Agent Card to understand its capabilities before routing messages to it. Cross-server agent discovery enables "bring your own agent" across providers. | MEDIUM | Agent Cards already specified in agent-card.md with `agent_card_url` in identity records. Needs: federation-aware Agent Card resolution, capability matching for thread operations. | No other federated protocol has this. Matrix has no concept of "agent capabilities" at the protocol level. This makes AINM uniquely suited for multi-provider agent ecosystems. |
+| DF-3 | **Federated presence with agent-specific states** | Presence updates (`processing`, `busy`, `available`) for agents propagate across servers, so participants on Server B see that weather-bot@server-a.com is "processing: Fetching weather data." | MEDIUM | Presence system exists in transport.md (ainm.presence.update/notify). Needs S2S presence relay -- origin server broadcasts presence changes to all participating servers. | Matrix relays presence via EDUs in federation transactions. AINM's agent-specific presence states (`processing` with detail strings) are more expressive than Matrix's generic `online/unavailable/offline`. Presence relay should be best-effort (not queued for offline servers). |
+| DF-4 | **Federated streaming responses** | When an agent on Server A streams a response to a thread on Server B, the stream events (`ainm.stream.start/delta/end`) are relayed in real-time to Server B's connected clients. | HIGH | Streaming spec (streaming.md) defines the event model. Needs: real-time relay of stream events from origin server to participating servers, WebSocket-level forwarding. HTTP relay (request/response) may be too slow -- may need WebSocket S2S for streaming or SSE push. | This is genuinely hard. Matrix does not support streaming agent responses. AINM could relay stream deltas over the existing HTTP relay (batched at short intervals, e.g., every 100ms), or introduce a WebSocket-based S2S channel for streaming. HTTP relay with short-interval batching is pragmatic for v1 federation. |
+| DF-5 | **Server allowlist/denylist** | Operators can configure which servers they federate with. Allowlist mode (only talk to these servers) for enterprise. Denylist mode (talk to everyone except these) for public. | LOW | No existing spec coverage. Needs: server configuration for allowed/denied servers, enforcement at relay endpoint. | Matrix has `federation_domain_whitelist` in Synapse config. XMPP has TLS-based trust levels. Essential for enterprise deployments where you want controlled federation (only your org's servers) rather than open federation. |
+| DF-6 | **Cross-server memory and context** | When a participant on Server B queries archival memory (`ainm.memory.query`) for facts stored on Server A's thread, the query is federated to the origin server. | HIGH | Memory spec (memory.md) defines store/query/evict. Needs: federation routing for memory queries to origin server, response relay back to requesting server. | This is unique to AINM. No other federated protocol has structured memory at the protocol level. Deferred to later if complexity is too high for v3.2, but should be designed for. |
+| DF-7 | **Federated tool call visibility** | When an agent on Server A executes a tool call in a thread with participants on Server B, the tool call events (started/progress/completed) are relayed so all participants see what the agent is doing. | MEDIUM | Tool visibility spec (tool-visibility.md) defines events. These are delivered via `ainm.message.deliver`, so they naturally flow through the relay. Needs: ensuring tool call events are included in relay batches. | This should work with minimal extra effort if relay handles all message types correctly. |
 
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | When an agent invokes tools, all participants see what's happening in real-time: "Searching order history...", "Running code...", "Waiting for API response...". Transforms the opaque "agent is thinking" into transparent "agent is doing X." |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-4 (Streaming -- status updates need real-time delivery) |
-| **Existing Coverage** | AG-UI: TOOL_CALL events, STEP lifecycle events. No messaging platform has this. Telegram's `sendChatAction` is the closest (typing indicator), but conveys nothing about what the agent is doing. |
-| **How Well** | AG-UI's model is excellent. Adapt for messaging context: tool-call events as lightweight protocol messages visible to all thread participants. |
-| **Notes** | Define protocol message types: ToolCallStarted (tool name, description), ToolCallProgress (intermediate results), ToolCallCompleted (result summary). Clients render as collapsible activity indicators. Users can expand to see details. |
+### Anti-Features (Commonly Requested, Often Problematic)
 
-### D-4: Human-in-the-Loop Interrupts and Approvals
+Features that seem good for federation but create disproportionate complexity, security risk, or architectural problems. Explicitly not building these for v3.2.
 
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Agents can pause execution and request human approval before taking sensitive actions. Protocol-level support, not app-level hacks. Critical for enterprise adoption. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | D-1 (Interactive UI -- approval forms need rich rendering), TS-4 (Streaming -- interrupt events) |
-| **Existing Coverage** | AG-UI: INTERRUPT events that pause agent flow until user responds. A2A: `input-required` task state. No messaging protocol has native interrupts. |
-| **How Well** | AG-UI's interrupt model is production-proven. Integrate at the protocol level as a first-class message type. |
-| **Notes** | InterruptRequest message type with: action description, risk level, options (approve/reject/modify), timeout, default action if no response. Responses are cryptographically signed to prove human approval. |
-
-### D-5: Multi-Agent Coordination Primitives
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Protocol-level support for multiple agents collaborating in a thread: structured handoffs, task delegation, shared state, and role-based permissions. No messaging platform has this. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-3 (Capability Discovery -- agents must know what others can do), TS-6 (Mixed Threads), D-2 (Memory -- shared context across agents) |
-| **Existing Coverage** | A2A: task lifecycle (submitted/working/input-required/completed/failed/canceled/rejected), context sharing, UX negotiation. Microsoft Agent Framework: GroupChat pattern with selector. |
-| **How Well** | A2A's task lifecycle is well-designed for delegation. But it's HTTP-based point-to-point, not conversational. Need to adapt task lifecycle into messaging thread semantics. |
-| **Notes** | Define: HandoffRequest (context transfer + scope), TaskUpdate (status changes visible to all), DelegationChain (cryptographic proof of who authorized what). Agents can delegate to other agents in-thread. Users see delegation happening transparently. |
-
-### D-6: Anti-Prompt-Injection at Protocol Level
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Protocol-level defenses against prompt injection -- not just application-level guardrails. Messages carry trust annotations, content is separated from instructions by protocol structure, and semantic validation layers verify message patterns. |
-| **Complexity** | HIGH |
-| **Dependencies** | TS-7 (Signing -- trust chain verification), TS-3 (Capability Discovery -- expected behavior patterns) |
-| **Existing Coverage** | AMP: trust-level annotations on message content for prompt injection defense. OWASP: recommends message-level encryption + digital signatures + semantic validation layers. MCP Secure: cryptographic layer analogous to TLS for MCP. |
-| **How Well** | AMP's trust annotations are the right approach. OWASP provides the threat model. No protocol has comprehensive prompt injection defense yet. |
-| **Notes** | Separate user content from system/protocol instructions at the message structure level (not just application-level). Trust annotations on content blocks (user-generated vs. agent-generated vs. system). Agents declare expected input patterns in Agent Cards; receiving agents validate against these patterns. |
-
-### D-7: Structured Message Payloads with Typed Blocks
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Messages composed of typed, renderable blocks -- not flat text with formatting hints. Each block has a declared type (text, code, table, chart, form, artifact) with associated schema. Receivers know exactly what they're getting. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-9 (Rich Content -- extends basic content types) |
-| **Existing Coverage** | Slack Block Kit: typed blocks but limited (50 blocks, ~13KB). A2UI: flat adjacency list of typed components. MCP Apps: sandboxed HTML. |
-| **How Well** | A2UI's flat adjacency list is the best structural model. Slack proved typed blocks work for messaging UX. Combine both approaches. |
-| **Notes** | Define block types: TextBlock (markdown), CodeBlock (language, content, executable flag), TableBlock (headers, rows, sortable), ChartBlock (type, data, config), FormBlock (fields, validation, submit action), ArtifactBlock (grouped related outputs). No arbitrary payload size limits. |
-
-### D-8: Event Sourcing and Audit Trail
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Complete, replayable history of all events in a conversation -- not just messages but state changes, tool invocations, handoffs, approval decisions, and metadata updates. Critical for enterprise trust and debugging. |
-| **Complexity** | HIGH |
-| **Dependencies** | D-3 (Tool Visibility -- tool events must be logged), D-5 (Multi-Agent -- coordination events must be logged), TS-7 (Signing -- events must be tamper-evident) |
-| **Existing Coverage** | Matrix: event-based architecture where all communications are stored as events. AG-UI: event-sourced state diffs. No agent protocol has a comprehensive audit trail. |
-| **How Well** | Matrix's event-based architecture is the right model for message history. Extend with agent-specific event types (tool calls, delegations, approval decisions). |
-| **Notes** | Every protocol action produces a signed event. Events are ordered, immutable, and replayable. Clients can reconstruct conversation state from events. Enables debugging ("why did the agent do X?") and compliance ("who approved action Y?"). |
-
-### D-9: MCP / A2A Compatibility Layer
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Agents that already speak MCP (tools) or A2A (task delegation) can participate in the messaging protocol without rewriting. The protocol bridges the gap between existing agent protocols and conversational messaging. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-3 (Capability Discovery -- must map to/from A2A Agent Cards), D-5 (Multi-Agent -- must map to/from A2A task lifecycle) |
-| **Existing Coverage** | MCP: 97M+ monthly SDK downloads, universal standard for tool access. A2A v0.3: 50+ enterprise partners, gRPC support, signed cards. Both are HTTP-based, not messaging-native. |
-| **How Well** | No messaging protocol bridges to MCP/A2A today. This is the key integration gap. |
-| **Notes** | Define protocol-level message types that map to MCP tool calls and A2A task operations. An MCP server can be exposed as an agent in a thread. A2A task updates can be rendered as thread messages. This makes the protocol the "missing layer" between agent infrastructure and human-facing messaging. |
-
-### D-10: Conversation-Level Permissions and Scoping
-
-| Attribute | Detail |
-|-----------|--------|
-| **Value Proposition** | Fine-grained permissions per conversation, not binary "in or out." Agents can be granted specific capabilities (read-only, can-send-messages, can-execute-tools, can-delegate, can-access-memory-tier-X) scoped to a specific thread. |
-| **Complexity** | MEDIUM |
-| **Dependencies** | TS-2 (Identity), TS-7 (Signing -- permissions must be verifiable) |
-| **Existing Coverage** | AMP: allowlist-based ACLs with wildcard matching. Slack: OAuth scopes (but per-workspace, not per-conversation). A2A: authentication requirements in Agent Cards. |
-| **How Well** | No protocol has per-conversation agent permissions. AMP's ACLs are identity-level, not conversation-level. This is novel. |
-| **Notes** | When adding an agent to a thread, the inviter specifies a permission scope. Permissions are signed by the inviter and verifiable by the agent and other participants. Supports delegation chains with scope narrowing (Agent A can delegate to Agent B with equal or lesser permissions, never greater). |
-
----
-
-## Anti-Features
-
-Things to deliberately NOT build, and why.
-
-### AF-1: Arbitrary Code Execution in Messages
-
-| Anti-Feature | DO NOT allow agents to send executable code that runs on the client |
-|--------------|-----|
-| **Why Avoid** | A2UI's core insight: "UI as data, not code." Allowing code execution in messages is the #1 UI injection attack vector. MCP Apps uses sandboxed iframes as a compromise; for a native protocol, declarative components are safer and more predictable. OWASP lists tool misuse and unintended execution as a top-10 agentic risk. |
-| **What to Do Instead** | Declarative component catalog. Agents reference pre-approved component types. Clients render using their own native implementations. The agent describes what to show; the client decides how to show it. |
-
-### AF-2: Built-In Payment / Transaction Layer
-
-| Anti-Feature | DO NOT build payment or commerce features into v1 |
-|--------------|-----|
-| **Why Avoid** | Massively increases regulatory complexity (PCI-DSS, financial regulations vary by jurisdiction). Messaging protocols that try to be payment protocols end up being mediocre at both (WeChat is the exception, not the rule, and it's centralized). The PROJECT.md explicitly scopes this out. |
-| **What to Do Instead** | Design the rich content system (D-1, D-7) to be extensible enough that a payment block type can be added later by a third-party extension. Don't preclude it, but don't build it. |
-
-### AF-3: Agent Marketplace / Store
-
-| Anti-Feature | DO NOT build a centralized agent marketplace |
-|--------------|-----|
-| **Why Avoid** | Contradicts the federation model. A centralized marketplace creates a gatekeeper, which is exactly the problem with existing platforms (App Store model). Agent discovery should be decentralized, matching the protocol's federated architecture. |
-| **What to Do Instead** | Agent Cards (TS-3) enable discovery. DNS-based resolution of agent capabilities via the `@provider` portion of identity. Third parties can build directories/marketplaces on top of the discovery protocol, but the protocol itself should not privilege any single directory. |
-
-### AF-4: Voice / Video Messaging
-
-| Anti-Feature | DO NOT add voice or video in v1 |
-|--------------|-----|
-| **Why Avoid** | Enormous complexity (codecs, bandwidth, NAT traversal, SRTP/DTLS). WebRTC alone is a multi-year engineering effort. AI agents primarily communicate via text and structured data. Adding voice/video dilutes focus and delays the core protocol. PROJECT.md explicitly scopes this out. |
-| **What to Do Instead** | Design message types to be extensible so voice/video block types can be added in v2+. Support audio transcription as a text message type if needed. |
-
-### AF-5: Message Editing / Deletion After Delivery
-
-| Anti-Feature | DO NOT allow retroactive message editing or deletion |
-|--------------|-----|
-| **Why Avoid** | Conflicts with the event-sourced audit trail (D-8). If agents can edit past messages, the audit trail becomes unreliable. If messages can be deleted, accountability is lost. In agent contexts, message integrity is more important than the convenience of editing. Agents should send corrections as new messages, not edit history. |
-| **What to Do Instead** | Corrections are new messages that reference the original (with a `corrects` relation type). The original remains in the event log. Clients can display the correction inline while preserving history. |
-
-### AF-6: "Smart" Server-Side Message Processing
-
-| Anti-Feature | DO NOT have servers inspect, analyze, or modify message content in transit |
-|--------------|-----|
-| **Why Avoid** | Federation servers are relays, not processors. If servers can read/modify messages, E2E encryption is impossible, trust model breaks down, and server operators become attack surfaces. This is a lesson learned from email (where servers do inspect content, leading to endless spam/privacy issues). |
-| **What to Do Instead** | Servers route opaque, signed, optionally encrypted message payloads. All processing happens at endpoints (clients and agents). Servers verify signatures for routing decisions but do not access payload content. |
-
-### AF-7: Proprietary Extensions Without Namespace
-
-| Anti-Feature | DO NOT allow unnamespaced protocol extensions |
-|--------------|-----|
-| **Why Avoid** | XMPP's 400+ XEPs proved that uncontrolled extensions fragment the ecosystem. Clients can't know which extensions other clients support. Leads to "works in my client, breaks in yours" problems that killed XMPP's consumer viability. |
-| **What to Do Instead** | Extension mechanism with mandatory namespacing and capability negotiation. Clients advertise supported extensions in handshake. Unknown extensions are ignored gracefully, not cause errors. Follow XMPP's lesson: fewer, better-specified core features beat hundreds of optional extensions. |
+| # | Feature | Why Requested | Why Problematic | Alternative |
+|---|---------|---------------|-----------------|-------------|
+| AF-1 | **DAG-based eventual consistency (Matrix model)** | "What if two servers are partitioned and both accept messages? Need a DAG to merge!" | Matrix's state resolution algorithm is notoriously complex (two major versions, academic papers analyzing correctness, rooms taking 10-60 minutes to join due to state resolution). AINM's flat threading model does not need this. Origin-server authority with store-and-forward is simpler and correct: if the origin server is unreachable, messages queue until it comes back. No conflicting state to merge. | Origin-server authority. The server that created the thread is the source of truth for thread state (participants, metadata). Other servers cache this state but defer to origin on conflicts. Messages queue when origin is unreachable. |
+| AF-2 | **Persistent S2S connections (XMPP model)** | "Persistent connections between servers reduce latency for high-volume federation." | Complexity of connection lifecycle management, reconnection, multiplexing. Every server must maintain connections to every other server it federates with -- O(n^2) connections in a large network. HTTP POST is stateless and simpler. | Stateless HTTP POST relay with connection pooling. HTTP/2 or HTTP/3 can multiplex requests over a single connection for efficiency without the complexity of managing persistent protocol-level connections. |
+| AF-3 | **Global presence federation** | "Broadcast presence to all federated servers so everyone knows who's online everywhere." | Matrix found that presence in large rooms causes catastrophic performance (50,000+ HTTP requests/hour for one user typing in an 800-server room). Global presence does not scale. | Thread-scoped presence only. Presence is relayed only to servers participating in the same thread. A server with no shared threads gets no presence updates. This bounds the blast radius. |
+| AF-4 | **Multi-hop relay (transitive federation)** | "Server A can relay through Server B to reach Server C, like email relays." | Creates complexity in signature verification chains, blame attribution for failures, and potential for relay abuse (open relay problem from email). Each hop adds latency. | Direct server-to-server relay only. Server A resolves Server C's identity directly and sends the relay. No intermediaries. This is simpler and more secure. |
+| AF-5 | **End-to-end encrypted federation (Signal protocol)** | "Messages should be encrypted so even federated servers can't read them." | Fundamentally conflicts with AINM's AI-native design: agents need to read message content to respond. E2EE would require agents to hold decryption keys, which defeats the purpose. Also vastly complex for multi-party threads across servers. | Transport-layer encryption (TLS 1.3) + per-message signing (Ed25519). Messages are encrypted in transit (TLS) and authenticated (signatures), but readable by servers for agent processing. E2EE is a v2+ consideration for human-only threads. |
+| AF-6 | **Full message history replication** | "When a new server joins, replicate the complete thread history." | Unbounded data transfer. A thread with 100K messages should not force a new server to download all of them. Bandwidth, storage, and privacy concerns. | Selective backfill (DF-1). Origin server provides a bounded window of recent messages plus a context frame summarizing key history. Configurable limit (e.g., last 100 messages + context summary). |
+| AF-7 | **Federated thread migration** | "Move a thread's origin from Server A to Server B." | Extremely complex state transfer. All participating servers need to update their authority pointer atomically. Partial migration leaves the system in an inconsistent state. | Threads are permanently homed on their origin server. If a server shuts down, threads are lost (like email -- if your mail server dies, your mailbox dies). Future protocol versions could add migration, but it is not v3.2 scope. |
+| AF-8 | **Cross-server moderation / admin API** | "Admins on Server A should be able to moderate threads and users on Server B." | Violates server autonomy. Each server admin controls their own domain. Cross-server moderation creates authority disputes and abuse vectors. | Per-server moderation only. Each server enforces its own policies. The origin server of a thread can remove participants, but cannot control what other servers do with messages already delivered. Server operators can use allowlists/denylists (DF-5) to control which servers they federate with. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-                    TS-5: Transport
-                    /            \
-                   /              \
-            TS-1: Federation    TS-4: Streaming
-               |      \            |        \
-               |       \           |         \
-         TS-2: Identity  \   D-3: Tool      D-4: Interrupts
-          /    |    \     \   Visibility        |
-         /     |     \     \                    |
-   TS-3:    TS-7:   D-10:  TS-10:           D-1: Interactive
-   Agent    Signing  Perms  Threading          UI
-   Cards      |            |      \
-    |     TS-8: E2E    D-2: Memory  TS-6: Mixed
-    |                      |         Threads
+[TS-2: Server Discovery]
+    |
+    +--required-by--> [TS-1: Cross-Server Message Delivery]
     |                      |
-   D-9: MCP/A2A       D-5: Multi-Agent
-   Compat              Coordination
+    |                      +--required-by--> [TS-3: Offline Relay Queues]
+    |                      +--required-by--> [TS-4: Deduplication at Relay Level]
+    |                      +--required-by--> [TS-10: Delivery Confirmation]
+    |                      +--required-by--> [DF-7: Federated Tool Visibility]
+    |
+    +--required-by--> [TS-8: Cross-Server Identity Resolution]
+    |                      |
+    |                      +--required-by--> [TS-1: Cross-Server Message Delivery]
+    |                      +--required-by--> [DF-2: Agent Capability Federation]
+    |
+    +--required-by--> [TS-5: Origin-Server Authority]
                            |
-                       D-8: Event
-                       Sourcing
+                           +--required-by--> [TS-6: Federated Thread Creation]
+                           +--required-by--> [TS-7: Federated Thread Join/Leave]
+                           +--required-by--> [DF-1: Selective Backfill]
+                           +--required-by--> [DF-6: Cross-Server Memory]
 
-   D-6: Anti-Prompt-Injection <-- TS-7 + TS-3
-   D-7: Structured Payloads  <-- TS-9
+[TS-1: Cross-Server Delivery]
+    +--enhances--> [DF-3: Federated Presence]
+    +--enhances--> [DF-4: Federated Streaming]
+
+[TS-5: Origin-Server Authority]
+    +--conflicts-with--> [AF-1: DAG-based Eventual Consistency]
+    +--conflicts-with--> [AF-7: Thread Migration]
+
+[DF-5: Server Allowlist/Denylist]
+    +--independent-- (can be added at any time, enforced at relay endpoint)
 ```
 
-### Critical Path (features that unblock the most downstream work)
+### Dependency Notes
 
-1. **TS-5: Transport** -- everything depends on this
-2. **TS-2: Identity** -- federation, signing, permissions, capability discovery all depend on identity
-3. **TS-7: Signing** -- encryption, permissions, audit trail, anti-injection all depend on signing
-4. **TS-4: Streaming** -- tool visibility, interrupts, interactive UI all depend on streaming
-5. **TS-6: Mixed Threads** -- the core value proposition; depends on identity + threading + streaming
+- **TS-2 (Server Discovery) is the foundation.** Nothing works without servers being able to find and authenticate each other. Must be implemented first.
+- **TS-8 (Identity Resolution) is the second foundation.** Message signature verification across servers requires resolving remote identities. Already specified, needs implementation.
+- **TS-5 (Origin-Server Authority) is the critical architectural decision.** It determines how thread state is managed and conflicts with the Matrix DAG model (AF-1). Must be decided and implemented before any thread-level federation features.
+- **TS-1 (Cross-Server Delivery) is the core feature.** Everything else (presence, streaming, backfill) depends on the basic relay working.
+- **TS-3 (Offline Queues) is required for reliability.** Without it, federation is fragile and messages are lost during outages.
+- **DF-1 (Selective Backfill) requires TS-5 (Origin Authority)** because the origin server decides what history to provide.
+- **DF-4 (Federated Streaming) enhances TS-1** but requires additional design for real-time relay (HTTP batching vs WebSocket S2S).
+- **DF-5 (Allowlist/Denylist) is independent** and can be enforced at the relay endpoint without touching other features.
+- **AF-1 conflicts with TS-5.** AINM cannot have both origin-server authority and DAG-based eventual consistency. The explicit choice is origin-server authority.
 
 ---
 
-## MVP Recommendation
+## MVP Definition
 
-### Phase 1: Protocol Foundation (must ship first)
+### Launch With (v3.2 Core -- Federation Works)
 
-Prioritize these table stakes -- they form the minimum viable protocol:
+Minimum viable federation -- what's needed to demo two servers exchanging messages.
 
-1. **TS-5: Transport** -- define client-to-server and server-to-server transport bindings
-2. **TS-2: Identity** -- email-like addressing with provider resolution
-3. **TS-7: Cryptographic Signing** -- Ed25519 message signing from day one
-4. **TS-9: Basic Rich Content** -- typed content blocks (text, code, image, file)
-5. **TS-4: Streaming** -- event-based streaming for agent responses
-6. **TS-10: Threading** -- flat-by-default with optional sub-threads
+- [x] **TS-2: Server discovery and identity verification** -- Foundation. Servers can find and authenticate each other.
+- [x] **TS-8: Cross-server identity resolution** -- Servers can resolve remote participants' public keys.
+- [x] **TS-5: Origin-server authority for thread state** -- Each thread has a single authoritative server.
+- [x] **TS-1: Cross-server message delivery** -- The relay endpoint sends and receives messages.
+- [x] **TS-10: Relay delivery confirmation/rejection** -- Originating server knows if delivery succeeded.
+- [x] **TS-4: Message deduplication across federation** -- No duplicate messages delivered.
+- [x] **TS-6: Federated thread creation** -- Create threads with remote participants.
+- [x] **TS-7: Federated thread join/leave** -- Remote participants can join/leave threads.
+- [x] **TS-9: Federation rate limiting** -- Protect against relay abuse.
 
-### Phase 2: Agent-Native Features (what makes it worth switching to)
+### Add After Core (v3.2 Complete -- Federation is Reliable)
 
-7. **TS-6: Mixed Human-Agent Threads** -- the core differentiator
-8. **TS-3: Agent Cards** -- capability discovery compatible with A2A
-9. **D-3: Tool-Use Visibility** -- transparent agent activity
-10. **D-7: Structured Payloads** -- typed message blocks
+Features to add once basic federation is proven.
 
-### Phase 3: Rich Experience (what makes it feel magical)
+- [ ] **TS-3: Offline relay queues** -- trigger: first network partition during testing reveals message loss
+- [ ] **DF-1: Selective thread backfill** -- trigger: remote participant added to existing thread needs context
+- [ ] **DF-3: Federated presence** -- trigger: demo needs to show agent status across servers
+- [ ] **DF-5: Server allowlist/denylist** -- trigger: multi-server demo needs access control
+- [ ] **DF-7: Federated tool call visibility** -- trigger: should flow naturally through relay if all message types are handled
 
-11. **D-1: Interactive Agent UI** -- declarative components via A2UI model
-12. **D-2: Hierarchical Memory** -- protocol-level context management
-13. **D-4: Human-in-the-Loop Interrupts** -- approval workflows
+### Future Consideration (v3.3+)
 
-### Phase 4: Scale and Trust (what makes enterprises adopt)
+Features to defer until federation is battle-tested.
 
-14. **TS-1: Federation** -- full multi-server routing
-15. **TS-8: E2E Encryption** -- end-to-end for human messages, trust model for agents
-16. **D-5: Multi-Agent Coordination** -- handoffs, task lifecycle, delegation chains
-17. **D-8: Event Sourcing** -- complete audit trail
-18. **D-10: Conversation Permissions** -- fine-grained scoping
-19. **D-6: Anti-Prompt-Injection** -- protocol-level defenses
-20. **D-9: MCP/A2A Compatibility** -- bridge to existing ecosystem
+- [ ] **DF-2: Agent capability federation** -- Requires Agent Card cross-server resolution patterns; defer until agent ecosystem grows
+- [ ] **DF-4: Federated streaming responses** -- Requires real-time S2S channel design; HTTP batching may introduce unacceptable latency
+- [ ] **DF-6: Cross-server memory queries** -- Requires federation routing for memory.query to origin; complex authorization model
 
-### Defer Indefinitely
+---
 
-- AF-2: Payment layer
-- AF-4: Voice/video
-- AF-3: Agent marketplace (let third parties build)
+## Feature Prioritization Matrix
+
+| # | Feature | User Value | Implementation Cost | Priority |
+|---|---------|------------|---------------------|----------|
+| TS-2 | Server discovery & verification | HIGH | LOW | **P1** |
+| TS-8 | Cross-server identity resolution | HIGH | LOW | **P1** |
+| TS-5 | Origin-server authority | HIGH | HIGH | **P1** |
+| TS-1 | Cross-server message delivery | HIGH | MEDIUM | **P1** |
+| TS-10 | Delivery confirmation | MEDIUM | LOW | **P1** |
+| TS-4 | Deduplication at relay level | MEDIUM | LOW | **P1** |
+| TS-6 | Federated thread creation | HIGH | MEDIUM | **P1** |
+| TS-7 | Federated thread join/leave | HIGH | MEDIUM | **P1** |
+| TS-9 | Rate limiting | MEDIUM | MEDIUM | **P1** |
+| TS-3 | Offline relay queues | HIGH | MEDIUM | **P2** |
+| DF-1 | Selective thread backfill | HIGH | HIGH | **P2** |
+| DF-3 | Federated presence | MEDIUM | MEDIUM | **P2** |
+| DF-5 | Server allowlist/denylist | MEDIUM | LOW | **P2** |
+| DF-7 | Federated tool visibility | MEDIUM | LOW | **P2** |
+| DF-2 | Agent capability federation | MEDIUM | MEDIUM | **P3** |
+| DF-4 | Federated streaming | HIGH | HIGH | **P3** |
+| DF-6 | Cross-server memory | HIGH | HIGH | **P3** |
+
+**Priority key:**
+- P1: Required for v3.2 launch -- federation demo with 2+ servers
+- P2: Should have for v3.2 completeness -- reliability and AI-native differentiation
+- P3: Future consideration -- complex features that need more design
+
+---
+
+## Competitor Feature Analysis
+
+| Feature | Matrix | XMPP | ActivityPub | Email (SMTP) | AINM Approach |
+|---------|--------|------|-------------|--------------|---------------|
+| **Server discovery** | `.well-known/matrix/server` + SRV records | `_xmpp-server._tcp` SRV + STARTTLS dialback | WebFinger + actor URL resolution | MX records (DNS) | `.well-known/ainm/server` -- simplest approach, no SRV records needed |
+| **S2S authentication** | Ed25519 HTTP signatures + TLS | TLS + SASL + dialback (multiple fallback levels) | HTTP Signatures (typically RSA-SHA256) | STARTTLS (opportunistic), DKIM/SPF/DMARC | Mutual TLS + Ed25519 server signatures -- strongest model, no fallback levels |
+| **Message integrity** | Event signatures (per-event) | No per-message signing (TLS only) | HTTP Signatures on delivery (not per-message) | DKIM (per-message, domain-level) | Ed25519 per-message signatures -- strongest model, end-to-end verifiable across hops |
+| **State management** | DAG + state resolution (v2) | Origin-server authority (MUC host) | No shared state (unidirectional follow model) | No shared state (store-and-forward) | Origin-server authority -- like XMPP MUC, not like Matrix DAG |
+| **History backfill** | Full event graph (GET /backfill) | No standardized cross-server history (MUC host stores all) | No history (timeline is append-only) | No history (each server keeps its own copies) | Selective backfill: bounded window + context frame (unique to AINM) |
+| **Offline handling** | Transaction retries (indefinite) | Queue with retry | Async delivery with retry on error | Queue for up to 5 days, then bounce | Persistent relay queue with configurable retention (7 days default) |
+| **Presence** | EDUs in transactions (per-room) | Global presence + per-room | No presence concept | No presence | Thread-scoped only -- avoids Matrix's scaling nightmare |
+| **Typing indicators** | EDUs (ephemeral, per-room) | XEP-0085 chat states | No typing indicators | N/A | Agent-specific states (processing, busy) -- richer than Matrix |
+| **Group chat federation** | Fully distributed (every server has full room state) | Centralized on MUC host, FMUC experimental | No group chat (public timeline model) | Mailing lists (centralized on list server) | Origin-server authority, state cached on participating servers |
+| **Rate limiting** | Per-server, bug-prone (Synapse #5621) | Per-connection throttling | Implementation-specific | Greylisting, per-IP throttling | Per-source-server rate limits on relay endpoint with `retry_after` |
+| **Agent/bot support** | Application services (bridge concept) | No protocol-level agent concept | No agent concept | No agent concept | **First-class agents with federated capability discovery (Agent Cards)** |
+
+---
+
+## Key Insights from Protocol Research
+
+### Why Origin-Server Authority Over DAG (Critical Decision)
+
+**Matrix's approach:** Every server in a room has a full copy of the event DAG. When servers disagree on state (who is in the room, room settings), a state resolution algorithm merges the DAGs. This creates:
+- Joining large rooms takes 10-60 minutes due to state resolution
+- State resolution has had two major algorithm versions, with formal correctness analyses
+- Memory usage scales with room participation (800 servers = 3GB+ for typing notifications)
+- Synapse's database grows to 45GB+ with federation history
+
+**AINM's approach (recommended):** The server that created a thread is the authority. Other servers cache thread state but defer to origin. This means:
+- No state resolution algorithm needed (eliminates the hardest part of Matrix federation)
+- Thread creation is O(1), not O(n) where n is the number of participating servers
+- Presence is thread-scoped, not global
+- Trade-off: if origin server is down, the thread is read-only (cached state only)
+
+**Why this is correct for AINM:** AINM uses flat threads with one level of sub-threading. There are no merge conflicts to resolve because the origin server applies operations sequentially. Matrix needs DAGs because rooms are fully distributed with no authority. AINM's origin-server model is closer to email (your mailbox lives on your server) and XMPP MUC (the room lives on the hosting server).
+
+### Selective Backfill is the Real Differentiator
+
+Every federated protocol handles "new server joins a conversation" differently:
+- **Matrix:** Download the full event graph from the point of joining. Potentially gigabytes.
+- **XMPP MUC:** Room host sends configurable history (last N messages or last N seconds).
+- **ActivityPub:** No history -- you see posts from the time you followed.
+- **Email:** No history -- join a mailing list, see new messages only.
+
+**AINM can do better** by leveraging its memory system:
+- Send a context frame (memory.md) summarizing key decisions and context
+- Send the last N messages (configurable, default 100)
+- The context frame gives agents immediate situational awareness without downloading the full history
+- This is genuinely novel -- no other federated protocol has structured context summarization
+
+### Ephemeral vs. Persistent Data in Federation
+
+Matrix distinguishes between PDUs (persistent, stored in DAG) and EDUs (ephemeral, not stored). This distinction is important:
+
+| Data Type | Matrix | AINM Equivalent | Federation Handling |
+|-----------|--------|-----------------|---------------------|
+| Messages | PDU (persistent) | Messages (signed, stored) | Relay with queue for offline servers |
+| Typing indicators | EDU (ephemeral) | Presence updates (typing could be a presence state) | Best-effort relay, no queue |
+| Read receipts | EDU (ephemeral) | Not yet specified | Best-effort relay |
+| Presence | EDU (ephemeral) | Presence updates | Best-effort relay, thread-scoped only |
+
+**Recommendation:** AINM should distinguish between "must-deliver" (messages, thread operations) and "best-effort" (presence, typing) at the relay level. Must-deliver items go into offline queues; best-effort items are dropped if the target server is unreachable. This prevents presence/typing from overwhelming the relay queue during outages.
 
 ---
 
 ## Sources
 
-### Protocols and Specifications
-- [A2A Protocol Specification v0.3](https://a2a-protocol.org/v0.3.0/specification/)
-- [AG-UI Protocol Documentation](https://docs.ag-ui.com/introduction)
-- [A2UI Protocol](https://a2ui.org/)
-- [AMP Protocol](https://agentmessaging.org/)
-- [MCP Apps Extension](https://modelcontextprotocol.io/extensions/apps/overview)
-- [MCP Specification](https://modelcontextprotocol.io/specification/2025-11-25)
+- [Matrix Server-Server API v1.16](https://spec.matrix.org/v1.16/server-server-api/) -- Federation endpoints, transactions, backfill, state resolution
+- [Matrix State Resolution v2](https://matrix.org/docs/older/stateres-v2/) -- How Matrix resolves conflicting state across servers
+- [Matrix Federation Security Improvements 2025](https://media.ccc.de/v/matrix-conf-2025-74569-improving-the-security-of-the-federation-protocol)
+- [Synapse Federation Rate Limiter Fixes](https://github.com/matrix-org/synapse/pull/5621) -- Real-world rate limiting challenges
+- [Synapse Performance on SBCs](https://github.com/matrix-org/synapse/issues/8428) -- Federation resource usage issues
+- [Conduwuit: Lightweight Matrix Server](https://edu4rdshl.dev/posts/about-to-leave-matrix-oh-wait-there-s-conduwuit/) -- 500MB vs 45GB database comparison
+- [XEP-0238: XMPP Inter-Domain Federation](https://xmpp.org/extensions/xep-0238.html) -- XMPP S2S protocol flows
+- [XEP-0288: Bidirectional S2S Connections](https://xmpp.org/extensions/xep-0288.html)
+- [XEP-0289: Federated MUC](https://xmpp.org/extensions/xep-0289.html) -- Distributed multi-user chat
+- [XEP-0045: Multi-User Chat](https://xmpp.org/extensions/xep-0045.html) -- Standard MUC specification
+- [Isode Federated MUC Whitepaper](https://www.isode.com/whitepaper/federated-multi-user-chat/) -- SOURCE/SHADOW room model
+- [W3C ActivityPub Specification](https://www.w3.org/TR/activitypub/) -- Inbox/outbox delivery model
+- [ActivityPub Shared Inbox](https://github.com/w3c/activitypub/issues/242) -- Federation efficiency via shared inboxes
+- [Threema: Federated vs. Centralized](https://threema.ch/en/work/blog/posts/federated-vs-centralized) -- Critique of federation tradeoffs
+- [Wire: Federation Types & Compliance](https://wire.com/en/blog/federating-security-or-spam) -- Open vs closed federation security
+- [Matrix Policy Servers (2025)](https://matrix.org/blog/2025/04/introducing-policy-servers/) -- Anti-abuse tooling for federation
+- [Cloudflare: DNS MX Records](https://www.cloudflare.com/learning/dns/dns-records/dns-mx-record/) -- How email federation routing works
+- [AINM Transport Specification v0.1.0](spec/transport.md) -- Existing federation relay specification
+- [AINM Identity Specification v0.1.0](spec/identity.md) -- Identity resolution and key management
+- [AINM Security Specification v0.1.0](spec/security.md) -- Message signing and verification
 
-### Security
-- [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
-- [MCP Secure](https://mcp-secure.dev/)
-- [Security Threat Modeling for AI-Agent Protocols](https://arxiv.org/html/2602.11327)
-
-### Products and Frameworks
-- [Agenium Messenger](https://dev.to/agenium_platform/we-built-an-ai-agent-messenger-and-its-live-4pii)
-- [Letta / MemGPT Documentation](https://docs.letta.com/concepts/memgpt/)
-- [Agent Protocol (AGI Inc)](https://github.com/agi-inc/agent-protocol)
-
-### Architecture and Patterns
-- [Matrix Protocol (Wikipedia)](https://en.wikipedia.org/wiki/Matrix_(protocol))
-- [XMPP vs Matrix vs MQTT Comparison](https://www.rst.software/blog/xmpp-vs-matrix-vs-mqtt-which-instant-messaging-protocol-is-best-for-your-chat-application)
-- [Agora Protocol Paper](https://arxiv.org/html/2410.11905v1)
-- [Messaging Apps Trends 2026](https://www.daylox.com/blog/messaging-apps-evolution-2026/)
-
-### Developer Experience
-- [Google Developers Guide to AI Agent Protocols](https://developers.googleblog.com/developers-guide-to-ai-agent-protocols/)
-- [A2A Deep Dive - WWT](https://www.wwt.com/blog/agent-2-agent-protocol-a2a-a-deep-dive)
+---
+*Feature research for: AINM v3.2 Federation*
+*Researched: 2026-03-28*

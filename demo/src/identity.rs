@@ -1,4 +1,7 @@
 use anyhow::Result;
+use axum::extract::State;
+use axum::http::{header, StatusCode};
+use axum::response::IntoResponse;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::rand::SystemRandom;
@@ -95,4 +98,88 @@ impl IdentityStore {
                 .unwrap_or_default()
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Server-level identity for federation
+// ---------------------------------------------------------------------------
+
+/// Server-level identity for federation (distinct from participant identity).
+///
+/// Published at `GET /.well-known/ainm/server` so remote servers can discover
+/// this server's relay endpoint, public key, and TLS fingerprint (RELY-01).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerIdentity {
+    pub server_id: String,
+    pub public_key_b64: String,
+    pub relay_endpoint: String,
+    pub tls_fingerprint: String,
+    pub supported_versions: Vec<String>,
+}
+
+/// Build a `ServerIdentity` from server configuration values.
+pub fn build_server_identity(
+    server_id: &str,
+    server_keypair: &Identity,
+    federation_port: u16,
+    tls_fingerprint: &str,
+) -> ServerIdentity {
+    ServerIdentity {
+        server_id: server_id.to_string(),
+        public_key_b64: server_keypair.public_key_b64(),
+        relay_endpoint: format!("https://{}:{}/ainm/v1/relay", server_id, federation_port),
+        tls_fingerprint: tls_fingerprint.to_string(),
+        supported_versions: vec!["0.1.0".to_string()],
+    }
+}
+
+/// In-memory cache of resolved remote server identities.
+#[derive(Clone, Default)]
+pub struct RemoteServerCache {
+    inner: Arc<Mutex<HashMap<String, ServerIdentity>>>,
+}
+
+impl RemoteServerCache {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Look up a cached remote server identity by server_id.
+    pub fn get(&self, server_id: &str) -> Option<ServerIdentity> {
+        self.inner.lock().unwrap().get(server_id).cloned()
+    }
+
+    /// Cache a remote server identity.
+    pub fn insert(&self, identity: ServerIdentity) {
+        self.inner
+            .lock()
+            .unwrap()
+            .insert(identity.server_id.clone(), identity);
+    }
+}
+
+/// Axum handler: `GET /.well-known/ainm/server`
+///
+/// Returns this server's federation identity as JSON.
+/// Cache-Control allows remote servers to cache the response for 1 hour.
+pub async fn server_identity_handler(
+    State(identity): State<Arc<ServerIdentity>>,
+) -> impl IntoResponse {
+    let body = serde_json::json!({
+        "server_id": identity.server_id,
+        "public_key": identity.public_key_b64,
+        "relay_endpoint": identity.relay_endpoint,
+        "tls_fingerprint": identity.tls_fingerprint,
+        "supported_versions": identity.supported_versions,
+    });
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        serde_json::to_string(&body).unwrap(),
+    )
 }
