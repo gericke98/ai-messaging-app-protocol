@@ -45,7 +45,7 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Foundation: spec updates, redb persistence module, ServerIdentity fingerprint array migration
+- [x] 08-01-PLAN.md — Foundation: spec updates, redb persistence module, ServerIdentity fingerprint array migration
 - [ ] 08-02-PLAN.md — Replay protection (relay_timestamp + relay_id) and TOFU key pinning with cert rotation
 - [ ] 08-03-PLAN.md — Persistent offline queue replacing in-memory VecDeque, background cleanup
 - [ ] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
@@ -70,5 +70,5 @@ Phases execute in numeric order: 7 → 8 → 9
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 7. Federation Relay Core | v3.2 | 4/5 | In Progress | - |
-| 8. Security Hardening, Reliability & Backfill | v3.2 | 0/5 | Planned | - |
+| 8. Security Hardening, Reliability & Backfill | v3.2 | 1/5 | In Progress | - |
 | 9. AI-Native Federation & Full Demo | v3.2 | 0/TBD | Not started | - |

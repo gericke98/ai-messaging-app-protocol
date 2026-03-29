@@ -21,8 +21,8 @@ Requirements for full multi-server federation with working demo.
 - [x] **FAUT-02**: Server identity is verified by matching TLS certificate fingerprint against .well-known published fingerprint
 - [x] **FAUT-03**: Relay messages include server-level signature in addition to sender's Ed25519 message signature (triple-layer validation)
 - [ ] **FAUT-04**: Server implements TOFU (Trust On First Use) key pinning for remote server certificates
-- [ ] **FAUT-05**: Relay messages include relay_timestamp and relay_id to prevent replay attacks across federation boundaries
-- [ ] **FAUT-06**: Server supports multiple TLS fingerprints (tls_fingerprints array) for certificate rotation without federation downtime
+- [x] **FAUT-05**: Relay messages include relay_timestamp and relay_id to prevent replay attacks across federation boundaries
+- [x] **FAUT-06**: Server supports multiple TLS fingerprints (tls_fingerprints array) for certificate rotation without federation downtime
 
 ### Reliability
 
@@ -96,8 +96,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | FAUT-02 | Phase 7 | Complete |
 | FAUT-03 | Phase 7 | Complete |
 | FAUT-04 | Phase 8 | Pending |
-| FAUT-05 | Phase 8 | Pending |
-| FAUT-06 | Phase 8 | Pending |
+| FAUT-05 | Phase 8 | Complete |
+| FAUT-06 | Phase 8 | Complete |
 | FREL-01 | Phase 8 | Pending |
 | FREL-02 | Phase 8 | Pending |
 | FREL-03 | Phase 8 | Pending |
