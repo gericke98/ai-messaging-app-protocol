@@ -26,9 +26,9 @@
 **Plans:** 4 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Add federation dependencies (Cargo.toml) and CLI argument parsing (clap)
-- [ ] 07-02-PLAN.md — TLS module, server identity types, and pre-generated mTLS certificates
-- [ ] 07-03-PLAN.md — Federation relay module (handler, sender, send queues, thread registry)
+- [x] 07-01-PLAN.md — Add federation dependencies (Cargo.toml) and CLI argument parsing (clap)
+- [x] 07-02-PLAN.md — TLS module, server identity types, and pre-generated mTLS certificates
+- [x] 07-03-PLAN.md — Federation relay module (handler, sender, send queues, thread registry)
 - [ ] 07-04-PLAN.md — Wire federation into server, two-listener architecture, Docker Compose demo
 
 ### Phase 8: Security Hardening, Reliability & Backfill

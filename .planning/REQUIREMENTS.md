@@ -10,16 +10,16 @@ Requirements for full multi-server federation with working demo.
 ### Relay Core
 
 - [x] **RELY-01**: Server can discover remote servers via .well-known endpoint resolution of the @provider domain
-- [ ] **RELY-02**: Server can relay messages to remote servers via HTTP POST with JSON-RPC 2.0 framing
-- [ ] **RELY-03**: Origin server is authoritative for thread state (participant list, ordering, metadata)
-- [ ] **RELY-04**: Server uses push-based federation model (no polling) — messages are forwarded to remote servers immediately
-- [ ] **RELY-05**: Server maintains per-destination send queues with exponential backoff for unreachable servers
+- [x] **RELY-02**: Server can relay messages to remote servers via HTTP POST with JSON-RPC 2.0 framing
+- [x] **RELY-03**: Origin server is authoritative for thread state (participant list, ordering, metadata)
+- [x] **RELY-04**: Server uses push-based federation model (no polling) — messages are forwarded to remote servers immediately
+- [x] **RELY-05**: Server maintains per-destination send queues with exponential backoff for unreachable servers
 
 ### Authentication & Security
 
 - [x] **FAUT-01**: Servers authenticate via mutual TLS (both sides present certificates)
 - [x] **FAUT-02**: Server identity is verified by matching TLS certificate fingerprint against .well-known published fingerprint
-- [ ] **FAUT-03**: Relay messages include server-level signature in addition to sender's Ed25519 message signature (triple-layer validation)
+- [x] **FAUT-03**: Relay messages include server-level signature in addition to sender's Ed25519 message signature (triple-layer validation)
 - [ ] **FAUT-04**: Server implements TOFU (Trust On First Use) key pinning for remote server certificates
 - [ ] **FAUT-05**: Relay messages include relay_timestamp and relay_id to prevent replay attacks across federation boundaries
 - [ ] **FAUT-06**: Server supports multiple TLS fingerprints (tls_fingerprints array) for certificate rotation without federation downtime
@@ -88,13 +88,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | RELY-01 | Phase 7 | Complete |
-| RELY-02 | Phase 7 | Pending |
-| RELY-03 | Phase 7 | Pending |
-| RELY-04 | Phase 7 | Pending |
-| RELY-05 | Phase 7 | Pending |
+| RELY-02 | Phase 7 | Complete |
+| RELY-03 | Phase 7 | Complete |
+| RELY-04 | Phase 7 | Complete |
+| RELY-05 | Phase 7 | Complete |
 | FAUT-01 | Phase 7 | Complete |
 | FAUT-02 | Phase 7 | Complete |
-| FAUT-03 | Phase 7 | Pending |
+| FAUT-03 | Phase 7 | Complete |
 | FAUT-04 | Phase 8 | Pending |
 | FAUT-05 | Phase 8 | Pending |
 | FAUT-06 | Phase 8 | Pending |
