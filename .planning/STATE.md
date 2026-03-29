@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: Federation
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-03-29T07:45:45.399Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-03-29T07:56:10.765Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 8
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-03-29
 
@@ -56,6 +56,7 @@ Progress: [##░░░░░░░░] 20%
 | Phase 07 P05 | 2min | 2 tasks | 4 files |
 | Phase 08 P01 | 10min | 2 tasks | 7 files |
 | Phase 08 P02 | 8min | 2 tasks | 4 files |
+| Phase 08 P03 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent decisions affecting current work:
 - [Phase 07]: Headless agent subscribes to broadcast channel for relayed message delivery
 - [Phase 07]: Pre-populate thread registry at creation time for immediate relay to known remotes
 - [Phase 08]: Replay protection runs before signature verification to reject stale/duplicate payloads cheaply
+- [Phase 08]: Backoff state kept in-memory (resets on restart per D-14) while queue contents persist in redb
+- [Phase 08]: Batch drain of 100 messages per flush to balance throughput and memory
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T07:45:45.395Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-03-29T07:56:10.761Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None

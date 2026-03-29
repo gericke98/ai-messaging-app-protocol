@@ -26,10 +26,10 @@ Requirements for full multi-server federation with working demo.
 
 ### Reliability
 
-- [ ] **FREL-01**: Server persists offline relay queue to disk (survives server restart)
-- [ ] **FREL-02**: Offline queue retries with exponential backoff when remote server becomes reachable
-- [ ] **FREL-03**: Offline queue has bounded size and 7-day retention policy
-- [ ] **FREL-04**: Server defines partition behavior — queues messages during origin-server unavailability and replays on reconnection
+- [x] **FREL-01**: Server persists offline relay queue to disk (survives server restart)
+- [x] **FREL-02**: Offline queue retries with exponential backoff when remote server becomes reachable
+- [x] **FREL-03**: Offline queue has bounded size and 7-day retention policy
+- [x] **FREL-04**: Server defines partition behavior — queues messages during origin-server unavailability and replays on reconnection
 
 ### Backfill & History
 
@@ -98,10 +98,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | FAUT-04 | Phase 8 | Complete |
 | FAUT-05 | Phase 8 | Complete |
 | FAUT-06 | Phase 8 | Complete |
-| FREL-01 | Phase 8 | Pending |
-| FREL-02 | Phase 8 | Pending |
-| FREL-03 | Phase 8 | Pending |
-| FREL-04 | Phase 8 | Pending |
+| FREL-01 | Phase 8 | Complete |
+| FREL-02 | Phase 8 | Complete |
+| FREL-03 | Phase 8 | Complete |
+| FREL-04 | Phase 8 | Complete |
 | BKFL-01 | Phase 8 | Pending |
 | BKFL-02 | Phase 8 | Pending |
 | BKFL-03 | Phase 8 | Pending |
