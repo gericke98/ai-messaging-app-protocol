@@ -189,21 +189,6 @@ async fn handle_incoming(
                             render::render_stream_end(verified);
                         }
                     }
-                    "ainm.tool.call.started" => {
-                        if let Some(params) = parsed.get("params") {
-                            render::render_tool_event("started", params);
-                        }
-                    }
-                    "ainm.tool.call.progress" => {
-                        if let Some(params) = parsed.get("params") {
-                            render::render_tool_event("progress", params);
-                        }
-                    }
-                    "ainm.tool.call.completed" => {
-                        if let Some(params) = parsed.get("params") {
-                            render::render_tool_event("completed", params);
-                        }
-                    }
                     "ainm.memory.stored" => {
                         if let Some(params) = parsed.get("params") {
                             render::render_memory_event("stored", params);

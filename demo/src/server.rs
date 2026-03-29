@@ -534,9 +534,6 @@ async fn handle_agent_connection(
                     "ainm.stream.start"
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
-                    | "ainm.tool.call.started"
-                    | "ainm.tool.call.progress"
-                    | "ainm.tool.call.completed"
                     | "ainm.presence.update" => {
                         let _ = to_human_tx.send(text_str);
                     }
