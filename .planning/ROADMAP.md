@@ -23,7 +23,13 @@
   3. The server where a thread was created is the sole authority for that thread's participant list and message ordering — remote servers defer
   4. Messages are pushed immediately to remote servers (no polling) with per-destination send queues and exponential backoff for unreachable servers
   5. A docker-compose demo spins up 2 servers with distinct certificates and shows a cross-server human-agent conversation end-to-end
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Add federation dependencies (Cargo.toml) and CLI argument parsing (clap)
+- [ ] 07-02-PLAN.md — TLS module, server identity types, and pre-generated mTLS certificates
+- [ ] 07-03-PLAN.md — Federation relay module (handler, sender, send queues, thread registry)
+- [ ] 07-04-PLAN.md — Wire federation into server, two-listener architecture, Docker Compose demo
 
 ### Phase 8: Security Hardening, Reliability & Backfill
 **Goal**: Federation is hardened against replay attacks and certificate lifecycle issues, survives server outages with persistent queues, and supports selective thread history backfill with authorization
@@ -55,6 +61,6 @@ Phases execute in numeric order: 7 → 8 → 9
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Federation Relay Core | v3.2 | 0/TBD | Not started | - |
+| 7. Federation Relay Core | v3.2 | 0/4 | Planned | - |
 | 8. Security Hardening, Reliability & Backfill | v3.2 | 0/TBD | Not started | - |
 | 9. AI-Native Federation & Full Demo | v3.2 | 0/TBD | Not started | - |
