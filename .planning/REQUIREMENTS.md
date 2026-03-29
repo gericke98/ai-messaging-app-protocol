@@ -33,10 +33,10 @@ Requirements for full multi-server federation with working demo.
 
 ### Backfill & History
 
-- [ ] **BKFL-01**: Remote server can request selective thread history via backfill endpoint
-- [ ] **BKFL-02**: Backfill respects visibility levels (post-join messages only by default, pre-join with explicit permission)
-- [ ] **BKFL-03**: Backfill endpoint requires authorization (requesting server must have a current participant in the thread)
-- [ ] **BKFL-04**: Backfill supports pagination for large thread histories
+- [x] **BKFL-01**: Remote server can request selective thread history via backfill endpoint
+- [x] **BKFL-02**: Backfill respects visibility levels (post-join messages only by default, pre-join with explicit permission)
+- [x] **BKFL-03**: Backfill endpoint requires authorization (requesting server must have a current participant in the thread)
+- [x] **BKFL-04**: Backfill supports pagination for large thread histories
 
 ### AI-Native Federation
 
@@ -102,10 +102,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | FREL-02 | Phase 8 | Complete |
 | FREL-03 | Phase 8 | Complete |
 | FREL-04 | Phase 8 | Complete |
-| BKFL-01 | Phase 8 | Pending |
-| BKFL-02 | Phase 8 | Pending |
-| BKFL-03 | Phase 8 | Pending |
-| BKFL-04 | Phase 8 | Pending |
+| BKFL-01 | Phase 8 | Complete |
+| BKFL-02 | Phase 8 | Complete |
+| BKFL-03 | Phase 8 | Complete |
+| BKFL-04 | Phase 8 | Complete |
 | AINF-01 | Phase 9 | Pending |
 | AINF-02 | Phase 9 | Pending |
 | AINF-03 | Phase 9 | Pending |

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: Federation
 status: executing
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-03-29T07:56:10.765Z"
+stopped_at: Completed 08-03 and 08-04 plans
+last_updated: "2026-03-29T07:57:12.107Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 3
@@ -57,6 +57,7 @@ Progress: [##░░░░░░░░] 20%
 | Phase 08 P01 | 10min | 2 tasks | 7 files |
 | Phase 08 P02 | 8min | 2 tasks | 4 files |
 | Phase 08 P03 | 4min | 2 tasks | 3 files |
+| Phase 08 P04 | 5min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Replay protection runs before signature verification to reject stale/duplicate payloads cheaply
 - [Phase 08]: Backoff state kept in-memory (resets on restart per D-14) while queue contents persist in redb
 - [Phase 08]: Batch drain of 100 messages per flush to balance throughput and memory
+- [Phase 08]: Used match dispatch in relay_handler for ainm.relay vs ainm.backfill method routing
+- [Phase 08]: Post-join visibility via max(after_sequence, join_seq) prevents pre-join history access
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T07:56:10.761Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-03-29T07:57:12.103Z
+Stopped at: Completed 08-03 and 08-04 plans
 Resume file: None
