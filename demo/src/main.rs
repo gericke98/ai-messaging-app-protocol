@@ -305,7 +305,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         )
         .with_state(fed_state.clone())
         .route(
-            "/.well-known/ainm/participant/:address",
+            "/.well-known/ainm/participant/{address}",
             axum::routing::get(participant_key_handler),
         )
         .with_state(identity_store.clone());
