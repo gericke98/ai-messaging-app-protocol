@@ -65,7 +65,7 @@ Plans:
 - [x] 09-00-PLAN.md — Protocol spec for ainm.context-push (transport.md, JSON Schema, AsyncAPI)
 - [x] 09-01-PLAN.md — Agent card discovery, streaming/tool event relay, /discover command
 - [x] 09-02-PLAN.md — Memory context propagation via ainm.context-push
-- [ ] 09-03-PLAN.md — Full-featured headless agent and comprehensive demo script
+- [~] 09-03-PLAN.md — Full-featured headless agent and comprehensive demo script (2/3 tasks, checkpoint pending)
 
 ## Progress
 

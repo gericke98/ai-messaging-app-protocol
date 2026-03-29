@@ -51,7 +51,7 @@ Requirements for full multi-server federation with working demo.
 - [x] **DEMO-02**: Demo shows cross-server message exchange between a human on server A and an agent on server B
 - [x] **DEMO-03**: Demo tests partition healing (stop one server, queue messages, restart, verify delivery)
 - [x] **DEMO-04**: Demo tests certificate rotation (rotate cert, verify federation continues)
-- [ ] **DEMO-05**: Demo shows cross-server streaming (agent on server B streams response to human on server A)
+- [x] **DEMO-05**: Demo shows cross-server streaming (agent on server B streams response to human on server A)
 
 ## v2 Requirements
 
@@ -114,7 +114,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | DEMO-02 | Phase 7 | Complete |
 | DEMO-03 | Phase 8 | Complete |
 | DEMO-04 | Phase 8 | Complete |
-| DEMO-05 | Phase 9 | Pending |
+| DEMO-05 | Phase 9 | Complete |
 
 **Coverage:**
 - v1 requirements: 28 total
