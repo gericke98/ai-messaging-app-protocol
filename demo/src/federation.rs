@@ -235,7 +235,7 @@ pub async fn relay_handler(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(id, -32012, "Missing relay_timestamp")),
+                Json(protocol::new_error_value(id, -32026, "Missing relay_timestamp")),
             );
         }
     };
@@ -244,7 +244,7 @@ pub async fn relay_handler(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(id, -32012, "Missing relay_id")),
+                Json(protocol::new_error_value(id, -32026, "Missing relay_id")),
             );
         }
     };
@@ -257,14 +257,14 @@ pub async fn relay_handler(
                 tracing::warn!("[federation] Replay rejected: timestamp too old ({} ago)", age);
                 return (
                     StatusCode::OK,
-                    Json(protocol::new_error_value(id, -32012, "Relay timestamp too old (>5 min)")),
+                    Json(protocol::new_error_value(id, -32026, "Relay timestamp too old (>5 min)")),
                 );
             }
             if age < chrono::Duration::minutes(-1) {
                 tracing::warn!("[federation] Replay rejected: timestamp in future");
                 return (
                     StatusCode::OK,
-                    Json(protocol::new_error_value(id, -32012, "Relay timestamp in future")),
+                    Json(protocol::new_error_value(id, -32026, "Relay timestamp in future")),
                 );
             }
         }
@@ -273,7 +273,7 @@ pub async fn relay_handler(
                 StatusCode::OK,
                 Json(protocol::new_error_value(
                     id,
-                    -32012,
+                    -32026,
                     &format!("Invalid relay_timestamp: {}", e),
                 )),
             );
@@ -291,7 +291,7 @@ pub async fn relay_handler(
                 StatusCode::OK,
                 Json(protocol::new_error_value(
                     id,
-                    -32012,
+                    -32026,
                     "Duplicate relay_id (replay detected)",
                 )),
             );
