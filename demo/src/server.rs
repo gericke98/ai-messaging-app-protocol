@@ -280,6 +280,9 @@ async fn handle_agent_connection(
         }
     });
 
+    // Track stream_id -> thread_id for federation relay of delta/end events
+    let mut stream_thread_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
     // Main loop: receive agent messages and forward to human
     while let Some(Ok(msg)) = ws_receiver.next().await {
         if let Message::Text(text) = msg {
@@ -621,7 +624,55 @@ async fn handle_agent_connection(
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
                     | "ainm.presence.update" => {
-                        let _ = to_human_tx.send(text_str);
+                        // Always deliver locally
+                        let _ = to_human_tx.send(text_str.clone());
+
+                        // Federation relay if thread is federated (D-04: stream events via ainm.relay)
+                        if let Some(ref fed) = state.federation {
+                            let thread_id_opt = parsed.get("params")
+                                .and_then(|p| p.get("thread_id"))
+                                .and_then(|t| t.as_str());
+
+                            let effective_thread_id = if let Some(tid) = thread_id_opt {
+                                // StreamStart — track the stream_id -> thread_id mapping
+                                if method == "ainm.stream.start" {
+                                    if let Some(sid) = parsed.get("params").and_then(|p| p.get("stream_id")).and_then(|s| s.as_str()) {
+                                        stream_thread_map.insert(sid.to_string(), tid.to_string());
+                                    }
+                                }
+                                Some(tid.to_string())
+                            } else {
+                                // Delta/End — look up thread_id from stream_id
+                                parsed.get("params")
+                                    .and_then(|p| p.get("stream_id"))
+                                    .and_then(|s| s.as_str())
+                                    .and_then(|sid| stream_thread_map.get(sid).cloned())
+                            };
+
+                            if let Some(tid) = effective_thread_id {
+                                let origin = federation::parse_origin_domain(&tid).unwrap_or("");
+                                if !origin.is_empty() && origin != fed.server_id {
+                                    // Relay to origin server (which will fan out)
+                                    fed.relay_sender.enqueue(origin, parsed.clone());
+                                } else if origin == fed.server_id {
+                                    // We ARE origin — fan out to all participating remote servers
+                                    if let Some((_, remotes)) = fed.thread_registry.get_info(&tid) {
+                                        for remote in &remotes {
+                                            if remote != &fed.server_id {
+                                                fed.relay_sender.enqueue(remote, parsed.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Clean up stream_thread_map on StreamEnd
+                            if method == "ainm.stream.end" {
+                                if let Some(sid) = parsed.get("params").and_then(|p| p.get("stream_id")).and_then(|s| s.as_str()) {
+                                    stream_thread_map.remove(sid);
+                                }
+                            }
+                        }
                     }
                     _ => {
                         tracing::debug!("Agent sent unknown method: {}", method);
