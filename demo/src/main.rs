@@ -1,6 +1,8 @@
 mod agent;
+mod federation;
 mod identity;
 mod protocol;
+mod relay;
 mod render;
 mod repl;
 mod server;

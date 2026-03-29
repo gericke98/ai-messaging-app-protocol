@@ -91,3 +91,18 @@ pub fn new_message_id() -> String {
 pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
+
+/// Build a JSON-RPC error as a raw `serde_json::Value`.
+///
+/// Useful for handlers that return `Json<serde_json::Value>` instead of
+/// the typed `JsonRpcResponse` (e.g., federation relay handler).
+pub fn new_error_value(id: serde_json::Value, code: i32, message: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+}
