@@ -47,8 +47,8 @@ Requirements for full multi-server federation with working demo.
 
 ### Federation Demo
 
-- [ ] **DEMO-01**: docker-compose spins up 2+ AINM servers with distinct identities and certificates
-- [ ] **DEMO-02**: Demo shows cross-server message exchange between a human on server A and an agent on server B
+- [x] **DEMO-01**: docker-compose spins up 2+ AINM servers with distinct identities and certificates
+- [x] **DEMO-02**: Demo shows cross-server message exchange between a human on server A and an agent on server B
 - [ ] **DEMO-03**: Demo tests partition healing (stop one server, queue messages, restart, verify delivery)
 - [ ] **DEMO-04**: Demo tests certificate rotation (rotate cert, verify federation continues)
 - [ ] **DEMO-05**: Demo shows cross-server streaming (agent on server B streams response to human on server A)
@@ -110,8 +110,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | AINF-02 | Phase 9 | Pending |
 | AINF-03 | Phase 9 | Pending |
 | AINF-04 | Phase 9 | Pending |
-| DEMO-01 | Phase 7 | Pending |
-| DEMO-02 | Phase 7 | Pending |
+| DEMO-01 | Phase 7 | Complete |
+| DEMO-02 | Phase 7 | Complete |
 | DEMO-03 | Phase 8 | Pending |
 | DEMO-04 | Phase 8 | Pending |
 | DEMO-05 | Phase 9 | Pending |
