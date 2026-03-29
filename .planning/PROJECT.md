@@ -12,31 +12,25 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ### Validated
 
-- [x] Open protocol specification for AI-native messaging — *Validated in Phase 1: protocol-kernel (identity, security, content, transport, threading specs)*
-- [x] Email-like identity model for both humans and agents (`name@provider`) — *Validated in Phase 1: identity.md*
-- [x] Mixed human-agent threads — both as equal participants — *Validated in Phase 1: threading.md*
-- [x] Flat conversations by default with optional sub-threading — *Validated in Phase 1: threading.md*
-- [x] Security foundations — cryptographic message signing, identity verification, anti-prompt-injection — *Validated in Phase 1: security.md*
+- ✓ Open protocol specification for AI-native messaging — v3.1
+- ✓ Email-like identity model for both humans and agents (`name@provider`) — v3.1
+- ✓ Mixed human-agent threads — both as equal participants — v3.1
+- ✓ Flat conversations by default with optional sub-threading — v3.1
+- ✓ Security foundations — cryptographic message signing, identity verification, anti-prompt-injection — v3.1
+- ✓ Agent capability discovery (Agent Cards / capability manifests) — v3.1
+- ✓ Rich interactive content from agents (forms, buttons, tables, approvals) — v3.1
+- ✓ Streaming support — agents can stream responses in real-time — v3.1
+- ✓ Context/memory management at the protocol level (active context, conversation history, archival) — v3.1
+- ✓ Tool call transparency — visible to all thread participants — v3.1
+- ✓ MCP and A2A ecosystem compatibility bridges — v3.1
+- ✓ Working demo that proves the protocol works end-to-end — v3.1
+- ✓ Published formal protocol specification (JSON Schema 2020-12 + AsyncAPI 3.1.0) — v3.1
+- ✓ Protocol versioning with backwards compatibility rules — v3.1
 
 ### Active
 
 - [ ] Federated architecture — anyone can run a server, messages route across servers
 - [ ] Native iOS app (SwiftUI) as reference client
-
-### Validated in Phase 3
-
-- [x] Working demo that proves the protocol works end-to-end — *Validated in Phase 3: Rust CLI demo (Axum WebSocket server, Ed25519 signing, streaming, rich content, agent discovery)*
-- [x] Published formal protocol specification (JSON Schema 2020-12 + AsyncAPI 3.1.0) — *Validated in Phase 3: 12 schema files, asyncapi.yaml, Docusaurus site*
-- [x] Protocol versioning with backwards compatibility rules — *Validated in Phase 3: CHANGELOG.md, VERSION, SemVer policy*
-
-### Validated in Phase 2
-
-- [x] Agent capability discovery (Agent Cards / capability manifests) — *Validated in Phase 2: agent-card.md (A2A-compatible with AINM extensions)*
-- [x] Rich interactive content from agents (forms, buttons, tables, approvals) — *Validated in Phase 2: interactive.md (declarative component model)*
-- [x] Streaming support — agents can stream responses in real-time — *Validated in Phase 2: streaming.md (start/delta/end lifecycle, parallel multi-block)*
-- [x] Context/memory management at the protocol level (active context, conversation history, archival) — *Validated in Phase 2: memory.md (three-tier model, context frames)*
-- [x] Tool call transparency — visible to all thread participants — *Validated in Phase 2: tool-visibility.md*
-- [x] MCP and A2A ecosystem compatibility bridges — *Validated in Phase 2: compatibility.md*
 
 ### Out of Scope
 
@@ -47,6 +41,18 @@ The protocol must enable mixed human-agent threads where any participant (human 
 - Self-hosting documentation/tooling for v1 — protocol spec is open but we're not building easy deployment yet
 
 ## Context
+
+### Current State (v3.1 shipped 2026-03-29)
+
+The v1 protocol specification is complete and published:
+- **11 prose spec documents** covering identity, security, transport, content, threading, streaming, interactive UI, agent discovery, tool visibility, memory, and compatibility
+- **12 JSON Schema 2020-12 files** with 52 formal type definitions
+- **AsyncAPI 3.1.0** transport bindings with 25 operations across 9 channels
+- **Rust CLI demo** (single-binary Axum server) proving the protocol end-to-end
+- **Docusaurus site** for spec publication with GitHub Pages deployment
+- **57/57 v1 requirements** satisfied across 6 phases
+
+Tech stack: Rust 1.85+ (Axum, Tokio, ring, serde), ~73K LOC across Rust, Markdown, JSON Schema, YAML, TypeScript.
 
 ### The Landscape (March 2026)
 
@@ -62,7 +68,7 @@ The agent communication ecosystem is fragmented across layers:
 
 ### Research Completed
 
-- `research/bottlenecks-current-messaging-apps.md` — Detailed analysis of Telegram, Slack, Discord, WhatsApp limitations for agent communication (rate limits, no streaming, no capability discovery, no rich content)
+- `research/bottlenecks-current-messaging-apps.md` — Detailed analysis of Telegram, Slack, Discord, WhatsApp limitations for agent communication
 - `research/landscape-protocols-projects.md` — Comprehensive survey of 15+ protocols, 10+ frameworks, academic papers, and competing products
 
 ### Key Design Influences
@@ -73,6 +79,12 @@ The agent communication ecosystem is fragmented across layers:
 - **Letta/MemGPT**: Hierarchical memory (core/conversational/archival) for context management
 - **MCP**: JSON-RPC simplicity, tool integration pattern
 - **AG-UI**: Streaming event model for real-time agent updates
+
+### Known Tech Debt
+
+- Demo-level gaps: ainm.initialized handshake enforcement is implemented but not all edge cases tested
+- ChartBlock listed in CONT-03 but deliberately excluded — may revisit
+- Key rotation, sub-thread creation, @-mentions, store-and-forward not exercised in demo (spec complete)
 
 ## Constraints
 
@@ -90,10 +102,13 @@ The agent communication ecosystem is fragmented across layers:
 | Federated architecture | Agents shouldn't be locked to one provider. Like email, anyone should be able to run a server. | Confirmed — transport.md defines HTTP federation relay |
 | Email-like identity (`name@provider`) | Familiar, works naturally with federation, human-readable. | Confirmed — identity.md specifies format + resolution |
 | Protocol spec before iOS app | Protocol is the strategic asset. App is the showcase, not the product. | Complete — 11 prose specs + 12 JSON schemas + AsyncAPI + Docusaurus site |
-| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | Complete — Rust CLI demo proves protocol end-to-end |
-| Rich interactive agent UI | Agents need more than text — forms, approvals, tables, code. A2UI's "UI as data" model is the right approach. | Confirmed — interactive.md defines declarative component catalog |
-| Three-tier memory model | Agents need structured context, not raw message dumps. Letta/MemGPT-inspired tiers. | Confirmed — memory.md defines active/conversation/archival tiers |
-| A2A-compatible Agent Cards | Capability discovery must interop with Google A2A ecosystem while extending for AINM features. | Confirmed — agent-card.md uses AINM extension namespace |
+| v1 = published spec + working demo | Validate the protocol works before investing in polished iOS app. | ✓ Complete — Rust CLI demo proves protocol end-to-end |
+| Rich interactive agent UI | Agents need more than text — forms, approvals, tables, code. A2UI's "UI as data" model is the right approach. | ✓ Confirmed — interactive.md defines declarative component catalog |
+| Three-tier memory model | Agents need structured context, not raw message dumps. Letta/MemGPT-inspired tiers. | ✓ Confirmed — memory.md defines active/conversation/archival tiers |
+| A2A-compatible Agent Cards | Capability discovery must interop with Google A2A ecosystem while extending for AINM features. | ✓ Confirmed — agent-card.md uses AINM extension namespace |
+| JSON-RPC 2.0 over WebSocket | Simpler than gRPC, works everywhere, debuggable. MCP alignment. | ✓ Confirmed — demo proves full lifecycle |
+| Ed25519 signing with RFC 8785 JCS | Deterministic signing, misuse-resistant, compact signatures. | ✓ Confirmed — all demo messages signed and verified |
+| One-level sub-threading only | Prevents Matrix-style complexity. Keep it simple for v1. | ✓ Confirmed — spec and demo validate approach |
 
 ## Evolution
 
@@ -113,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after Phase 6 (demo-feature-gaps-cleanup) completion — memory evict exercised, Agent Card ETag caching, zero cargo warnings, all dead code removed. Milestone v3.1 complete.*
+*Last updated: 2026-03-29 after v3.1 milestone completion*
