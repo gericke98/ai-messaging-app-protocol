@@ -137,9 +137,12 @@ impl RelaySender {
             .ok_or_else(|| format!("Unknown destination: {}", destination))?;
 
         // Build relay payload per transport.md Section 5.3
+        // Include replay protection fields (FAUT-05: D-01/D-02/D-03)
         let mut params = serde_json::json!({
             "messages": messages,
             "from_server": self.server_id,
+            "relay_timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "relay_id": uuid::Uuid::now_v7().to_string(),
         });
 
         // Sign relay params with server key (FAUT-03: server-level signature)

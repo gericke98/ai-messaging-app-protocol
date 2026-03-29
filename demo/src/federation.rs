@@ -191,7 +191,87 @@ pub async fn relay_handler(
         }
     };
 
-    // 2. Verify server signature (FAUT-03 layer 2)
+    // 2. Replay protection (FAUT-05: D-01, D-03, D-04)
+    let relay_timestamp = match params.get("relay_timestamp").and_then(|t| t.as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(id, -32012, "Missing relay_timestamp")),
+            );
+        }
+    };
+    let relay_id = match params.get("relay_id").and_then(|r| r.as_str()) {
+        Some(r) => r.to_string(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(id, -32012, "Missing relay_id")),
+            );
+        }
+    };
+
+    // Check timestamp freshness: reject if older than 5 minutes or more than 1 minute in the future
+    match chrono::DateTime::parse_from_rfc3339(&relay_timestamp) {
+        Ok(ts) => {
+            let age = chrono::Utc::now().signed_duration_since(ts);
+            if age > chrono::Duration::minutes(5) {
+                tracing::warn!("[federation] Replay rejected: timestamp too old ({} ago)", age);
+                return (
+                    StatusCode::OK,
+                    Json(protocol::new_error_value(id, -32012, "Relay timestamp too old (>5 min)")),
+                );
+            }
+            if age < chrono::Duration::minutes(-1) {
+                tracing::warn!("[federation] Replay rejected: timestamp in future");
+                return (
+                    StatusCode::OK,
+                    Json(protocol::new_error_value(id, -32012, "Relay timestamp in future")),
+                );
+            }
+        }
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32012,
+                    &format!("Invalid relay_timestamp: {}", e),
+                )),
+            );
+        }
+    }
+
+    // Check dedup cache: reject if relay_id already seen (D-04: persisted in redb)
+    match state.persistence.check_and_insert_relay_id(&relay_id, &relay_timestamp) {
+        Ok(true) => {
+            tracing::info!("[federation] Replay check passed: relay_id={}", relay_id);
+        }
+        Ok(false) => {
+            tracing::warn!("[federation] Replay rejected: duplicate relay_id={}", relay_id);
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32012,
+                    "Duplicate relay_id (replay detected)",
+                )),
+            );
+        }
+        Err(e) => {
+            tracing::error!("[federation] Dedup cache error: {}", e);
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32602,
+                    &format!("Dedup check failed: {}", e),
+                )),
+            );
+        }
+    }
+
+    // 3. Verify server signature (FAUT-03 layer 2)
     let remote_identity = match state.remote_cache.get(&from_server) {
         Some(id) => id,
         None => {
