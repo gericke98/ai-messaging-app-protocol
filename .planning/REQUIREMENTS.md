@@ -87,40 +87,40 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELY-01 | - | Pending |
-| RELY-02 | - | Pending |
-| RELY-03 | - | Pending |
-| RELY-04 | - | Pending |
-| RELY-05 | - | Pending |
-| FAUT-01 | - | Pending |
-| FAUT-02 | - | Pending |
-| FAUT-03 | - | Pending |
-| FAUT-04 | - | Pending |
-| FAUT-05 | - | Pending |
-| FAUT-06 | - | Pending |
-| FREL-01 | - | Pending |
-| FREL-02 | - | Pending |
-| FREL-03 | - | Pending |
-| FREL-04 | - | Pending |
-| BKFL-01 | - | Pending |
-| BKFL-02 | - | Pending |
-| BKFL-03 | - | Pending |
-| BKFL-04 | - | Pending |
-| AINF-01 | - | Pending |
-| AINF-02 | - | Pending |
-| AINF-03 | - | Pending |
-| AINF-04 | - | Pending |
-| DEMO-01 | - | Pending |
-| DEMO-02 | - | Pending |
-| DEMO-03 | - | Pending |
-| DEMO-04 | - | Pending |
-| DEMO-05 | - | Pending |
+| RELY-01 | Phase 7 | Pending |
+| RELY-02 | Phase 7 | Pending |
+| RELY-03 | Phase 7 | Pending |
+| RELY-04 | Phase 7 | Pending |
+| RELY-05 | Phase 7 | Pending |
+| FAUT-01 | Phase 7 | Pending |
+| FAUT-02 | Phase 7 | Pending |
+| FAUT-03 | Phase 7 | Pending |
+| FAUT-04 | Phase 8 | Pending |
+| FAUT-05 | Phase 8 | Pending |
+| FAUT-06 | Phase 8 | Pending |
+| FREL-01 | Phase 8 | Pending |
+| FREL-02 | Phase 8 | Pending |
+| FREL-03 | Phase 8 | Pending |
+| FREL-04 | Phase 8 | Pending |
+| BKFL-01 | Phase 8 | Pending |
+| BKFL-02 | Phase 8 | Pending |
+| BKFL-03 | Phase 8 | Pending |
+| BKFL-04 | Phase 8 | Pending |
+| AINF-01 | Phase 9 | Pending |
+| AINF-02 | Phase 9 | Pending |
+| AINF-03 | Phase 9 | Pending |
+| AINF-04 | Phase 9 | Pending |
+| DEMO-01 | Phase 7 | Pending |
+| DEMO-02 | Phase 7 | Pending |
+| DEMO-03 | Phase 8 | Pending |
+| DEMO-04 | Phase 8 | Pending |
+| DEMO-05 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28
+- Mapped to phases: 28
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-29*
-*Last updated: 2026-03-29 after initial definition*
+*Last updated: 2026-03-29 after roadmap creation*
