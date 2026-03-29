@@ -190,12 +190,20 @@ pub async fn relay_handler(
         .unwrap_or("");
     let id = body.get("id").cloned().unwrap_or(serde_json::json!(1));
 
-    if method != "ainm.relay" {
-        return (
-            StatusCode::OK,
-            Json(protocol::new_error_value(id, -32601, "Method not found")),
-        );
+    match method {
+        "ainm.relay" => {} // fall through to relay handling below
+        "ainm.backfill" => {
+            return handle_backfill(state, id, body).await;
+        }
+        _ => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(id, -32601, "Method not found")),
+            );
+        }
     }
+
+    // --- ainm.relay handling ---
 
     let params = match body.get("params") {
         Some(p) => p.clone(),
@@ -446,4 +454,190 @@ pub async fn relay_handler(
         }
     });
     (StatusCode::OK, Json(result))
+}
+
+// ---------------------------------------------------------------------------
+// Backfill Handler
+// ---------------------------------------------------------------------------
+
+/// Handle ainm.backfill requests from remote servers.
+///
+/// Per D-16: Uses same relay endpoint, same mTLS auth.
+/// Per D-17: Cursor-based pagination with after_sequence and limit.
+/// Per D-18: Authorization via ThreadRegistry participating_servers check.
+/// Per D-19: Post-join visibility only.
+async fn handle_backfill(
+    state: FederationState,
+    id: serde_json::Value,
+    body: serde_json::Value,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let params = match body.get("params") {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(id, -32602, "Missing params")),
+            );
+        }
+    };
+
+    // Parse backfill params
+    let thread_id = match params.get("thread_id").and_then(|t| t.as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32602,
+                    "Missing thread_id",
+                )),
+            );
+        }
+    };
+
+    let after_sequence = params
+        .get("after_sequence")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50)
+        .min(200) as usize;
+
+    // D-18: Authorization -- requesting server must be a participant
+    let from_server = match params.get("from_server").and_then(|s| s.as_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            return (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32602,
+                    "Missing from_server",
+                )),
+            );
+        }
+    };
+
+    if !state
+        .thread_registry
+        .is_participant(&thread_id, &from_server)
+    {
+        tracing::warn!(
+            "[backfill] Rejected: {} is not a participant in {}",
+            from_server,
+            thread_id
+        );
+        return (
+            StatusCode::OK,
+            Json(protocol::new_error_value(
+                id,
+                -32025,
+                "Not a participant in this thread",
+            )),
+        );
+    }
+
+    // D-19: Post-join visibility -- only return messages after the server's join sequence
+    let join_seq = state
+        .thread_registry
+        .get_join_sequence(&thread_id, &from_server)
+        .unwrap_or(0);
+    let effective_after = after_sequence.max(join_seq);
+
+    // Check this is the origin server (only origin has the full message history)
+    let origin = parse_origin_domain(&thread_id).unwrap_or("");
+    if origin != state.server_id {
+        return (
+            StatusCode::OK,
+            Json(protocol::new_error_value(
+                id,
+                -32024,
+                "Backfill only available from origin server",
+            )),
+        );
+    }
+
+    // Retrieve messages from persistence
+    match state
+        .persistence
+        .get_thread_messages(&thread_id, effective_after, limit)
+    {
+        Ok((messages, has_more, next_cursor)) => {
+            tracing::info!(
+                "[backfill] Returning {} messages for {} (after_seq={}, join_seq={}, has_more={})",
+                messages.len(),
+                thread_id,
+                after_sequence,
+                join_seq,
+                has_more
+            );
+            let mut result = serde_json::json!({
+                "messages": messages,
+                "has_more": has_more,
+            });
+            if let Some(cursor) = next_cursor {
+                result
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("next_cursor".to_string(), serde_json::json!(cursor));
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": result,
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("[backfill] Failed to retrieve messages: {}", e);
+            (
+                StatusCode::OK,
+                Json(protocol::new_error_value(
+                    id,
+                    -32603,
+                    &format!("Backfill failed: {}", e),
+                )),
+            )
+        }
+    }
+}
+
+/// Request backfill from origin server for a thread.
+/// Used for testing and as a reference client implementation.
+pub async fn request_backfill(
+    http_client: &reqwest::Client,
+    origin_relay_endpoint: &str,
+    from_server: &str,
+    thread_id: &str,
+    after_sequence: u64,
+    limit: u64,
+) -> Result<serde_json::Value, String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ainm.backfill",
+        "params": {
+            "thread_id": thread_id,
+            "from_server": from_server,
+            "after_sequence": after_sequence,
+            "limit": limit,
+        }
+    });
+    let resp = http_client
+        .post(origin_relay_endpoint)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Backfill request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Backfill response parse failed: {}", e))?;
+    Ok(body)
 }
