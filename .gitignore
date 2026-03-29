@@ -19,3 +19,4 @@ website/static/schemas/*.json
 # Environment files
 .env
 .env.local
+.claude/worktrees/
