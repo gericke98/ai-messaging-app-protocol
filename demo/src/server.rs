@@ -421,7 +421,7 @@ async fn handle_agent_connection(
                                 if has_id {
                                     let resp = protocol::new_response(
                                         parsed.get("id").cloned().unwrap(),
-                                        archival_fact,
+                                        archival_fact.clone(),
                                     );
                                     let mut sender = ws_sender.lock().await;
                                     let _ = sender
@@ -441,6 +441,39 @@ async fn handle_agent_connection(
                                     }),
                                 );
                                 let _ = to_human_tx.send(serde_json::to_string(&store_notify).unwrap());
+
+                                // After successful memory store in a federated thread,
+                                // push context update to remote servers (ainm.context-push)
+                                if let Some(ref fed) = state.federation {
+                                    let origin = federation::parse_origin_domain(&thread_id).unwrap_or("");
+                                    if origin == fed.server_id {
+                                        // We are origin -- push the stored fact as a context frame to remotes
+                                        let context_frame = serde_json::json!({
+                                            "frame_type": "active_context",
+                                            "thread_id": thread_id,
+                                            "key": key,
+                                            "data": archival_fact,
+                                            "timestamp": protocol::now_rfc3339()
+                                        });
+                                        if let Some((_, remotes)) = fed.thread_registry.get_info(&thread_id) {
+                                            for remote in &remotes {
+                                                if remote != &fed.server_id {
+                                                    let push_payload = serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "method": "ainm.context-push",
+                                                        "id": protocol::new_message_id(),
+                                                        "params": {
+                                                            "thread_id": thread_id,
+                                                            "context_frames": [context_frame]
+                                                        }
+                                                    });
+                                                    fed.relay_sender.enqueue(remote, push_payload);
+                                                    tracing::info!("[federation] Pushed context frame to {}", remote);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -695,6 +728,7 @@ async fn handle_human_connection(
     let to_agent_tx = state.to_agent_tx.clone();
     let identity_store = state.identity_store.clone();
     let threads = state.threads.clone();
+    let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
 
     // Task: forward agent messages/notifications to human WebSocket
@@ -741,6 +775,50 @@ async fn handle_human_connection(
                                 .to_string()
                         };
                         threads.lock().await.push(thread_id.clone());
+
+                        // After thread creation with federation, push existing context
+                        // frames to remote servers so they start with knowledge
+                        if let Some(ref fed) = state.federation {
+                            let store = archival_store.lock().await;
+                            if !store.is_empty() {
+                                let context_frames: Vec<serde_json::Value> = store
+                                    .iter()
+                                    .map(|(key, value)| {
+                                        serde_json::json!({
+                                            "frame_type": "active_context",
+                                            "thread_id": thread_id,
+                                            "key": key,
+                                            "data": value,
+                                            "timestamp": protocol::now_rfc3339()
+                                        })
+                                    })
+                                    .collect();
+
+                                // Push to all remote participating servers
+                                if let Some((_, remotes)) = fed.thread_registry.get_info(&thread_id) {
+                                    for remote in &remotes {
+                                        if remote != &fed.server_id {
+                                            let push_payload = serde_json::json!({
+                                                "jsonrpc": "2.0",
+                                                "method": "ainm.context-push",
+                                                "id": protocol::new_message_id(),
+                                                "params": {
+                                                    "thread_id": thread_id,
+                                                    "context_frames": context_frames
+                                                }
+                                            });
+                                            fed.relay_sender.enqueue(remote, push_payload);
+                                            tracing::info!(
+                                                "[federation] Pushed {} context frames to {}",
+                                                context_frames.len(),
+                                                remote
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let resp = protocol::new_response(
                             req_id,
                             serde_json::json!({
