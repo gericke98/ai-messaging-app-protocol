@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-03-30T01:08:58.376Z"
-last_activity: 2026-03-30 -- Phase 10 execution started
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-03-30T02:17:33.197Z"
+last_activity: 2026-03-30
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 10 (foundation) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 10
-Last activity: 2026-03-30 -- Phase 10 execution started
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -48,6 +48,8 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
+| Phase 10-foundation P02 | 26min | 2 tasks | 9 files |
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
@@ -58,6 +60,8 @@ Recent decisions affecting current work:
 - [v3.3 init]: Custom RFC 8785 JCS implementation required (no Swift library exists)
 - [v3.3 init]: Write-through cache pattern — all server data flows through GRDB before UI
 - [v3.3 init]: Coarse granularity — 4 phases (10-13) derived from 34 requirements
+- [Phase 10-02]: Raw Security framework over KeychainAccess 4.2.2 for Swift 6 compatibility
+- [Phase 10-02]: CryptoKit Ed25519 is randomized -- cross-platform tests verify Rust sigs in Swift, not compare bytes
 
 ### Pending Todos
 
@@ -71,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T00:40:28.805Z
-Stopped at: Phase 10 UI-SPEC approved
-Resume file: .planning/phases/10-foundation/10-UI-SPEC.md
+Last session: 2026-03-30T02:17:33.195Z
+Stopped at: Completed 10-02-PLAN.md
+Resume file: None
