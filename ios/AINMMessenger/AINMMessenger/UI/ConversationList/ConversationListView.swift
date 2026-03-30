@@ -15,11 +15,19 @@ struct ConversationListView: View {
                     ConnectionStatusView(connectionState: appState.connectionState)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        appState.showNewThreadComposer = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .accessibilityLabel("New conversation")
+                    HStack(spacing: 12) {
+                        NavigationLink {
+                            AgentDiscoveryView(appState: appState)
+                        } label: {
+                            Image(systemName: "person.2.badge.gearshape")
+                                .accessibilityLabel("Discover agents")
+                        }
+                        Button {
+                            appState.showNewThreadComposer = true
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .accessibilityLabel("New conversation")
+                        }
                     }
                 }
             }
