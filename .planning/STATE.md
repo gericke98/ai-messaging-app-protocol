@@ -4,7 +4,7 @@ milestone: v3.2
 milestone_name: iOS Reference Client
 status: verifying
 stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-03-30T15:17:41.256Z"
+last_updated: "2026-03-30T15:24:24.077Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 2
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 13 (ai-native-features-platform) — EXECUTING
-Plan: 5 of 5 complete (Wave 1 done)
+Phase: 13
+Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
