@@ -47,7 +47,7 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 
 - [x] **AI-01**: App shows tool call visibility (collapsible indicators with lifecycle grouping)
 - [x] **AI-02**: App supports @-mentions with highlighting and composer autocomplete
-- [ ] **AI-03**: User can browse agent discovery (Agent Cards with skills, tools, capabilities)
+- [x] **AI-03**: User can browse agent discovery (Agent Cards with skills, tools, capabilities)
 - [ ] **AI-04**: App displays memory context (active context frames, conversation history)
 - [ ] **AI-05**: User can view, search, and delete archival memory facts per agent
 
@@ -133,7 +133,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | INT-05 | Phase 12 | Complete |
 | AI-01 | Phase 13 | Complete |
 | AI-02 | Phase 13 | Complete |
-| AI-03 | Phase 13 | Pending |
+| AI-03 | Phase 13 | Complete |
 | AI-04 | Phase 13 | Pending |
 | AI-05 | Phase 13 | Pending |
 | PLT-01 | Phase 10 | Complete |
