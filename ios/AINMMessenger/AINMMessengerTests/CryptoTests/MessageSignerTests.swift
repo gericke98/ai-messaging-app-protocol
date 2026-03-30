@@ -11,12 +11,14 @@ import Testing
 /// Repo root: 4 directories up from the file's directory.
 private func repoRoot() -> URL {
     let thisFile = URL(fileURLWithPath: #filePath)
-    // Go up: CryptoTests -> AINMMessengerTests -> AINMMessenger -> ios -> repo root
+    // File: ios/AINMMessenger/AINMMessengerTests/CryptoTests/MessageSignerTests.swift
+    // Go up: MessageSignerTests.swift -> CryptoTests -> AINMMessengerTests -> AINMMessenger -> ios -> repo root
     return thisFile
-        .deletingLastPathComponent() // CryptoTests
-        .deletingLastPathComponent() // AINMMessengerTests
-        .deletingLastPathComponent() // AINMMessenger
-        .deletingLastPathComponent() // ios
+        .deletingLastPathComponent() // CryptoTests/
+        .deletingLastPathComponent() // AINMMessengerTests/
+        .deletingLastPathComponent() // AINMMessenger/
+        .deletingLastPathComponent() // ios/
+        .deletingLastPathComponent() // repo root
 }
 
 private func loadJSON(_ relativePath: String) throws -> Any {
@@ -157,7 +159,7 @@ struct MessageSignerTests {
 
     // MARK: - Cross-Platform Signing Vectors
 
-    @Test("Cross-platform signing vectors match Rust-generated signatures")
+    @Test("Cross-platform signing vectors: JCS match + Rust signatures verify in Swift")
     func testCrossPlatformSigningVectors() throws {
         let root = try #require(loadJSON("tests/vectors/signing_vectors.json") as? [String: Any])
         let keyPair = try #require(root["key_pair"] as? [String: Any])
@@ -181,23 +183,30 @@ struct MessageSignerTests {
             let expectedSig = try #require(vector["expected_signature_base64url"] as? String)
             let expectedCanonical = try #require(vector["expected_canonical"] as? String)
 
-            // Verify JCS canonical form matches
+            // 1. Verify JCS canonical form matches Rust output exactly
             var signingInput = envelope
             signingInput.removeValue(forKey: "signature")
             let canonical = try JCSCanonicalizer.canonicalize(signingInput)
             #expect(canonical == expectedCanonical,
                     "JCS canonical mismatch for vector '\(name)'")
 
-            // Verify signature matches Rust output
-            let signature = try MessageSigner.sign(envelope: envelope, privateKey: privateKey)
-            #expect(signature == expectedSig,
-                    "Signature mismatch for vector '\(name)': got \(signature), expected \(expectedSig)")
-
-            // Verify the expected signature is valid
+            // 2. Verify Rust-generated signature is accepted by Swift verify
+            //    (Cross-platform interop: Rust sign -> Swift verify)
             var signedEnvelope = envelope
             signedEnvelope["signature"] = expectedSig
             let isValid = try MessageSigner.verify(envelope: signedEnvelope, publicKey: publicKey)
             #expect(isValid, "Rust-generated signature verification failed for vector '\(name)'")
+
+            // 3. Verify Swift-generated signature also verifies
+            //    (CryptoKit uses randomized Ed25519, so signature differs from Rust,
+            //     but must still verify against the same public key)
+            let swiftSig = try MessageSigner.sign(envelope: envelope, privateKey: privateKey)
+            var swiftSignedEnvelope = envelope
+            swiftSignedEnvelope["signature"] = swiftSig
+            let swiftValid = try MessageSigner.verify(
+                envelope: swiftSignedEnvelope, publicKey: publicKey)
+            #expect(swiftValid,
+                    "Swift-generated signature must verify for vector '\(name)'")
         }
     }
 
@@ -229,10 +238,22 @@ struct MessageSignerTests {
         // Sign without signature field
         let sig1 = try MessageSigner.sign(envelope: envelope, privateKey: privateKey)
 
-        // Sign with a stale signature field present -- should produce same result
+        // Sign with a stale signature field present
         envelope["signature"] = "stale-signature-value"
         let sig2 = try MessageSigner.sign(envelope: envelope, privateKey: privateKey)
 
-        #expect(sig1 == sig2, "Signing must strip existing signature before canonicalization")
+        // CryptoKit Ed25519 uses randomized signing, so signatures differ.
+        // Both must verify against the same canonical data, proving the
+        // "signature" field was correctly stripped in both cases.
+        var env1 = makeTestEnvelope()
+        env1["signature"] = sig1
+        var env2 = makeTestEnvelope()
+        env2["signature"] = sig2
+
+        let valid1 = try MessageSigner.verify(envelope: env1, publicKey: privateKey.publicKey)
+        let valid2 = try MessageSigner.verify(envelope: env2, publicKey: privateKey.publicKey)
+
+        #expect(valid1, "First signature must verify")
+        #expect(valid2, "Second signature (with stale sig stripped) must verify")
     }
 }
