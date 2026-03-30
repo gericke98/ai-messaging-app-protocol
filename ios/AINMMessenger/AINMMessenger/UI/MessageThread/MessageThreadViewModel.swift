@@ -30,15 +30,19 @@ final class MessageThreadViewModel {
     private let currentUserIdentity: String
     private let repository: MessageRepository
     private let threadRepository: ThreadRepository
+    private let database: AppDatabase
     private var participants: [String: ParticipantRecord] = [:]  // identity -> record
     private var allMessages: [MessageRecord] = []
     private var oldestTimestamp: String?
     private var newestTimestamp: String?
     private var observationTask: Task<Void, Never>?
+    /// Cache of sub-thread info keyed by parent message ID.
+    private var subThreadCache: [String: (threadId: String, replyCount: Int)] = [:]
 
     init(threadId: String, currentUserIdentity: String, database: AppDatabase) {
         self.threadId = threadId
         self.currentUserIdentity = currentUserIdentity
+        self.database = database
         self.repository = MessageRepository(dbPool: database.dbPool)
         self.threadRepository = ThreadRepository(dbPool: database.dbPool)
     }
@@ -67,6 +71,9 @@ final class MessageThreadViewModel {
         self.newestTimestamp = allMessages.last?.timestamp
         self.hasMoreMessages = messages.count == 50
         rebuildGroups()
+
+        // Load sub-thread cache for indicator badges
+        await loadSubThreadCache()
 
         // Start observing new messages
         startObservingNewMessages()
@@ -161,6 +168,37 @@ final class MessageThreadViewModel {
             return [.unknown(fallback: "[Could not decode message content]")]
         }
         return blocks
+    }
+
+    /// Return sub-thread info for a message if it has a branching sub-thread.
+    func subThreadInfo(forMessageId messageId: String) -> (threadId: String, replyCount: Int)? {
+        subThreadCache[messageId]
+    }
+
+    /// Load sub-thread data for all messages in the current thread.
+    private func loadSubThreadCache() async {
+        do {
+            let cache: [String: (String, Int)] = try await database.dbPool.read { db in
+                // Find all sub-threads whose parentThreadId matches our thread
+                let subThreads = try ThreadRecord
+                    .filter(Column("parentThreadId") == self.threadId)
+                    .fetchAll(db)
+                var result: [String: (String, Int)] = [:]
+                for subThread in subThreads {
+                    guard let parentMessageId = subThread.parentMessageId else { continue }
+                    // Count messages in this sub-thread
+                    let count = try MessageRecord
+                        .filter(Column("threadId") == subThread.id)
+                        .filter(Column("type") == "message")
+                        .fetchCount(db)
+                    result[parentMessageId] = (subThread.id, count)
+                }
+                return result
+            }
+            subThreadCache = cache
+        } catch {
+            // Non-critical -- indicators just won't show
+        }
     }
 
     /// Format timestamp for display.

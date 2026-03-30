@@ -9,9 +9,19 @@ struct MessageThreadView: View {
     @State private var viewModel: MessageThreadViewModel?
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var showMemoryContext = false
+    @State private var parentThreadInfo: (parentThreadId: String, parentMessageId: String, senderName: String)?
+    @State private var showMessageNotFound = false
 
     var body: some View {
         VStack(spacing: 0) {
+            // Sub-thread banner (pinned, not scrolling)
+            if let info = parentThreadInfo {
+                SubThreadBannerView(parentSenderName: info.senderName) {
+                    appState.scrollToMessageId = info.parentMessageId
+                    appState.selectedThreadId = info.parentThreadId
+                }
+            }
+
             ScrollView {
                 LazyVStack(spacing: 16) {
                     if let viewModel {
@@ -27,6 +37,16 @@ struct MessageThreadView: View {
                                 timestampFormatter: { viewModel.formatTimestamp($0) },
                                 onAction: { messageId, blockIndex, actionId, data in
                                     handleAction(messageId: messageId, blockIndex: blockIndex, actionId: actionId, data: data)
+                                },
+                                isInSubThread: parentThreadInfo != nil,
+                                subThreadInfo: { messageId in
+                                    viewModel.subThreadInfo(forMessageId: messageId)
+                                },
+                                onNavigateToSubThread: { subThreadId in
+                                    appState.selectedThreadId = subThreadId
+                                },
+                                onBranchThread: { messageId in
+                                    Task { await branchThread(fromMessageId: messageId) }
                                 }
                             )
                         }
@@ -117,6 +137,18 @@ struct MessageThreadView: View {
             MemoryContextView(threadId: threadId, appState: appState)
                 .presentationDetents([.medium, .large])
         }
+        .overlay(alignment: .bottom) {
+            if showMessageNotFound {
+                Text("Message not found")
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.bottom, 80)
+                    .transition(.opacity)
+            }
+        }
         .onAppear {
             appState.currentViewingThreadId = threadId
             if viewModel == nil, let db = appState.appDatabase {
@@ -127,7 +159,11 @@ struct MessageThreadView: View {
                 )
                 vm.streamingViewModel = appState.streamingViewModel
                 self.viewModel = vm
-                Task { await vm.loadInitial() }
+                Task {
+                    await vm.loadInitial()
+                    await loadParentThreadInfo(database: db)
+                    handleScrollToMessage()
+                }
             }
         }
         .onDisappear {
@@ -149,6 +185,68 @@ struct MessageThreadView: View {
                 fallbackText: fallback,
                 threadId: threadId
             )
+        }
+    }
+
+    /// Branch a new sub-thread from the given message.
+    private func branchThread(fromMessageId messageId: String) async {
+        do {
+            let subThreadId = try await appState.createSubThread(
+                parentThreadId: threadId,
+                parentMessageId: messageId
+            )
+            appState.selectedThreadId = subThreadId
+        } catch {
+            // Silently fail -- user will see no navigation
+        }
+    }
+
+    /// Load parent thread info for sub-thread banner display.
+    private func loadParentThreadInfo(database: AppDatabase) async {
+        do {
+            let info: (String, String, String)? = try await database.dbPool.read { db in
+                guard let thread = try ThreadRecord.fetchOne(db, key: self.threadId),
+                      let parentThreadId = thread.parentThreadId,
+                      let parentMessageId = thread.parentMessageId else {
+                    return nil
+                }
+                // Look up the parent message sender name
+                let senderName: String
+                if let parentMessage = try MessageRecord.fetchOne(db, key: parentMessageId) {
+                    senderName = parentMessage.fromAddress.components(separatedBy: "@").first ?? parentMessage.fromAddress
+                } else {
+                    senderName = thread.createdBy.components(separatedBy: "@").first ?? "Unknown"
+                }
+                return (parentThreadId, parentMessageId, senderName)
+            }
+            if let info {
+                parentThreadInfo = (parentThreadId: info.0, parentMessageId: info.1, senderName: info.2)
+            }
+        } catch {
+            // Non-critical -- banner just won't show
+        }
+    }
+
+    /// Handle scroll-to-message from deep links.
+    private func handleScrollToMessage() {
+        guard let messageId = appState.scrollToMessageId else { return }
+        appState.scrollToMessageId = nil
+        // Check if the message exists in loaded groups
+        let messageExists = viewModel?.messageGroups.contains { group in
+            group.messages.contains { $0.id == messageId }
+        } ?? false
+        if messageExists {
+            scrollPosition.scrollTo(id: messageId, anchor: .center)
+        } else {
+            withAnimation {
+                showMessageNotFound = true
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation {
+                    showMessageNotFound = false
+                }
+            }
         }
     }
 

@@ -264,6 +264,46 @@ actor AINMClient {
         return threadId
     }
 
+    /// Create a sub-thread branching from a specific message in a parent thread.
+    /// Per threading.md: sub-threads carry parentThreadId and parentMessageId.
+    func createSubThread(
+        parentThreadId: String,
+        parentMessageId: String,
+        identity: String
+    ) async throws -> String {
+        guard case .connected = state else { throw ClientError.notConnected }
+
+        let threadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+
+        // Persist sub-thread locally (write-through)
+        let threadRecord = ThreadRecord(
+            id: threadId,
+            title: nil,
+            createdAt: timestamp,
+            createdBy: identity,
+            parentThreadId: parentThreadId,
+            parentMessageId: parentMessageId
+        )
+        try await appDatabase.dbPool.write { db in
+            try threadRecord.save(db)
+        }
+
+        // Send thread.create with parent fields via protocol
+        let createEnvelope = MessageEnvelope(
+            id: UUID().uuidString,
+            from: identity,
+            threadId: threadId,
+            timestamp: timestamp,
+            type: .threadCreate,
+            content: [],
+            signature: nil,
+            parentId: parentMessageId
+        )
+        try await sendMessage(envelope: createEnvelope)
+        return threadId
+    }
+
     /// Cancel an active stream by sending `ainm.stream.cancel` to the server.
     func cancelStream(streamId: String) async throws {
         guard case .connected = state else { throw ClientError.notConnected }

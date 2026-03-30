@@ -16,6 +16,7 @@ final class AppState {
     var selectedThreadId: String?
     var showNewThreadComposer: Bool = false
     var currentViewingThreadId: String?
+    var scrollToMessageId: String?
 
     /// Observable streaming state bridging AINMClient notifications to SwiftUI.
     var streamingViewModel = StreamingViewModel()
@@ -166,6 +167,18 @@ final class AppState {
             throw AINMClient.ClientError.notConnected
         }
         return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+    }
+
+    /// Create a sub-thread branching from a specific message.
+    func createSubThread(parentThreadId: String, parentMessageId: String) async throws -> String {
+        guard let client, let identity = connectedIdentity else {
+            throw AINMClient.ClientError.notConnected
+        }
+        return try await client.createSubThread(
+            parentThreadId: parentThreadId,
+            parentMessageId: parentMessageId,
+            identity: identity
+        )
     }
 
     /// Cancel all active streams in a thread. Marks them as cancelling in the view model
