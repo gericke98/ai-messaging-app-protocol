@@ -69,13 +69,13 @@ final class AppState {
             threadId: "test-thread",
             timestamp: ISO8601DateFormatter.ainm.string(from: Date()),
             type: .message,
-            content: [ContentBlock(
-                type: "text",
+            content: [.text(ContentBlock.TextContent(
                 version: "1.0",
                 source: "user",
                 text: "Test message from iOS",
+                mentions: nil,
                 fallback: "Test message from iOS"
-            )],
+            ))],
             signature: nil,
             parentId: nil
         )

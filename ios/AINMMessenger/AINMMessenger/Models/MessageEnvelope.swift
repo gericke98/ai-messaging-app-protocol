@@ -49,28 +49,3 @@ struct MessageEnvelope: Codable, Sendable {
         }
     }
 }
-
-/// Content block matching common.schema.json ContentBlockBase.
-/// Minimal for Phase 10 (text only), expanded in Phase 11.
-struct ContentBlock: Codable, Sendable {
-    let type: String     // "text", "code", "image", "file"
-    let version: String  // "1.0"
-    let source: String   // "user", "agent", "system"
-    let text: String?    // For text blocks
-    let fallback: String
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(type, forKey: .type)
-        try container.encode(version, forKey: .version)
-        try container.encode(source, forKey: .source)
-        if let text {
-            try container.encode(text, forKey: .text)
-        }
-        try container.encode(fallback, forKey: .fallback)
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case type, version, source, text, fallback
-    }
-}
