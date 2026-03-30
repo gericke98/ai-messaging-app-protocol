@@ -17,6 +17,21 @@ final class AppState {
     var showNewThreadComposer: Bool = false
     var currentViewingThreadId: String?
 
+    // MARK: - Presence Tracking
+
+    /// Represents an active typing/processing indicator for a participant.
+    struct PresenceEntry: Identifiable {
+        let id: String  // identity
+        let name: String
+        let isAgent: Bool
+        let threadId: String?
+        var lastUpdated: Date = Date()
+    }
+
+    /// Active presence indicators keyed by identity.
+    var activePresence: [String: PresenceEntry] = [:]
+    private var presenceCleanupTask: Task<Void, Never>?
+
     enum ConnectionDisplayState: Sendable {
         case disconnected
         case connecting
@@ -32,7 +47,22 @@ final class AppState {
     func setup() throws {
         let db = try AppDatabase.makeDefault()
         self.appDatabase = db
-        self.client = AINMClient(appDatabase: db)
+        let newClient = AINMClient(appDatabase: db)
+        self.client = newClient
+
+        // Wire presence callback from protocol client
+        Task {
+            await newClient.setPresenceCallback { [weak self] params in
+                Task { @MainActor in
+                    self?.handlePresence(params)
+                }
+            }
+            await newClient.setMessageDeliveredCallback { [weak self] identity in
+                Task { @MainActor in
+                    self?.activePresence.removeValue(forKey: identity)
+                }
+            }
+        }
     }
 
     /// Connect to the AINM server with the configured URL and display name.
@@ -61,6 +91,8 @@ final class AppState {
         connectionState = .disconnected
         serverCapabilities = nil
         connectedIdentity = nil
+        activePresence.removeAll()
+        presenceCleanupTask?.cancel()
     }
 
     /// Send a signed message envelope via the protocol client.
@@ -75,6 +107,80 @@ final class AppState {
             throw AINMClient.ClientError.notConnected
         }
         return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+    }
+
+    // MARK: - ActionBlock Sending
+
+    /// Construct and send an ActionBlock message in response to interactive block interactions.
+    /// Wires from ContentBlockRenderer onAction -> AppState -> AINMClient.sendMessage.
+    func sendActionBlock(
+        refMessageId: String,
+        refBlockIndex: Int,
+        actionId: String,
+        data: [String: Any],
+        fallbackText: String,
+        threadId: String
+    ) async throws {
+        guard let identity = connectedIdentity else { throw AINMClient.ClientError.notConnected }
+
+        let actionContent = ContentBlock.ActionContent(
+            version: "1.0",
+            source: "user",
+            refMessageId: refMessageId,
+            refBlockIndex: refBlockIndex,
+            actionId: actionId,
+            data: AnyCodableValue.fromAny(data),
+            fallback: fallbackText
+        )
+
+        let envelope = MessageEnvelope(
+            id: UUID().uuidString,
+            from: identity,
+            threadId: threadId,
+            timestamp: ISO8601DateFormatter.ainm.string(from: Date()),
+            type: .action,
+            content: [.action(actionContent)],
+            signature: nil,
+            parentId: nil
+        )
+        try await sendMessage(envelope: envelope)
+    }
+
+    // MARK: - Presence Handling
+
+    /// Handle incoming presence notification from the protocol client.
+    func handlePresence(_ params: PresenceNotifyParams) {
+        let name = params.identity.components(separatedBy: "@").first ?? params.identity
+        if params.status == "processing" || params.status == "typing" {
+            activePresence[params.identity] = PresenceEntry(
+                id: params.identity,
+                name: name,
+                isAgent: params.status == "processing",
+                threadId: params.threadId,
+                lastUpdated: Date()
+            )
+            schedulePresenceCleanup()
+        } else {
+            activePresence.removeValue(forKey: params.identity)
+        }
+    }
+
+    /// Schedule cleanup of stale presence entries (30-second guard per UI-SPEC).
+    private func schedulePresenceCleanup() {
+        presenceCleanupTask?.cancel()
+        presenceCleanupTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            let now = Date()
+            activePresence = activePresence.filter { _, entry in
+                now.timeIntervalSince(entry.lastUpdated) < 30
+            }
+        }
+    }
+
+    /// Get presence entries filtered by thread for display in MessageThreadView.
+    func presenceEntries(forThread threadId: String) -> [PresenceEntry] {
+        activePresence.values.filter { $0.threadId == threadId }.sorted { $0.name < $1.name }
     }
 
     /// Map errors to user-facing messages matching UI-SPEC copywriting contract.

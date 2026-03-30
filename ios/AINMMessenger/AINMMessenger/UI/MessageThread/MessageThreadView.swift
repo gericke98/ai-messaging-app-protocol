@@ -23,8 +23,16 @@ struct MessageThreadView: View {
                             MessageGroupView(
                                 group: group,
                                 contentBlocksProvider: { viewModel.contentBlocks(for: $0) },
-                                timestampFormatter: { viewModel.formatTimestamp($0) }
+                                timestampFormatter: { viewModel.formatTimestamp($0) },
+                                onAction: { messageId, blockIndex, actionId, data in
+                                    handleAction(messageId: messageId, blockIndex: blockIndex, actionId: actionId, data: data)
+                                }
                             )
+                        }
+
+                        // Typing/processing indicators from active presence
+                        ForEach(appState.presenceEntries(forThread: threadId)) { entry in
+                            TypingIndicatorView(name: entry.name, isAgent: entry.isAgent)
                         }
                     }
                 }
@@ -76,6 +84,22 @@ struct MessageThreadView: View {
         .onDisappear {
             appState.currentViewingThreadId = nil
             viewModel?.stopObserving()
+        }
+    }
+
+    /// Handle interactive block action from ContentBlockRenderer onAction chain.
+    /// Routes: MessageThreadView -> MessageGroupView -> AgentMessageView -> ContentBlockRenderer -> block view.
+    private func handleAction(messageId: String, blockIndex: Int, actionId: String, data: [String: Any]) {
+        let fallback = "Action: \(actionId)"
+        Task {
+            try? await appState.sendActionBlock(
+                refMessageId: messageId,
+                refBlockIndex: blockIndex,
+                actionId: actionId,
+                data: data,
+                fallbackText: fallback,
+                threadId: threadId
+            )
         }
     }
 

@@ -85,6 +85,34 @@ enum AnyCodableValue: Codable, Sendable, Equatable {
         let data = try JSONEncoder().encode(encodable)
         self = try JSONDecoder().decode(AnyCodableValue.self, from: data)
     }
+
+    /// Convert an untyped `Any` value (e.g. from `[String: Any]`) to `AnyCodableValue`.
+    /// Used by the ActionBlock flow where onAction closures pass `[String: Any]` data.
+    static func fromAny(_ value: Any) -> AnyCodableValue {
+        if value is NSNull {
+            return .null
+        }
+        if let bool = value as? Bool {
+            return .bool(bool)
+        }
+        if let int = value as? Int {
+            return .int(int)
+        }
+        if let double = value as? Double {
+            return .double(double)
+        }
+        if let string = value as? String {
+            return .string(string)
+        }
+        if let array = value as? [Any] {
+            return .array(array.map { fromAny($0) })
+        }
+        if let dict = value as? [String: Any] {
+            return .object(dict.mapValues { fromAny($0) })
+        }
+        // Fallback: attempt string conversion
+        return .string(String(describing: value))
+    }
 }
 
 // MARK: - ExpressibleBy Literals
