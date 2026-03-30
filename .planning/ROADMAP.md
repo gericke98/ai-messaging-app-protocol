@@ -37,7 +37,7 @@ Plans:
 **Plans**: 5 plans
 Plans:
 - [ ] 13-01-PLAN.md -- Tool call visibility: models, GRDB persistence, AINMClient handling, ToolCallIndicatorView
-- [ ] 13-02-PLAN.md -- @-mentions: MentionTextRenderer highlighting, MentionAutocompleteView in composer
+- [x] 13-02-PLAN.md -- @-mentions: MentionTextRenderer highlighting, MentionAutocompleteView in composer
 - [ ] 13-03-PLAN.md -- Agent discovery: AgentCard model, HTTP service with ETag caching, AgentDiscoveryView, AgentCardDetailView
 - [ ] 13-04-PLAN.md -- Memory context: ContextFrame models, memory query/evict methods, MemoryContextView sheet, ArchivalMemoryView
 - [ ] 13-05-PLAN.md -- Sub-threading and deep linking: branch/navigate sub-threads, ainm:// URL scheme, AgentDiscovery navigation
@@ -53,4 +53,4 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 | 10. Foundation | v3.3 | 5/5 | Complete    | 2026-03-30 |
 | 11. Core Messaging UI | v3.3 | 4/4 | Complete    | 2026-03-30 |
 | 12. Streaming & Interactive Blocks | v3.3 | 4/4 | Complete    | 2026-03-30 |
-| 13. AI-Native Features & Platform | v3.3 | 0/5 | Planned | - |
+| 13. AI-Native Features & Platform | v3.3 | 1/5 | In Progress|  |
