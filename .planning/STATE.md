@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-03-30T04:52:45.092Z"
+stopped_at: Phase 12 UI-SPEC approved
+last_updated: "2026-03-30T05:25:04.776Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 4
@@ -80,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T03:37:49.236Z
-Stopped at: Phase 11 UI-SPEC approved
-Resume file: .planning/phases/11-core-messaging-ui/11-UI-SPEC.md
+Last session: 2026-03-30T05:25:04.771Z
+Stopped at: Phase 12 UI-SPEC approved
+Resume file: .planning/phases/12-streaming-interactive-blocks/12-UI-SPEC.md
