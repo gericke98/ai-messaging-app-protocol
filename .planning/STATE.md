@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Phase 11 context gathered
-last_updated: "2026-03-30T03:22:15.225Z"
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-03-30T04:25:37Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 0
+  total_plans: 9
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Enable mixed human-agent threads where any participant can seamlessly join, communicate, and coordinate
-**Current focus:** Phase 10 — foundation
+**Current focus:** Phase 11 — core messaging UI
 
 ## Current Position
 
 Phase: 11
-Plan: Not started
-Status: Ready to execute
+Plan: 1 of 4 complete
+Status: Executing
 Last activity: 2026-03-30
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [#░░░░░░░░░] 11%
 
 ## Performance Metrics
 
@@ -44,7 +44,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 11-core-messaging-ui | 1/4 | 7min | 7min |
 
 ## Accumulated Context
 
@@ -67,6 +67,8 @@ Recent decisions affecting current work:
 - [Phase 10-foundation]: Used nonisolated(unsafe) for ISO8601DateFormatter static (Swift 6 strict concurrency)
 - [Phase 10-foundation]: GRDB dbPool.write requires await in actor context (async bridge in Swift 6)
 - [Phase 10]: @MainActor added to AppState for Swift 6 strict concurrency compliance
+- [Phase 11-01]: Used ValueReducers.Fetch generic type for GRDB ValueObservation return types
+- [Phase 11-01]: Removed ConnectionSuccessView navigation in favor of root-level state routing
 
 ### Pending Todos
 
@@ -80,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T03:22:15.222Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-core-messaging-ui/11-CONTEXT.md
+Last session: 2026-03-30T04:25:37Z
+Stopped at: Completed 11-01-PLAN.md
+Resume file: .planning/phases/11-core-messaging-ui/11-01-SUMMARY.md

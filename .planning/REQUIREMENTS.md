@@ -21,7 +21,7 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 - [ ] **MSG-01**: User can view conversation list with thread title, last message preview, and timestamps
 - [ ] **MSG-02**: User can view message thread with chronological messages and participant avatars
 - [ ] **MSG-03**: User can send text messages with Markdown rendering
-- [ ] **MSG-04**: App renders multi-block messages (text + code + image in sequence)
+- [x] **MSG-04**: App renders multi-block messages (text + code + image in sequence)
 - [ ] **MSG-05**: App renders CodeBlocks with syntax highlighting, language label, and copy button
 - [ ] **MSG-06**: App renders ImageBlocks with tap-to-fullscreen and size pre-layout
 - [ ] **MSG-07**: App renders FileBlocks with filename, size, and download capability
@@ -54,8 +54,8 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 ### Persistence & Platform
 
 - [x] **PLT-01**: App caches messages, threads, and participants locally via GRDB.swift
-- [ ] **PLT-02**: App provides offline access to cached messages
-- [ ] **PLT-03**: App supports light and dark mode via SwiftUI semantic colors
+- [x] **PLT-02**: App provides offline access to cached messages
+- [x] **PLT-03**: App supports light and dark mode via SwiftUI semantic colors
 - [ ] **PLT-04**: User can branch sub-threads from any message (one level per spec)
 - [ ] **PLT-05**: App supports deep linking to specific threads and messages
 
@@ -116,7 +116,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | MSG-01 | Phase 11 | Pending |
 | MSG-02 | Phase 11 | Pending |
 | MSG-03 | Phase 11 | Pending |
-| MSG-04 | Phase 11 | Pending |
+| MSG-04 | Phase 11 | Complete |
 | MSG-05 | Phase 11 | Pending |
 | MSG-06 | Phase 11 | Pending |
 | MSG-07 | Phase 11 | Pending |
@@ -137,8 +137,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | AI-04 | Phase 13 | Pending |
 | AI-05 | Phase 13 | Pending |
 | PLT-01 | Phase 10 | Complete |
-| PLT-02 | Phase 11 | Pending |
-| PLT-03 | Phase 11 | Pending |
+| PLT-02 | Phase 11 | Complete |
+| PLT-03 | Phase 11 | Complete |
 | PLT-04 | Phase 13 | Pending |
 | PLT-05 | Phase 13 | Pending |
 
