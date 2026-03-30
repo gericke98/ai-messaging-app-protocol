@@ -41,7 +41,13 @@ See [milestones/v3.2-ROADMAP.md](milestones/v3.2-ROADMAP.md)
   3. A message signed by the Rust server is received by the app and its Ed25519 signature is verified locally — bidirectional signing works
   4. User can enter server URL and display name during onboarding, and the app generates and stores an Ed25519 keypair in iOS Keychain that persists across app restarts
   5. Messages, threads, and participants received from the server are persisted to GRDB and survive app termination — the local database is the single source of truth for UI
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 10-01-PLAN.md -- Xcode project setup, protocol models, JCS canonicalizer, base64url
+- [ ] 10-02-PLAN.md -- Ed25519 KeyManager, MessageSigner, cross-platform test vectors
+- [ ] 10-03-PLAN.md -- GRDB persistence layer (AppDatabase, migrations, record types)
+- [ ] 10-04-PLAN.md -- WebSocket networking, AINMClient protocol handshake, AppState
+- [ ] 10-05-PLAN.md -- Onboarding and Connection Success UI, GitHub Actions CI
 
 ### Phase 11: Core Messaging UI
 **Goal**: Users can browse conversations, read message threads with rich content blocks, send text messages, and access cached messages offline — a functional messaging app
