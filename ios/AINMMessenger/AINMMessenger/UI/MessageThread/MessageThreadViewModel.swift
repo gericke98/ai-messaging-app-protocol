@@ -20,6 +20,7 @@ final class MessageThreadViewModel {
     var hasMoreMessages = true
     var threadTitle: String = ""
     var participantCount: Int = 0
+    var hasAgentParticipant: Bool = false
 
     /// Weak reference to StreamingViewModel for ephemeral-to-permanent transition.
     /// Set by MessageThreadView on appear.
@@ -50,6 +51,7 @@ final class MessageThreadViewModel {
         let parts = (try? await repository.fetchParticipants(threadId: threadId)) ?? []
         for p in parts { participants[p.identity] = p }
         participantCount = parts.count
+        hasAgentParticipant = parts.contains { $0.type == "agent" }
 
         // Load thread title
         if let thread = try? await threadRepository.dbPool.read({ db in

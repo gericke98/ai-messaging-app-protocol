@@ -8,6 +8,7 @@ struct MessageThreadView: View {
     let threadId: String
     @State private var viewModel: MessageThreadViewModel?
     @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var showMemoryContext = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,6 +93,29 @@ struct MessageThreadView: View {
                     }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel?.hasAgentParticipant == true {
+                    Button {
+                        showMemoryContext = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "brain")
+                            Text("Context")
+                                .font(.caption.bold())
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12))
+                        .foregroundStyle(Color.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .accessibilityLabel("View memory context")
+                }
+            }
+        }
+        .sheet(isPresented: $showMemoryContext) {
+            MemoryContextView(threadId: threadId, appState: appState)
+                .presentationDetents([.medium, .large])
         }
         .onAppear {
             appState.currentViewingThreadId = threadId
