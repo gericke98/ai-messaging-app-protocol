@@ -41,6 +41,17 @@ actor AINMClient {
     var onStreamEnd: ((StreamingManager.ActiveStream, String) -> Void)?  // stream, status
     var onStreamError: ((StreamingManager.ActiveStream) -> Void)?
     var onPresenceNotify: ((PresenceNotifyParams) -> Void)?
+    var onMessageDelivered: ((String) -> Void)?  // identity of sender
+
+    /// Set the presence notification callback. Called from AppState.setup().
+    func setPresenceCallback(onPresence: @escaping @Sendable (PresenceNotifyParams) -> Void) {
+        self.onPresenceNotify = onPresence
+    }
+
+    /// Set the message delivered callback to clear typing indicators.
+    func setMessageDeliveredCallback(onDelivered: @escaping @Sendable (String) -> Void) {
+        self.onMessageDelivered = onDelivered
+    }
 
     init(
         webSocket: WebSocketConnection = WebSocketConnection(),
@@ -363,6 +374,8 @@ actor AINMClient {
         do {
             let paramsData = try JSONSerialization.data(withJSONObject: params)
             let envelope = try JSONDecoder().decode(MessageEnvelope.self, from: paramsData)
+            // Clear typing indicator when participant sends a message
+            onMessageDelivered?(envelope.from)
             let record = try MessageRecord(from: envelope)
             try await appDatabase.dbPool.write { db in
                 // Ensure the thread exists locally (auto-create if missing)

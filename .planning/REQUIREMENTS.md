@@ -31,16 +31,16 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 ### Streaming & Real-Time
 
 - [x] **STR-01**: App renders streaming responses token-by-token with cursor animation
-- [ ] **STR-02**: App shows typing/processing indicators for humans and agents
+- [x] **STR-02**: App shows typing/processing indicators for humans and agents
 - [x] **STR-03**: User can cancel an active streaming response
 - [x] **STR-04**: App handles parallel block streaming (multiple blocks receiving deltas simultaneously)
 
 ### Interactive Blocks
 
-- [ ] **INT-01**: App renders ButtonBlocks with semantic styles and sends ActionBlock on tap
-- [ ] **INT-02**: App renders FormBlocks with all field types and client-side validation
-- [ ] **INT-03**: App renders TableBlocks with horizontal scroll and row actions
-- [ ] **INT-04**: App renders ApprovalBlocks with state machine (pending/approved/rejected/changes_requested)
+- [x] **INT-01**: App renders ButtonBlocks with semantic styles and sends ActionBlock on tap
+- [x] **INT-02**: App renders FormBlocks with all field types and client-side validation
+- [x] **INT-03**: App renders TableBlocks with horizontal scroll and row actions
+- [x] **INT-04**: App renders ApprovalBlocks with state machine (pending/approved/rejected/changes_requested)
 - [x] **INT-05**: App renders fallback text for unrecognized block types
 
 ### AI-Native Features
@@ -123,13 +123,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | MSG-08 | Phase 11 | Complete |
 | MSG-09 | Phase 11 | Complete |
 | STR-01 | Phase 12 | Complete |
-| STR-02 | Phase 12 | Pending |
+| STR-02 | Phase 12 | Complete |
 | STR-03 | Phase 12 | Complete |
 | STR-04 | Phase 12 | Complete |
-| INT-01 | Phase 12 | Pending |
-| INT-02 | Phase 12 | Pending |
-| INT-03 | Phase 12 | Pending |
-| INT-04 | Phase 12 | Pending |
+| INT-01 | Phase 12 | Complete |
+| INT-02 | Phase 12 | Complete |
+| INT-03 | Phase 12 | Complete |
+| INT-04 | Phase 12 | Complete |
 | INT-05 | Phase 12 | Complete |
 | AI-01 | Phase 13 | Pending |
 | AI-02 | Phase 13 | Pending |
