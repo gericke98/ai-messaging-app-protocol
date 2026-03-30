@@ -24,7 +24,7 @@ See [milestones/v3.2-ROADMAP.md](milestones/v3.2-ROADMAP.md)
 
 ### v3.3 iOS Reference Client
 
-- [ ] **Phase 10: Foundation** - Crypto, networking, persistence infrastructure validated against Rust server
+- [x] **Phase 10: Foundation** - Crypto, networking, persistence infrastructure validated against Rust server (completed 2026-03-30)
 - [ ] **Phase 11: Core Messaging UI** - Conversation list, message threads, content blocks, offline access
 - [ ] **Phase 12: Streaming & Interactive Blocks** - Real-time streaming, interactive block suite, action responses
 - [ ] **Phase 13: AI-Native Features & Platform** - Tool calls, memory, agent discovery, sub-threads, deep linking
@@ -47,7 +47,7 @@ Plans:
 - [x] 10-02-PLAN.md -- Ed25519 KeyManager, MessageSigner, cross-platform test vectors
 - [x] 10-03-PLAN.md -- GRDB persistence layer (AppDatabase, migrations, record types)
 - [x] 10-04-PLAN.md -- WebSocket networking, AINMClient protocol handshake, AppState
-- [ ] 10-05-PLAN.md -- Onboarding and Connection Success UI, GitHub Actions CI
+- [x] 10-05-PLAN.md -- Onboarding and Connection Success UI, GitHub Actions CI
 
 ### Phase 11: Core Messaging UI
 **Goal**: Users can browse conversations, read message threads with rich content blocks, send text messages, and access cached messages offline — a functional messaging app
@@ -95,7 +95,7 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 10. Foundation | v3.3 | 4/5 | In Progress|  |
+| 10. Foundation | v3.3 | 5/5 | Complete   | 2026-03-30 |
 | 11. Core Messaging UI | v3.3 | 0/0 | Not started | - |
 | 12. Streaming & Interactive Blocks | v3.3 | 0/0 | Not started | - |
 | 13. AI-Native Features & Platform | v3.3 | 0/0 | Not started | - |
