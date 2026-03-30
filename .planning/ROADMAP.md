@@ -62,8 +62,8 @@ Plans:
 **Plans**: 4 plans
 Plans:
 - [x] 11-01-PLAN.md -- Data layer: ContentBlock enum, repositories, DB migration, navigation rewiring
-- [x] 11-02-PLAN.md -- Conversation list screen with GRDB observation, shared UI components
-- [ ] 11-03-PLAN.md -- Content block renderers: text, code, image, file, syntax highlighter
+- [ ] 11-02-PLAN.md -- Conversation list screen with GRDB observation, shared UI components
+- [x] 11-03-PLAN.md -- Content block renderers: text, code, image, file, syntax highlighter
 - [ ] 11-04-PLAN.md -- Message thread, composer, new thread creation, full messaging flow
 **UI hint**: yes
 
