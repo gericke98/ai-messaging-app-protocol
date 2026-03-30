@@ -28,11 +28,19 @@ actor AINMClient {
     private let reconnection: ReconnectionManager
     private let keyManager: KeyManager
     private let appDatabase: AppDatabase
+    private let streamingManager = StreamingManager()
     private var nextRequestId: Int = 1
 
     private(set) var state: ClientState = .disconnected
     private(set) var serverCapabilities: ServerCapabilities?
     private var receiveTask: Task<Void, Never>?
+
+    /// Callbacks for streaming events. Set by the view layer to receive updates.
+    var onStreamStart: ((StreamingManager.ActiveStream) -> Void)?
+    var onStreamDelta: ((String, Int, String) -> Void)?  // streamId, blockIndex, fullContent
+    var onStreamEnd: ((StreamingManager.ActiveStream, String) -> Void)?  // stream, status
+    var onStreamError: ((StreamingManager.ActiveStream) -> Void)?
+    var onPresenceNotify: ((PresenceNotifyParams) -> Void)?
 
     init(
         webSocket: WebSocketConnection = WebSocketConnection(),
@@ -74,8 +82,8 @@ actor AINMClient {
             capabilities: ClientCapabilities(
                 streaming: true,
                 subThreads: false,
-                contentTypes: ["text"],  // Phase 10: text only
-                parallelStreaming: false,
+                contentTypes: ["text", "code", "image", "file", "button", "form", "table", "approval", "action"],
+                parallelStreaming: true,
                 toolVisibility: false
             )
         )
@@ -218,10 +226,36 @@ actor AINMClient {
         return threadId
     }
 
+    /// Cancel an active stream by sending `ainm.stream.cancel` to the server.
+    func cancelStream(streamId: String) async throws {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let exists = await streamingManager.cancelStream(streamId)
+        guard exists else { return }
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestId,
+            "method": "ainm.stream.cancel",
+            "params": ["stream_id": streamId]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        try await webSocket.send(data)
+    }
+
+    /// Cancel all active streams in a given thread.
+    func cancelAllStreams(inThread threadId: String) async throws {
+        let streamIds = await streamingManager.activeStreamIds(forThread: threadId)
+        for streamId in streamIds {
+            try await cancelStream(streamId: streamId)
+        }
+    }
+
     /// Disconnect gracefully.
     func disconnect() async {
         receiveTask?.cancel()
         receiveTask = nil
+        await streamingManager.clearAllStreams()
         await webSocket.disconnect()
         state = .disconnected
     }
@@ -272,6 +306,38 @@ actor AINMClient {
                 if let params = json["params"] as? [String: Any] {
                     await handleMessageDelivery(params)
                 }
+            case "ainm.stream.start":
+                if let paramsData = extractParams(json),
+                   let params = try? JSONDecoder().decode(StreamStartParams.self, from: paramsData) {
+                    let stream = await streamingManager.handleStreamStart(params)
+                    onStreamStart?(stream)
+                }
+            case "ainm.stream.delta":
+                if let paramsData = extractParams(json),
+                   let params = try? JSONDecoder().decode(StreamDeltaParams.self, from: paramsData) {
+                    if let result = await streamingManager.handleDelta(params) {
+                        onStreamDelta?(result.streamId, result.blockIndex, result.fullContent)
+                    }
+                }
+            case "ainm.stream.end":
+                if let paramsData = extractParams(json),
+                   let params = try? JSONDecoder().decode(StreamEndParams.self, from: paramsData) {
+                    if let stream = await streamingManager.handleStreamEnd(params) {
+                        onStreamEnd?(stream, params.status)
+                    }
+                }
+            case "ainm.stream.error":
+                if let paramsData = extractParams(json),
+                   let params = try? JSONDecoder().decode(StreamErrorParams.self, from: paramsData) {
+                    if let stream = await streamingManager.handleStreamError(params) {
+                        onStreamError?(stream)
+                    }
+                }
+            case "ainm.presence.notify":
+                if let paramsData = extractParams(json),
+                   let params = try? JSONDecoder().decode(PresenceNotifyParams.self, from: paramsData) {
+                    onPresenceNotify?(params)
+                }
             default:
                 break  // Unknown notification, skip
             }
@@ -313,10 +379,17 @@ actor AINMClient {
 
     private func handleDisconnect() async {
         state = .disconnected
+        await streamingManager.clearAllStreams()
         // D-06: auto-reconnect with exponential backoff
         // D-07: full re-handshake on reconnect
         // Reconnection needs the original URL and display name -- stored on first connect
         // For Phase 10, reconnection is best-effort. Full implementation in Phase 11.
+    }
+
+    /// Extract the "params" dictionary from a JSON-RPC message and serialize to Data.
+    private func extractParams(_ json: [String: Any]) -> Data? {
+        guard let params = json["params"] as? [String: Any] else { return nil }
+        return try? JSONSerialization.data(withJSONObject: params)
     }
 
     private func extractHost(from urlString: String) -> String {

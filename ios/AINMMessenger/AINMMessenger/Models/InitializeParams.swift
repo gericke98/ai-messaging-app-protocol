@@ -34,12 +34,12 @@ struct ClientCapabilities: Codable, Sendable {
         case toolVisibility = "toolVisibility"
     }
 
-    /// Default client capabilities for Phase 10.
+    /// Default client capabilities. Updated for Phase 12: parallel streaming + interactive types.
     static let `default` = ClientCapabilities(
         streaming: true,
         subThreads: true,
-        contentTypes: ["text", "code", "image", "file"],
-        parallelStreaming: false,
+        contentTypes: ["text", "code", "image", "file", "button", "form", "table", "approval", "action"],
+        parallelStreaming: true,
         toolVisibility: false
     )
 }
