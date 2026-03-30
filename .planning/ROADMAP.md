@@ -63,7 +63,7 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md -- Data layer: ContentBlock enum, repositories, DB migration, navigation rewiring
 - [ ] 11-02-PLAN.md -- Conversation list screen with GRDB observation, shared UI components
-- [ ] 11-03-PLAN.md -- Content block renderers: text, code, image, file, syntax highlighter
+- [x] 11-03-PLAN.md -- Content block renderers: text, code, image, file, syntax highlighter
 - [ ] 11-04-PLAN.md -- Message thread, composer, new thread creation, full messaging flow
 **UI hint**: yes
 
@@ -101,6 +101,6 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 10. Foundation | v3.3 | 5/5 | Complete    | 2026-03-30 |
-| 11. Core Messaging UI | v3.3 | 1/4 | Executing | - |
+| 11. Core Messaging UI | v3.3 | 2/4 | In Progress|  |
 | 12. Streaming & Interactive Blocks | v3.3 | 0/0 | Not started | - |
 | 13. AI-Native Features & Platform | v3.3 | 0/0 | Not started | - |
