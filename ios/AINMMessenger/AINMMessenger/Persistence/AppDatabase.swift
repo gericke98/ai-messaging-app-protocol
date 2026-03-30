@@ -109,6 +109,16 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v4_create_agent_cards") { db in
+            try db.create(table: "agentCard") { t in
+                t.primaryKey("url", .text).notNull()
+                t.column("identity", .text).notNull()
+                t.column("cardJson", .text).notNull()
+                t.column("etag", .text)
+                t.column("fetchedAt", .text).notNull()
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }
