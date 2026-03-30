@@ -21,6 +21,10 @@ final class MessageThreadViewModel {
     var threadTitle: String = ""
     var participantCount: Int = 0
 
+    /// Weak reference to StreamingViewModel for ephemeral-to-permanent transition.
+    /// Set by MessageThreadView on appear.
+    weak var streamingViewModel: StreamingViewModel?
+
     private let threadId: String
     private let currentUserIdentity: String
     private let repository: MessageRepository
@@ -97,6 +101,12 @@ final class MessageThreadViewModel {
                         allMessages.append(contentsOf: trulyNew)
                         newestTimestamp = allMessages.last?.timestamp
                         rebuildGroups()
+
+                        // Ephemeral-to-permanent transition: remove streaming placeholder
+                        // when the signed GRDB message arrives with matching messageId.
+                        for msg in trulyNew {
+                            streamingViewModel?.removePlaceholderForMessage(messageId: msg.id)
+                        }
                     }
                 }
             } catch {

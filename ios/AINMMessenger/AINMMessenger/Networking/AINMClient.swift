@@ -54,6 +54,20 @@ actor AINMClient {
         self.appDatabase = appDatabase
     }
 
+    /// Set all streaming callbacks at once. Called by AppState to wire
+    /// StreamingViewModel updates from the actor-isolated AINMClient.
+    func setStreamCallbacks(
+        onStart: @escaping @Sendable (StreamingManager.ActiveStream) -> Void,
+        onDelta: @escaping @Sendable (String, Int, String) -> Void,
+        onEnd: @escaping @Sendable (StreamingManager.ActiveStream, String) -> Void,
+        onError: @escaping @Sendable (StreamingManager.ActiveStream) -> Void
+    ) {
+        self.onStreamStart = onStart
+        self.onStreamDelta = onDelta
+        self.onStreamEnd = onEnd
+        self.onStreamError = onError
+    }
+
     /// Full connection flow: connect WebSocket + handshake.
     /// Per D-07: always full re-handshake (stateless).
     func connect(serverURL: String, displayName: String) async throws -> ServerCapabilities {

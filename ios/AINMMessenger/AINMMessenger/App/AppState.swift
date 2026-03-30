@@ -17,6 +17,9 @@ final class AppState {
     var showNewThreadComposer: Bool = false
     var currentViewingThreadId: String?
 
+    /// Observable streaming state bridging AINMClient notifications to SwiftUI.
+    var streamingViewModel = StreamingViewModel()
+
     enum ConnectionDisplayState: Sendable {
         case disconnected
         case connecting
@@ -32,7 +35,41 @@ final class AppState {
     func setup() throws {
         let db = try AppDatabase.makeDefault()
         self.appDatabase = db
-        self.client = AINMClient(appDatabase: db)
+        let client = AINMClient(appDatabase: db)
+        self.client = client
+
+        // Wire streaming callbacks from AINMClient to StreamingViewModel
+        Task {
+            await client.setStreamCallbacks(
+                onStart: { [weak self] stream in
+                    Task { @MainActor in
+                        self?.streamingViewModel.streamStarted(stream)
+                    }
+                },
+                onDelta: { [weak self] streamId, blockIndex, content in
+                    Task { @MainActor in
+                        self?.streamingViewModel.updateStreamContent(
+                            streamId: streamId,
+                            blockIndex: blockIndex,
+                            content: content
+                        )
+                    }
+                },
+                onEnd: { [weak self] stream, status in
+                    Task { @MainActor in
+                        self?.streamingViewModel.streamEnded(
+                            streamId: stream.streamId,
+                            status: status
+                        )
+                    }
+                },
+                onError: { [weak self] stream in
+                    Task { @MainActor in
+                        self?.streamingViewModel.removeStream(streamId: stream.streamId)
+                    }
+                }
+            )
+        }
     }
 
     /// Connect to the AINM server with the configured URL and display name.
@@ -75,6 +112,15 @@ final class AppState {
             throw AINMClient.ClientError.notConnected
         }
         return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+    }
+
+    /// Cancel all active streams in a thread. Marks them as cancelling in the view model
+    /// and sends cancel requests via the protocol client.
+    func cancelStreams(inThread threadId: String) async {
+        for stream in streamingViewModel.activeStreamsForThread(threadId) {
+            streamingViewModel.markCancelling(streamId: stream.id)
+        }
+        try? await client?.cancelAllStreams(inThread: threadId)
     }
 
     /// Map errors to user-facing messages matching UI-SPEC copywriting contract.

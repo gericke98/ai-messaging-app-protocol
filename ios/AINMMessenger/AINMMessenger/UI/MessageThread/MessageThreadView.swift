@@ -26,6 +26,11 @@ struct MessageThreadView: View {
                                 timestampFormatter: { viewModel.formatTimestamp($0) }
                             )
                         }
+
+                        // Streaming messages (ephemeral, below permanent messages)
+                        ForEach(appState.streamingViewModel.activeStreamsForThread(threadId)) { stream in
+                            StreamingMessageView(state: stream)
+                        }
                     }
                 }
                 .padding(.vertical, 8)
@@ -38,6 +43,19 @@ struct MessageThreadView: View {
                 if isNearTop {
                     Task { await viewModel?.loadOlderMessages() }
                 }
+            }
+
+            // Stop Generating button (visible only when streams are active)
+            if appState.streamingViewModel.hasActiveStreams(inThread: threadId) {
+                StopGeneratingButton(
+                    isStopping: appState.streamingViewModel.activeStreamsForThread(threadId)
+                        .contains { $0.status == .cancelling },
+                    onStop: {
+                        Task { await appState.cancelStreams(inThread: threadId) }
+                    }
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
             }
 
             ComposerView(
@@ -69,6 +87,7 @@ struct MessageThreadView: View {
                     currentUserIdentity: appState.connectedIdentity ?? "",
                     database: db
                 )
+                vm.streamingViewModel = appState.streamingViewModel
                 self.viewModel = vm
                 Task { await vm.loadInitial() }
             }
