@@ -79,20 +79,9 @@ struct JCSCanonicalizerTests {
         """.utf8)
         let result = try JCSCanonicalizer.canonicalize(input)
 
-        // Keys must be sorted at all levels
-        let keys = ["content", "from", "id", "thread_id", "timestamp", "type"]
-        for i in 0..<(keys.count - 1) {
-            let posA = result.range(of: "\"\(keys[i])\"")
-            let posB = result.range(of: "\"\(keys[i + 1])\"")
-            #expect(posA != nil && posB != nil, "Missing key: \(keys[i]) or \(keys[i + 1])")
-            if let posA, let posB {
-                #expect(posA.lowerBound < posB.lowerBound, "\(keys[i]) should come before \(keys[i + 1])")
-            }
-        }
-
-        // No extra whitespace
-        #expect(!result.contains(" :"))
-        #expect(!result.contains(": "))
+        // Verify exact expected output (keys sorted at all levels)
+        let expected = #"{"content":[{"fallback":"Hello","source":"user","text":"Hello","type":"text","version":"1.0"}],"from":"alice@example.com","id":"019580a1-7b3e-7000-8000-abcdef123456","thread_id":"019580a1-7b3e-7000-8000-000000000001","timestamp":"2026-03-28T12:34:56.789Z","type":"message"}"#
+        #expect(result == expected)
     }
 
     @Test("Top-level array")
