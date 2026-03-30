@@ -87,6 +87,12 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v2_add_thread_hasUnread") { db in
+            try db.alter(table: "thread") { t in
+                t.add(column: "hasUnread", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }

@@ -12,6 +12,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
     let createdBy: String
     var parentThreadId: String?
     var parentMessageId: String?
+    var hasUnread: Bool = false
 
     /// Create from protocol ThreadMetadata.
     init(from metadata: ThreadMetadata) {
@@ -21,6 +22,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.createdBy = metadata.createdBy
         self.parentThreadId = metadata.parentThreadId
         self.parentMessageId = metadata.parentMessageId
+        self.hasUnread = false
     }
 
     /// Memberwise initializer for direct construction.
@@ -30,7 +32,8 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         createdAt: String,
         createdBy: String,
         parentThreadId: String?,
-        parentMessageId: String?
+        parentMessageId: String?,
+        hasUnread: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -38,6 +41,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.createdBy = createdBy
         self.parentThreadId = parentThreadId
         self.parentMessageId = parentMessageId
+        self.hasUnread = hasUnread
     }
 }
 
