@@ -6,6 +6,7 @@ struct MessageGroupView: View {
     let group: MessageGroup
     let contentBlocksProvider: (MessageRecord) -> [ContentBlock]
     let timestampFormatter: (String) -> String
+    var onAction: ((_ messageId: String, _ blockIndex: Int, _ actionId: String, _ data: [String: Any]) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: group.isFromCurrentUser ? .trailing : .leading, spacing: 4) {
@@ -27,7 +28,10 @@ struct MessageGroupView: View {
                         senderName: group.senderName,
                         senderType: group.senderType,
                         showHeader: isFirst,
-                        timestamp: isLast ? timestampFormatter(message.timestamp) : nil
+                        timestamp: isLast ? timestampFormatter(message.timestamp) : nil,
+                        onAction: { blockIndex, actionId, data in
+                            onAction?(message.id, blockIndex, actionId, data)
+                        }
                     )
                 }
             }

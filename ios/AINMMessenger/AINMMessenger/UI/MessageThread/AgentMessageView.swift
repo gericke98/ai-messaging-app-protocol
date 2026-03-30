@@ -8,6 +8,7 @@ struct AgentMessageView: View {
     let senderType: String
     var showHeader: Bool = false
     var timestamp: String?
+    var onAction: ((_ blockIndex: Int, _ actionId: String, _ data: [String: Any]) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -23,8 +24,10 @@ struct AgentMessageView: View {
                     }
                 }
             }
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                ContentBlockRenderer(block: block, isHumanBubble: false)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                ContentBlockRenderer(block: block, isHumanBubble: false, onAction: { actionId, data in
+                    onAction?(index, actionId, data)
+                })
             }
             if let timestamp {
                 Text(timestamp)
