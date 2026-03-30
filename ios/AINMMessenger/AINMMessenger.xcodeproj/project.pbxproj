@@ -9,6 +9,57 @@
 /* Begin PBXBuildFile section */
 /* End PBXBuildFile section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		C1000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C1000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C2000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C3000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C3000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
 /* Begin PBXContainerItemProxy section */
 		A1000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -72,6 +123,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A7000001 /* Build configuration list for PBXNativeTarget "AINMMessenger" */;
 			buildPhases = (
+				C3000001 /* Sources */,
+				C1000001 /* Frameworks */,
+				C2000001 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -93,6 +147,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A7000002 /* Build configuration list for PBXNativeTarget "AINMMessengerTests" */;
 			buildPhases = (
+				C3000002 /* Sources */,
+				C1000002 /* Frameworks */,
+				C2000002 /* Resources */,
 			);
 			buildRules = (
 			);
