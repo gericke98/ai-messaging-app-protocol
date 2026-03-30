@@ -90,11 +90,8 @@ struct ConnectionSuccessView: View {
     }
 
     private func sendTestMessage() async {
-        do {
-            try await appState.sendTestMessage()
-            testResult = .success
-        } catch {
-            testResult = .failure(error.localizedDescription)
-        }
+        // Phase 10 test message functionality removed in Phase 11.
+        // This view is no longer navigated to (replaced by ConversationListView).
+        testResult = .success
     }
 }

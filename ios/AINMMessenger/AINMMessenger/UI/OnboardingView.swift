@@ -82,9 +82,6 @@ struct OnboardingView: View {
             Spacer()
         }
         .background(Color(.systemBackground))
-        .navigationDestination(isPresented: isConnectedBinding) {
-            ConnectionSuccessView(appState: appState)
-        }
     }
 
     private var isConnecting: Bool {
@@ -95,12 +92,5 @@ struct OnboardingView: View {
         !appState.serverURL.isEmpty &&
         !appState.displayName.isEmpty &&
         !isConnecting
-    }
-
-    private var isConnectedBinding: Binding<Bool> {
-        Binding(
-            get: { appState.connectionState == .connected },
-            set: { if !$0 { /* handled by disconnect */ } }
-        )
     }
 }

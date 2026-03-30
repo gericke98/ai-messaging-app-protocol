@@ -228,7 +228,26 @@ actor AINMClient {
             let envelope = try JSONDecoder().decode(MessageEnvelope.self, from: paramsData)
             let record = try MessageRecord(from: envelope)
             try await appDatabase.dbPool.write { db in
+                // Ensure the thread exists locally (auto-create if missing)
+                let threadExists = try ThreadRecord.fetchOne(db, key: envelope.threadId) != nil
+                if !threadExists {
+                    let thread = ThreadRecord(
+                        id: envelope.threadId,
+                        title: nil,
+                        createdAt: envelope.timestamp,
+                        createdBy: envelope.from,
+                        parentThreadId: nil,
+                        parentMessageId: nil,
+                        hasUnread: true
+                    )
+                    try thread.save(db)
+                }
                 try record.save(db)
+                // Mark thread as unread for incoming messages
+                try db.execute(
+                    sql: "UPDATE thread SET hasUnread = 1 WHERE id = ?",
+                    arguments: [envelope.threadId]
+                )
             }
         } catch {
             // Log error but don't crash -- malformed messages are skipped

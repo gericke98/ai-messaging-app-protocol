@@ -239,7 +239,7 @@ final class AppDatabaseTests: XCTestCase {
             timestamp: "2026-03-29T12:00:00.000Z",
             type: .message,
             content: [
-                ContentBlock(type: "text", version: "1.0", source: "user", text: "Hello world", fallback: "Hello world")
+                .text(ContentBlock.TextContent(version: "1.0", source: "user", text: "Hello world", mentions: nil, fallback: "Hello world"))
             ],
             signature: "base64url-sig",
             parentId: nil

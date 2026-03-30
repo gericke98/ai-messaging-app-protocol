@@ -124,13 +124,13 @@ struct JsonRpcTests {
             timestamp: "2026-03-28T12:34:56.789Z",
             type: .message,
             content: [
-                ContentBlock(
-                    type: "text",
+                .text(ContentBlock.TextContent(
                     version: "1.0",
                     source: "user",
                     text: "Hello",
+                    mentions: nil,
                     fallback: "Hello"
-                )
+                ))
             ],
             signature: nil,
             parentId: nil
@@ -156,13 +156,13 @@ struct JsonRpcTests {
             timestamp: "2026-03-28T12:34:56.789Z",
             type: .message,
             content: [
-                ContentBlock(
-                    type: "text",
+                .text(ContentBlock.TextContent(
                     version: "1.0",
                     source: "user",
                     text: "Hello world",
+                    mentions: nil,
                     fallback: "Hello world"
-                )
+                ))
             ],
             signature: "dGhpcyBpcyBhIHNpZ25hdHVyZQ",
             parentId: nil

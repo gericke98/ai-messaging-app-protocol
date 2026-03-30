@@ -7,7 +7,16 @@ struct AINMMessengerApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                OnboardingView(appState: appState)
+                Group {
+                    switch appState.connectionState {
+                    case .connected:
+                        // Placeholder -- ConversationListView created in Plan 02
+                        Text("Conversations")
+                            .navigationTitle("Conversations")
+                    default:
+                        OnboardingView(appState: appState)
+                    }
+                }
             }
             .onAppear {
                 try? appState.setup()

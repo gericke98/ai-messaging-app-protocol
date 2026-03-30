@@ -13,6 +13,9 @@ final class AppState {
     var serverCapabilities: ServerCapabilities?
     var errorMessage: String?
     var connectedIdentity: String?
+    var selectedThreadId: String?
+    var showNewThreadComposer: Bool = false
+    var currentViewingThreadId: String?
 
     enum ConnectionDisplayState: Sendable {
         case disconnected
@@ -22,7 +25,7 @@ final class AppState {
     }
 
     private var client: AINMClient?
-    private var appDatabase: AppDatabase?
+    var appDatabase: AppDatabase?
 
     /// Initialize the database and protocol client.
     /// Call once at app launch before any network operations.
@@ -58,28 +61,6 @@ final class AppState {
         connectionState = .disconnected
         serverCapabilities = nil
         connectedIdentity = nil
-    }
-
-    /// Send a test message (Phase 10 development aid).
-    func sendTestMessage() async throws {
-        guard let client else { return }
-        let envelope = MessageEnvelope(
-            id: UUID().uuidString,  // Simplified for Phase 10; UUIDv7 in Phase 11
-            from: connectedIdentity ?? "",
-            threadId: "test-thread",
-            timestamp: ISO8601DateFormatter.ainm.string(from: Date()),
-            type: .message,
-            content: [.text(ContentBlock.TextContent(
-                version: "1.0",
-                source: "user",
-                text: "Test message from iOS",
-                mentions: nil,
-                fallback: "Test message from iOS"
-            ))],
-            signature: nil,
-            parentId: nil
-        )
-        try await client.sendMessage(envelope: envelope)
     }
 
     /// Map errors to user-facing messages matching UI-SPEC copywriting contract.
