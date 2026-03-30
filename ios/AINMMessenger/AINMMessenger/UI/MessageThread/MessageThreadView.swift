@@ -30,6 +30,12 @@ struct MessageThreadView: View {
                             )
                         }
 
+                        // Tool call indicators (below permanent messages, above streams)
+                        ToolCallGroupView(
+                            toolCalls: appState.toolCalls(forThread: threadId)
+                                .filter { $0.status == .running }
+                        )
+
                         // Streaming messages (ephemeral, below permanent messages)
                         ForEach(appState.streamingViewModel.activeStreamsForThread(threadId)) { stream in
                             StreamingMessageView(state: stream)

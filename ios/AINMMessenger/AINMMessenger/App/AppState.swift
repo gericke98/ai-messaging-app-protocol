@@ -35,6 +35,12 @@ final class AppState {
     var activePresence: [String: PresenceEntry] = [:]
     private var presenceCleanupTask: Task<Void, Never>?
 
+    // MARK: - Tool Call State
+
+    /// Tool call states keyed by threadId, each containing an array of ToolCallState per call_id.
+    var toolCallStates: [String: [ToolCallState]] = [:]
+    private var toolCallTimeoutTasks: [String: Task<Void, Never>] = [:]
+
     enum ConnectionDisplayState: Sendable {
         case disconnected
         case connecting
@@ -94,6 +100,13 @@ final class AppState {
             await client.setMessageDeliveredCallback { [weak self] identity in
                 Task { @MainActor in
                     self?.activePresence.removeValue(forKey: identity)
+                }
+            }
+
+            // Wire tool event callback from protocol client
+            await client.setToolEventCallback { [weak self] threadId, event in
+                Task { @MainActor in
+                    self?.handleToolEvent(threadId: threadId, event: event)
                 }
             }
         }
@@ -187,6 +200,63 @@ final class AppState {
             parentId: nil
         )
         try await sendMessage(envelope: envelope)
+    }
+
+    // MARK: - Tool Call Handling
+
+    /// Handle incoming tool call event and update observable state.
+    func handleToolEvent(threadId: String, event: ToolCallEvent) {
+        var states = toolCallStates[threadId] ?? []
+
+        if let index = states.firstIndex(where: { $0.id == event.callId }) {
+            // Update existing tool call state
+            let state = states[index]
+            if let progress = event.progress {
+                state.progress = progress
+            }
+            if let status = event.status {
+                state.status = status == "error" ? .error : .completed
+                state.resultSummary = event.resultSummary
+                state.durationMs = event.durationMs
+                state.errorMessage = event.errorMessage
+                // Cancel timeout task
+                toolCallTimeoutTasks[event.callId]?.cancel()
+                toolCallTimeoutTasks.removeValue(forKey: event.callId)
+            }
+        } else {
+            // Create new tool call state (started event)
+            let state = ToolCallState(
+                id: event.callId,
+                name: event.name ?? "Unknown tool",
+                status: .running,
+                input: event.input
+            )
+            states.append(state)
+            toolCallStates[threadId] = states
+
+            // Schedule 5-minute timeout
+            let callId = event.callId
+            toolCallTimeoutTasks[callId] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(300))
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                if let threadStates = self.toolCallStates[threadId],
+                   let idx = threadStates.firstIndex(where: { $0.id == callId }),
+                   threadStates[idx].status == .running {
+                    threadStates[idx].status = .timedOut
+                }
+                self.toolCallTimeoutTasks.removeValue(forKey: callId)
+            }
+        }
+
+        if toolCallStates[threadId] == nil {
+            toolCallStates[threadId] = states
+        }
+    }
+
+    /// Get tool calls for a thread, sorted by startedAt.
+    func toolCalls(forThread threadId: String) -> [ToolCallState] {
+        (toolCallStates[threadId] ?? []).sorted { $0.startedAt < $1.startedAt }
     }
 
     // MARK: - Presence Handling

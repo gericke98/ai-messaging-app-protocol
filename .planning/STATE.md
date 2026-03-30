@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-03-30T07:50:22.448Z"
+stopped_at: Completed 13-01-PLAN.md and 13-02-PLAN.md (Wave 1)
+last_updated: "2026-03-30T07:52:08.000Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 9
   completed_plans: 5
-  percent: 100
+  percent: 56
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 13 (ai-native-features-platform) — EXECUTING
-Plan: 2 of 5
-Status: Ready to execute
+Plan: 2 of 5 complete (Wave 1 done)
+Status: Executing phase 13 plans
 Last activity: 2026-03-30
 
-Progress: [##########] 100%
+Progress: [#####-----] 56%
 
 ## Accumulated Context
 
@@ -43,6 +43,9 @@ See PROJECT.md Key Decisions table for full history.
 
 - [Phase 12]: setStreamCallbacks method on AINMClient actor for safe callback wiring from MainActor AppState
 - [Phase 12]: Used AnyCodableValue.fromAny static method to bridge [String: Any] from onAction closures to Codable types
+- [Phase 13]: @MainActor @Observable on ToolCallState since it only drives UI views
+- [Phase 13]: Tool call indicators placed in MessageThreadView between permanent messages and streaming messages
+- [Phase 13]: GRDB upsert pattern for tool call records (insert on started, update on progress/completed)
 - [Phase 13]: Used enum namespace (MentionTextRenderer) for stateless highlight utility
 
 ### Pending Todos
@@ -55,6 +58,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-30T07:50:22.444Z
-Stopped at: Completed 13-02-PLAN.md
-Resume file: None
+Last session: 2026-03-30T07:52:08.000Z
+Stopped at: Completed Wave 1 (13-01, 13-02)
+Resume file: .planning/phases/13-ai-native-features-platform/13-03-PLAN.md

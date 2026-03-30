@@ -20,6 +20,9 @@ struct MessageEnvelope: Codable, Sendable {
         case threadLeave = "thread.leave"
         case presenceUpdate = "presence.update"
         case action
+        case toolCallStarted = "tool.call.started"
+        case toolCallProgress = "tool.call.progress"
+        case toolCallCompleted = "tool.call.completed"
     }
 
     enum CodingKeys: String, CodingKey {

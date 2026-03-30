@@ -42,6 +42,7 @@ actor AINMClient {
     var onStreamError: ((StreamingManager.ActiveStream) -> Void)?
     var onPresenceNotify: ((PresenceNotifyParams) -> Void)?
     var onMessageDelivered: ((String) -> Void)?  // identity of sender
+    var onToolEvent: ((String, ToolCallEvent) -> Void)?  // threadId, event
 
     /// Set the presence notification callback. Called from AppState.setup().
     func setPresenceCallback(onPresence: @escaping @Sendable (PresenceNotifyParams) -> Void) {
@@ -51,6 +52,11 @@ actor AINMClient {
     /// Set the message delivered callback to clear typing indicators.
     func setMessageDeliveredCallback(onDelivered: @escaping @Sendable (String) -> Void) {
         self.onMessageDelivered = onDelivered
+    }
+
+    /// Set the tool event callback for tool call visibility.
+    func setToolEventCallback(onToolEvent: @escaping @Sendable (String, ToolCallEvent) -> Void) {
+        self.onToolEvent = onToolEvent
     }
 
     init(
@@ -363,6 +369,15 @@ actor AINMClient {
                    let params = try? JSONDecoder().decode(PresenceNotifyParams.self, from: paramsData) {
                     onPresenceNotify?(params)
                 }
+            case "ainm.tool.call.started", "ainm.tool.call.progress", "ainm.tool.call.completed":
+                if let paramsData = extractParams(json),
+                   let event = try? JSONDecoder().decode(ToolCallEvent.self, from: paramsData) {
+                    if let params = json["params"] as? [String: Any],
+                       let threadId = params["thread_id"] as? String {
+                        await handleToolEvent(threadId: threadId, event: event)
+                        onToolEvent?(threadId, event)
+                    }
+                }
             default:
                 break  // Unknown notification, skip
             }
@@ -411,6 +426,56 @@ actor AINMClient {
         // D-07: full re-handshake on reconnect
         // Reconnection needs the original URL and display name -- stored on first connect
         // For Phase 10, reconnection is best-effort. Full implementation in Phase 11.
+    }
+
+    /// Persist tool call event to GRDB. Upserts based on callId.
+    private func handleToolEvent(threadId: String, event: ToolCallEvent) async {
+        let now = ISO8601DateFormatter.ainm.string(from: Date())
+        do {
+            try await appDatabase.dbPool.write { db in
+                if var existing = try ToolCallRecord.fetchOne(db, key: event.callId) {
+                    // Update existing record
+                    if let status = event.status {
+                        existing.status = status == "error" ? "error" : "completed"
+                    }
+                    if let resultSummary = event.resultSummary {
+                        existing.resultSummary = resultSummary
+                    }
+                    if let durationMs = event.durationMs {
+                        existing.durationMs = durationMs
+                    }
+                    if let errorMessage = event.errorMessage {
+                        existing.errorMessage = errorMessage
+                    }
+                    if event.status != nil {
+                        existing.completedAt = now
+                    }
+                    try existing.update(db)
+                } else {
+                    // Insert new record (started event)
+                    var inputJson: String?
+                    if let input = event.input {
+                        let data = try JSONEncoder().encode(input)
+                        inputJson = String(data: data, encoding: .utf8)
+                    }
+                    let record = ToolCallRecord(
+                        callId: event.callId,
+                        threadId: threadId,
+                        name: event.name ?? "Unknown tool",
+                        status: "running",
+                        input: inputJson,
+                        resultSummary: nil,
+                        durationMs: nil,
+                        errorMessage: nil,
+                        startedAt: now,
+                        completedAt: nil
+                    )
+                    try record.insert(db)
+                }
+            }
+        } catch {
+            // Log but don't crash -- tool events are non-critical
+        }
     }
 
     /// Extract the "params" dictionary from a JSON-RPC message and serialize to Data.
