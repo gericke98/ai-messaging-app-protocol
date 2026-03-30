@@ -20,7 +20,7 @@
 Plans:
 - [x] 12-01-PLAN.md -- Streaming data layer: StreamEvent models, StreamingManager actor, AINMClient stream handling
 - [x] 12-02-PLAN.md -- Interactive block models and renderers: ContentBlock extension, 5 new SwiftUI views
-- [ ] 12-03-PLAN.md -- Streaming UI: StreamingViewModel, StreamingMessageView, CursorView, StopGeneratingButton
+- [x] 12-03-PLAN.md -- Streaming UI: StreamingViewModel, StreamingMessageView, CursorView, StopGeneratingButton
 - [ ] 12-04-PLAN.md -- ActionBlock response flow, TypingIndicatorView, presence handling
 **UI hint**: yes
 
@@ -46,5 +46,5 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 |-------|-----------|----------------|--------|-----------|
 | 10. Foundation | v3.3 | 5/5 | Complete    | 2026-03-30 |
 | 11. Core Messaging UI | v3.3 | 4/4 | Complete    | 2026-03-30 |
-| 12. Streaming & Interactive Blocks | v3.3 | 2/4 | In progress | - |
+| 12. Streaming & Interactive Blocks | v3.3 | 3/4 | In Progress|  |
 | 13. AI-Native Features & Platform | v3.3 | 0/0 | Not started | - |

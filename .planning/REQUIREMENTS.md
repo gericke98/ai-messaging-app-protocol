@@ -30,10 +30,10 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 
 ### Streaming & Real-Time
 
-- [ ] **STR-01**: App renders streaming responses token-by-token with cursor animation
+- [x] **STR-01**: App renders streaming responses token-by-token with cursor animation
 - [ ] **STR-02**: App shows typing/processing indicators for humans and agents
-- [ ] **STR-03**: User can cancel an active streaming response
-- [ ] **STR-04**: App handles parallel block streaming (multiple blocks receiving deltas simultaneously)
+- [x] **STR-03**: User can cancel an active streaming response
+- [x] **STR-04**: App handles parallel block streaming (multiple blocks receiving deltas simultaneously)
 
 ### Interactive Blocks
 
@@ -122,10 +122,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | MSG-07 | Phase 11 | Complete |
 | MSG-08 | Phase 11 | Complete |
 | MSG-09 | Phase 11 | Complete |
-| STR-01 | Phase 12 | Pending |
+| STR-01 | Phase 12 | Complete |
 | STR-02 | Phase 12 | Pending |
-| STR-03 | Phase 12 | Pending |
-| STR-04 | Phase 12 | Pending |
+| STR-03 | Phase 12 | Complete |
+| STR-04 | Phase 12 | Complete |
 | INT-01 | Phase 12 | Pending |
 | INT-02 | Phase 12 | Pending |
 | INT-03 | Phase 12 | Pending |
