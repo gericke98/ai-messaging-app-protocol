@@ -19,13 +19,13 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 ### Core Messaging
 
 - [x] **MSG-01**: User can view conversation list with thread title, last message preview, and timestamps
-- [ ] **MSG-02**: User can view message thread with chronological messages and participant avatars
+- [x] **MSG-02**: User can view message thread with chronological messages and participant avatars
 - [x] **MSG-03**: User can send text messages with Markdown rendering
 - [x] **MSG-04**: App renders multi-block messages (text + code + image in sequence)
 - [x] **MSG-05**: App renders CodeBlocks with syntax highlighting, language label, and copy button
 - [x] **MSG-06**: App renders ImageBlocks with tap-to-fullscreen and size pre-layout
 - [x] **MSG-07**: App renders FileBlocks with filename, size, and download capability
-- [ ] **MSG-08**: User can create threads with mixed human and agent participants
+- [x] **MSG-08**: User can create threads with mixed human and agent participants
 - [x] **MSG-09**: App displays agent identity distinctly (type badge, profile shows Agent Card data)
 
 ### Streaming & Real-Time
@@ -114,13 +114,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | NET-05 | Phase 10 | Complete |
 | NET-06 | Phase 10 | Complete |
 | MSG-01 | Phase 11 | Complete |
-| MSG-02 | Phase 11 | Pending |
+| MSG-02 | Phase 11 | Complete |
 | MSG-03 | Phase 11 | Complete |
 | MSG-04 | Phase 11 | Complete |
 | MSG-05 | Phase 11 | Complete |
 | MSG-06 | Phase 11 | Complete |
 | MSG-07 | Phase 11 | Complete |
-| MSG-08 | Phase 11 | Pending |
+| MSG-08 | Phase 11 | Complete |
 | MSG-09 | Phase 11 | Complete |
 | STR-01 | Phase 12 | Pending |
 | STR-02 | Phase 12 | Pending |
