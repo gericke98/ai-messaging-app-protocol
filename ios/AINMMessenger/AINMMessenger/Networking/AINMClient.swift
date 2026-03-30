@@ -161,6 +161,63 @@ actor AINMClient {
         }
     }
 
+    /// Create a new thread and send the first message.
+    /// Per threading.md: sends thread.create envelope, then the first message envelope.
+    /// Both are persisted to GRDB via write-through.
+    func createThread(title: String?, firstMessageText: String, identity: String) async throws -> String {
+        guard case .connected = state else { throw ClientError.notConnected }
+
+        let threadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+
+        // 1. Persist thread locally first (write-through)
+        let threadRecord = ThreadRecord(
+            id: threadId,
+            title: title,
+            createdAt: timestamp,
+            createdBy: identity,
+            parentThreadId: nil,
+            parentMessageId: nil
+        )
+        try await appDatabase.dbPool.write { db in
+            try threadRecord.save(db)
+        }
+
+        // 2. Send thread.create via protocol
+        let createEnvelope = MessageEnvelope(
+            id: UUID().uuidString,
+            from: identity,
+            threadId: threadId,
+            timestamp: timestamp,
+            type: .threadCreate,
+            content: [],
+            signature: nil,
+            parentId: nil
+        )
+        try await sendMessage(envelope: createEnvelope)
+
+        // 3. Send first message
+        let messageEnvelope = MessageEnvelope(
+            id: UUID().uuidString,
+            from: identity,
+            threadId: threadId,
+            timestamp: ISO8601DateFormatter.ainm.string(from: Date()),
+            type: .message,
+            content: [.text(ContentBlock.TextContent(
+                version: "1.0",
+                source: "user",
+                text: firstMessageText,
+                mentions: nil,
+                fallback: firstMessageText
+            ))],
+            signature: nil,
+            parentId: nil
+        )
+        try await sendMessage(envelope: messageEnvelope)
+
+        return threadId
+    }
+
     /// Disconnect gracefully.
     func disconnect() async {
         receiveTask?.cancel()

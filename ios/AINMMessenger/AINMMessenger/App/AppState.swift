@@ -69,6 +69,14 @@ final class AppState {
         try await client.sendMessage(envelope: envelope)
     }
 
+    /// Create a new thread and send the first message via the protocol client.
+    func createThread(title: String?, firstMessageText: String) async throws -> String {
+        guard let client, let identity = connectedIdentity else {
+            throw AINMClient.ClientError.notConnected
+        }
+        return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+    }
+
     /// Map errors to user-facing messages matching UI-SPEC copywriting contract.
     private func mapErrorMessage(_ error: Error) -> String {
         switch error {

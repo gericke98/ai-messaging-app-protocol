@@ -37,6 +37,9 @@ struct ConversationListView: View {
             .onDisappear {
                 viewModel?.stopObserving()
             }
+            .sheet(isPresented: $appState.showNewThreadComposer) {
+                NewThreadComposerView(appState: appState)
+            }
     }
 
     @ViewBuilder
