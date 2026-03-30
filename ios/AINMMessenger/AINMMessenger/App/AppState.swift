@@ -4,6 +4,7 @@ import Observation
 /// Root observable state for the AINM Messenger app.
 /// Drives UI with connection lifecycle, server capabilities, and error state.
 /// Uses @Observable per research decision D-05 (modern Swift patterns, iOS 17+).
+@MainActor
 @Observable
 final class AppState {
     var connectionState: ConnectionDisplayState = .disconnected
