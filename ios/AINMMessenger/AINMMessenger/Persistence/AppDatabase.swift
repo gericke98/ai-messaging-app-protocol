@@ -93,6 +93,22 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3_create_tool_calls") { db in
+            try db.create(table: "toolCall") { t in
+                t.primaryKey("callId", .text).notNull()
+                t.column("threadId", .text).notNull()
+                    .references("thread", onDelete: .cascade)
+                t.column("name", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("input", .text)
+                t.column("resultSummary", .text)
+                t.column("durationMs", .integer)
+                t.column("errorMessage", .text)
+                t.column("startedAt", .text).notNull()
+                t.column("completedAt", .text)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }
