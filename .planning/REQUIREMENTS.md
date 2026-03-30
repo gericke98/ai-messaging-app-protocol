@@ -41,7 +41,7 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 - [ ] **INT-02**: App renders FormBlocks with all field types and client-side validation
 - [ ] **INT-03**: App renders TableBlocks with horizontal scroll and row actions
 - [ ] **INT-04**: App renders ApprovalBlocks with state machine (pending/approved/rejected/changes_requested)
-- [ ] **INT-05**: App renders fallback text for unrecognized block types
+- [x] **INT-05**: App renders fallback text for unrecognized block types
 
 ### AI-Native Features
 
@@ -130,7 +130,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | INT-02 | Phase 12 | Pending |
 | INT-03 | Phase 12 | Pending |
 | INT-04 | Phase 12 | Pending |
-| INT-05 | Phase 12 | Pending |
+| INT-05 | Phase 12 | Complete |
 | AI-01 | Phase 13 | Pending |
 | AI-02 | Phase 13 | Pending |
 | AI-03 | Phase 13 | Pending |

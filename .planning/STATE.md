@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
-status: in-progress
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-03-30T05:48:00.000Z"
+status: executing
+stopped_at: Completed 12-01-PLAN.md and 12-02-PLAN.md
+last_updated: "2026-03-30T05:51:00.000Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 12-streaming-interactive-blocks
-Plan: 1 of 4
-Status: Plan 01 complete
+Plan: 2 of 4 complete
+Status: Executing Phase 12 — Wave 1 complete
 Last activity: 2026-03-30
 
-Progress: [##░░░░░░░░] 25%
+Progress: [#####░░░░░] 50%
 
 ## Accumulated Context
 
@@ -52,5 +52,5 @@ None active.
 ## Session Continuity
 
 Last session: 2026-03-30
-Stopped at: Completed 12-01-PLAN.md
+Stopped at: Completed 12-01-PLAN.md and 12-02-PLAN.md
 Resume file: None

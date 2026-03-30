@@ -19,6 +19,7 @@ struct MessageEnvelope: Codable, Sendable {
         case threadJoin = "thread.join"
         case threadLeave = "thread.leave"
         case presenceUpdate = "presence.update"
+        case action
     }
 
     enum CodingKeys: String, CodingKey {
