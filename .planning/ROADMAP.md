@@ -3,77 +3,93 @@
 ## Milestones
 
 - ✅ **v3.1 AI-Native Messaging Protocol v1 Specification & Demo** — Phases 1-6 (shipped 2026-03-29) — [Archive](milestones/v3.1-ROADMAP.md)
-- 🚧 **v3.2 Federation** — Phases 7-9 (in progress)
+- ✅ **v3.2 Federation** — Phases 7-9 (shipped 2026-03-29) — [Archive](milestones/v3.2-ROADMAP.md)
+- 🚧 **v3.3 iOS Reference Client** — Phases 10-13 (in progress)
 
 ## Phases
 
-- [ ] **Phase 7: Federation Relay Core** - Two servers can discover each other and exchange messages with mTLS authentication and origin-server authority
-- [ ] **Phase 8: Security Hardening, Reliability & Backfill** - Federation is production-safe with replay protection, persistent offline queues, selective backfill, and partition healing
-- [ ] **Phase 9: AI-Native Federation & Full Demo** - Agent capabilities, tool calls, memory, and streaming work across federation boundaries with comprehensive demo scenarios
+<details>
+<summary>v3.1 AI-Native Messaging Protocol v1 Specification & Demo (Phases 1-6) - SHIPPED 2026-03-29</summary>
+
+See [milestones/v3.1-ROADMAP.md](milestones/v3.1-ROADMAP.md)
+
+</details>
+
+<details>
+<summary>v3.2 Federation (Phases 7-9) - SHIPPED 2026-03-29</summary>
+
+See [milestones/v3.2-ROADMAP.md](milestones/v3.2-ROADMAP.md)
+
+</details>
+
+### v3.3 iOS Reference Client
+
+- [ ] **Phase 10: Foundation** - Crypto, networking, persistence infrastructure validated against Rust server
+- [ ] **Phase 11: Core Messaging UI** - Conversation list, message threads, content blocks, offline access
+- [ ] **Phase 12: Streaming & Interactive Blocks** - Real-time streaming, interactive block suite, action responses
+- [ ] **Phase 13: AI-Native Features & Platform** - Tool calls, memory, agent discovery, sub-threads, deep linking
 
 ## Phase Details
 
-### Phase 7: Federation Relay Core
-**Goal**: Any AINM server can discover a remote server, authenticate via mTLS, and relay messages with origin-server authority over thread state
-**Depends on**: Phase 6 (v3.1 complete)
-**Requirements**: RELY-01, RELY-02, RELY-03, RELY-04, RELY-05, FAUT-01, FAUT-02, FAUT-03, DEMO-01, DEMO-02
+### Phase 10: Foundation
+**Goal**: App connects to the AINM Rust server, completes the protocol handshake, and exchanges Ed25519-signed messages with verified JCS canonicalization — all infrastructure proven before any UI
+**Depends on**: Phase 9 (v3.2 complete — working Rust server as integration target)
+**Requirements**: NET-01, NET-02, NET-03, NET-04, NET-05, NET-06, PLT-01
 **Success Criteria** (what must be TRUE):
-  1. Server A resolves server B's identity and public key via .well-known endpoint given only a @provider domain
-  2. A message sent by a human on server A arrives at an agent on server B within seconds, with three-layer signature validation (mTLS + server signature + sender Ed25519)
-  3. The server where a thread was created is the sole authority for that thread's participant list and message ordering — remote servers defer
-  4. Messages are pushed immediately to remote servers (no polling) with per-destination send queues and exponential backoff for unreachable servers
-  5. A docker-compose demo spins up 2 servers with distinct certificates and shows a cross-server human-agent conversation end-to-end
-**Plans:** 5 plans
+  1. App connects to the Rust demo server via WebSocket and completes the ainm.initialize/ainm.initialized handshake — verified by receiving the server's capability list
+  2. App signs a message with Ed25519 (Apple CryptoKit) using RFC 8785 JCS canonicalization, and the Rust server successfully verifies the signature — cross-platform crypto proven
+  3. A message signed by the Rust server is received by the app and its Ed25519 signature is verified locally — bidirectional signing works
+  4. User can enter server URL and display name during onboarding, and the app generates and stores an Ed25519 keypair in iOS Keychain that persists across app restarts
+  5. Messages, threads, and participants received from the server are persisted to GRDB and survive app termination — the local database is the single source of truth for UI
+**Plans**: TBD
 
-Plans:
-- [x] 07-01-PLAN.md — Add federation dependencies (Cargo.toml) and CLI argument parsing (clap)
-- [x] 07-02-PLAN.md — TLS module, server identity types, and pre-generated mTLS certificates
-- [x] 07-03-PLAN.md — Federation relay module (handler, sender, send queues, thread registry)
-- [x] 07-04-PLAN.md — Wire federation into server, two-listener architecture, Docker Compose demo
-- [x] 07-05-PLAN.md — Gap closure: fix REPL thread_id propagation and relay routing stub
-
-### Phase 8: Security Hardening, Reliability & Backfill
-**Goal**: Federation is hardened against replay attacks and certificate lifecycle issues, survives server outages with persistent queues, and supports selective thread history backfill with authorization
-**Depends on**: Phase 7
-**Requirements**: FAUT-04, FAUT-05, FAUT-06, FREL-01, FREL-02, FREL-03, FREL-04, BKFL-01, BKFL-02, BKFL-03, BKFL-04, DEMO-03, DEMO-04
+### Phase 11: Core Messaging UI
+**Goal**: Users can browse conversations, read message threads with rich content blocks, send text messages, and access cached messages offline — a functional messaging app
+**Depends on**: Phase 10
+**Requirements**: MSG-01, MSG-02, MSG-03, MSG-04, MSG-05, MSG-06, MSG-07, MSG-08, MSG-09, PLT-02, PLT-03
 **Success Criteria** (what must be TRUE):
-  1. A replayed relay payload older than 5 minutes is rejected, and a captured relay cannot be replayed after the deduplication window expires (relay_timestamp + relay_id enforcement)
-  2. When a server's TLS certificate is rotated, federation continues without downtime because the tls_fingerprints array supports rotation overlap
-  3. When a remote server goes offline, messages are persisted to disk and automatically delivered with exponential backoff when it comes back — surviving server restarts
-  4. A remote server can request thread history via backfill, receiving only post-join messages by default, with pagination for large threads and authorization that rejects servers without a legitimate participant
-  5. Demo scenarios prove partition healing (stop server, queue, restart, verify delivery) and certificate rotation (rotate cert, verify federation continues)
-**Plans:** 5 plans
+  1. User sees a conversation list with thread titles, last message previews, and timestamps — populated from GRDB observation, updating in real-time as new messages arrive
+  2. User taps a conversation and sees a paginated message thread (most recent 50 messages, load-more on scroll-up) with participant avatars distinguishing humans from agents
+  3. User can compose and send a text message that appears in the thread, is signed with Ed25519, and is received by other participants via the server
+  4. Messages containing multiple content blocks (text + code + image) render in sequence — CodeBlocks show syntax highlighting with copy button, ImageBlocks show with tap-to-fullscreen, FileBlocks show filename/size with download
+  5. User can kill the app, relaunch without network, and browse previously loaded conversations and messages from the local GRDB cache
+**Plans**: TBD
+**UI hint**: yes
 
-Plans:
-- [x] 08-01-PLAN.md — Foundation: spec updates, redb persistence module, ServerIdentity fingerprint array migration
-- [x] 08-02-PLAN.md — Replay protection (relay_timestamp + relay_id) and TOFU key pinning with cert rotation
-- [x] 08-03-PLAN.md — Persistent offline queue replacing in-memory VecDeque, background cleanup
-- [x] 08-04-PLAN.md — Backfill endpoint with authorization, post-join visibility, cursor pagination
-- [x] 08-05-PLAN.md — Demo scripts for partition healing (DEMO-03) and cert rotation (DEMO-04)
-
-### Phase 9: AI-Native Federation & Full Demo
-**Goal**: AINM's unique AI-native features — agent discovery, tool call transparency, memory propagation, and streaming — work seamlessly across federation boundaries
-**Depends on**: Phase 8
-**Requirements**: AINF-01, AINF-02, AINF-03, AINF-04, DEMO-05
+### Phase 12: Streaming & Interactive Blocks
+**Goal**: Agent responses stream token-by-token in real-time and users can interact with rich UI blocks (buttons, forms, tables, approvals) that send responses back through the protocol
+**Depends on**: Phase 11
+**Requirements**: STR-01, STR-02, STR-03, STR-04, INT-01, INT-02, INT-03, INT-04, INT-05
 **Success Criteria** (what must be TRUE):
-  1. An agent's capabilities (Agent Card) can be discovered by resolving its @provider domain across federation — a user on server A can see what an agent on server B can do
-  2. When an agent on server B executes a tool call, the started/progress/completed events are visible to all thread participants on server A in real-time
-  3. When an agent joins a federated thread, it receives accumulated memory context (active context frames, relevant conversation history) from the origin server
-  4. An agent on server B streams a response token-by-token and a human on server A sees it render in real-time across the federation boundary — proven in the docker-compose demo
-**Plans**: 4 plans
-Plans:
-- [x] 09-00-PLAN.md — Protocol spec for ainm.context-push (transport.md, JSON Schema, AsyncAPI)
-- [x] 09-01-PLAN.md — Agent card discovery, streaming/tool event relay, /discover command
-- [x] 09-02-PLAN.md — Memory context propagation via ainm.context-push
-- [~] 09-03-PLAN.md — Full-featured headless agent and comprehensive demo script (2/3 tasks, checkpoint pending)
+  1. When an agent streams a response, tokens appear one-by-one with a cursor animation at 30-60fps — no main thread starvation even at 100+ deltas/second
+  2. User can tap "Stop Generating" during an active stream and the agent stops — the partial response is preserved in the thread
+  3. User taps a ButtonBlock and the app sends a signed ActionBlock response as a new thread message; FormBlocks validate input client-side before submission; ApprovalBlocks cycle through pending/approved/rejected states
+  4. TableBlocks render with horizontal scroll for wide data and row-level action buttons; unrecognized block types display their fallback text instead of crashing
+  5. Typing/processing indicators show for both humans and agents, and parallel block streaming (two blocks receiving deltas simultaneously) renders correctly
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 13: AI-Native Features & Platform
+**Goal**: The app showcases AINM's differentiating features — tool call transparency, memory context, agent discovery, sub-threading, and platform integration — delivering a reference-quality iOS client
+**Depends on**: Phase 12
+**Requirements**: AI-01, AI-02, AI-03, AI-04, AI-05, PLT-04, PLT-05
+**Success Criteria** (what must be TRUE):
+  1. When an agent executes tool calls, the user sees collapsible indicators grouped by call_id showing the started/progress/completed lifecycle — tool execution is transparent, not hidden
+  2. User can @-mention agents and humans in the composer with autocomplete, and mentions are highlighted in rendered messages
+  3. User can browse an agent discovery view showing Agent Cards with skills, tools, and capabilities — and start a conversation with a discovered agent
+  4. User can view active memory context frames for an agent in a thread, search archival memory facts, and delete specific facts — memory is transparent and user-controlled
+  5. User can branch a sub-thread from any message (one level per spec), navigate between parent and sub-thread, and open a specific thread/message via deep link URL
+**Plans**: TBD
+**UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 7 → 8 → 9
+Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 7. Federation Relay Core | v3.2 | 4/5 | In Progress | - |
-| 8. Security Hardening, Reliability & Backfill | v3.2 | 1/5 | In Progress | - |
-| 9. AI-Native Federation & Full Demo | v3.2 | 1/4 | In Progress | - |
+| 10. Foundation | v3.3 | 0/0 | Not started | - |
+| 11. Core Messaging UI | v3.3 | 0/0 | Not started | - |
+| 12. Streaming & Interactive Blocks | v3.3 | 0/0 | Not started | - |
+| 13. AI-Native Features & Platform | v3.3 | 0/0 | Not started | - |

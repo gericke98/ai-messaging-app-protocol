@@ -107,46 +107,46 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NET-01 | — | Pending |
-| NET-02 | — | Pending |
-| NET-03 | — | Pending |
-| NET-04 | — | Pending |
-| NET-05 | — | Pending |
-| NET-06 | — | Pending |
-| MSG-01 | — | Pending |
-| MSG-02 | — | Pending |
-| MSG-03 | — | Pending |
-| MSG-04 | — | Pending |
-| MSG-05 | — | Pending |
-| MSG-06 | — | Pending |
-| MSG-07 | — | Pending |
-| MSG-08 | — | Pending |
-| MSG-09 | — | Pending |
-| STR-01 | — | Pending |
-| STR-02 | — | Pending |
-| STR-03 | — | Pending |
-| STR-04 | — | Pending |
-| INT-01 | — | Pending |
-| INT-02 | — | Pending |
-| INT-03 | — | Pending |
-| INT-04 | — | Pending |
-| INT-05 | — | Pending |
-| AI-01 | — | Pending |
-| AI-02 | — | Pending |
-| AI-03 | — | Pending |
-| AI-04 | — | Pending |
-| AI-05 | — | Pending |
-| PLT-01 | — | Pending |
-| PLT-02 | — | Pending |
-| PLT-03 | — | Pending |
-| PLT-04 | — | Pending |
-| PLT-05 | — | Pending |
+| NET-01 | Phase 10 | Pending |
+| NET-02 | Phase 10 | Pending |
+| NET-03 | Phase 10 | Pending |
+| NET-04 | Phase 10 | Pending |
+| NET-05 | Phase 10 | Pending |
+| NET-06 | Phase 10 | Pending |
+| MSG-01 | Phase 11 | Pending |
+| MSG-02 | Phase 11 | Pending |
+| MSG-03 | Phase 11 | Pending |
+| MSG-04 | Phase 11 | Pending |
+| MSG-05 | Phase 11 | Pending |
+| MSG-06 | Phase 11 | Pending |
+| MSG-07 | Phase 11 | Pending |
+| MSG-08 | Phase 11 | Pending |
+| MSG-09 | Phase 11 | Pending |
+| STR-01 | Phase 12 | Pending |
+| STR-02 | Phase 12 | Pending |
+| STR-03 | Phase 12 | Pending |
+| STR-04 | Phase 12 | Pending |
+| INT-01 | Phase 12 | Pending |
+| INT-02 | Phase 12 | Pending |
+| INT-03 | Phase 12 | Pending |
+| INT-04 | Phase 12 | Pending |
+| INT-05 | Phase 12 | Pending |
+| AI-01 | Phase 13 | Pending |
+| AI-02 | Phase 13 | Pending |
+| AI-03 | Phase 13 | Pending |
+| AI-04 | Phase 13 | Pending |
+| AI-05 | Phase 13 | Pending |
+| PLT-01 | Phase 10 | Pending |
+| PLT-02 | Phase 11 | Pending |
+| PLT-03 | Phase 11 | Pending |
+| PLT-04 | Phase 13 | Pending |
+| PLT-05 | Phase 13 | Pending |
 
 **Coverage:**
 - v1 requirements: 34 total
-- Mapped to phases: 0
-- Unmapped: 34
+- Mapped to phases: 34
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-29*
-*Last updated: 2026-03-29 after initial definition*
+*Last updated: 2026-03-29 after roadmap creation*

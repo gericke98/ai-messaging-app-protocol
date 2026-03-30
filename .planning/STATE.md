@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: iOS Reference Client
-status: defining-requirements
+status: ready-to-plan
 stopped_at: null
 last_updated: "2026-03-29"
 last_activity: 2026-03-29
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,23 +20,30 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 
-**Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Defining requirements for v3.3 iOS Reference Client
+**Core value:** Enable mixed human-agent threads where any participant can seamlessly join, communicate, and coordinate
+**Current focus:** Phase 10 - Foundation (iOS Reference Client)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-29 — Milestone v3.3 started
+Phase: 10 of 13 (Foundation)
+Plan: 0 of 0 in current phase (plans TBD)
+Status: Ready to plan
+Last activity: 2026-03-29 — Roadmap created for v3.3 iOS Reference Client milestone
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-
 - Total plans completed: 0 (v3.3 milestone)
-- Average duration: -
+- Average duration: —
 - Total execution time: 0 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
 
 ## Accumulated Context
 
@@ -45,10 +52,11 @@ Last activity: 2026-03-29 — Milestone v3.3 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v3.3 Milestone]: iOS 18+ minimum target — access to latest SwiftUI, @Observable, ScrollView APIs
-- [v3.3 Milestone]: Single-server only — no federation UI in v1 iOS app
-- [v3.3 Milestone]: Simple identity flow first, architected for full name@provider + Ed25519
-- [v3.3 Milestone]: Full protocol coverage — all content blocks, streaming, interactive, tool calls, memory
+- [v3.3 init]: iOS 18+ / SwiftUI / Swift 6.1 strict concurrency / MVVM + Repository
+- [v3.3 init]: GRDB.swift as local database (SwiftData rejected — no background tasks, poor at scale)
+- [v3.3 init]: Custom RFC 8785 JCS implementation required (no Swift library exists)
+- [v3.3 init]: Write-through cache pattern — all server data flows through GRDB before UI
+- [v3.3 init]: Coarse granularity — 4 phases (10-13) derived from 34 requirements
 
 ### Pending Todos
 
@@ -56,10 +64,12 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- JCS canonicalization (NET-06) is the #1 integration risk — must validate cross-platform in Phase 10
+- KeychainAccess 4.2.2 may not be Swift 6 compliant — assess in Phase 10, fallback is custom wrapper
+- LazyVStack does not recycle views — paginated architecture required from day 1 in Phase 11
 
 ## Session Continuity
 
 Last session: 2026-03-29
-Stopped at: Milestone initialization
+Stopped at: Roadmap created for v3.3 milestone
 Resume file: None
