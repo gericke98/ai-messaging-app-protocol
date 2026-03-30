@@ -77,7 +77,7 @@ struct ButtonBlockView: View {
         }
         .accessibilityLabel(content.label)
         .accessibilityHint("Double tap to \(content.label)")
-        .accessibilityAddTraits(isDisabled ? [.isNotEnabled] : [])
+        .accessibilityAddTraits(isDisabled ? [] : .isButton)
     }
 
     private func performAction() {
