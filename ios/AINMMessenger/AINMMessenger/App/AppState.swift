@@ -63,6 +63,12 @@ final class AppState {
         connectedIdentity = nil
     }
 
+    /// Send a signed message envelope via the protocol client.
+    func sendMessage(envelope: MessageEnvelope) async throws {
+        guard let client else { return }
+        try await client.sendMessage(envelope: envelope)
+    }
+
     /// Map errors to user-facing messages matching UI-SPEC copywriting contract.
     private func mapErrorMessage(_ error: Error) -> String {
         switch error {

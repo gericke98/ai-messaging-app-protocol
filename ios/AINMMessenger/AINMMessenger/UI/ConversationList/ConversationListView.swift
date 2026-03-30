@@ -24,9 +24,7 @@ struct ConversationListView: View {
                 }
             }
             .navigationDestination(item: $appState.selectedThreadId) { threadId in
-                // Placeholder for Plan 04 MessageThreadView
-                Text("Thread: \(threadId)")
-                    .navigationTitle("Thread")
+                MessageThreadView(appState: appState, threadId: threadId)
             }
             .onAppear {
                 if viewModel == nil, let db = appState.appDatabase {

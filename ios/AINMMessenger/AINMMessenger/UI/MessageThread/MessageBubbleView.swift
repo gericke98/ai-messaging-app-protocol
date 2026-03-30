@@ -9,7 +9,6 @@ struct MessageBubbleView: View {
     var timestamp: String?
 
     var body: some View {
-        // Stub: full implementation in Task 2
         HStack {
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {

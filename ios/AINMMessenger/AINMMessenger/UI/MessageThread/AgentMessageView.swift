@@ -10,7 +10,6 @@ struct AgentMessageView: View {
     var timestamp: String?
 
     var body: some View {
-        // Stub: full implementation in Task 2
         VStack(alignment: .leading, spacing: 4) {
             if showHeader {
                 HStack(spacing: 6) {
