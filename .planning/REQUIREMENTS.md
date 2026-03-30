@@ -14,7 +14,7 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 - [ ] **NET-03**: User can set server URL and display name during onboarding (simple identity flow)
 - [ ] **NET-04**: App generates Ed25519 keypair and stores private key in iOS Keychain
 - [ ] **NET-05**: App signs all outgoing messages with Ed25519 via Apple CryptoKit
-- [ ] **NET-06**: App implements RFC 8785 JCS canonicalization matching Rust server output
+- [x] **NET-06**: App implements RFC 8785 JCS canonicalization matching Rust server output
 
 ### Core Messaging
 
@@ -112,7 +112,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | NET-03 | Phase 10 | Pending |
 | NET-04 | Phase 10 | Pending |
 | NET-05 | Phase 10 | Pending |
-| NET-06 | Phase 10 | Pending |
+| NET-06 | Phase 10 | Complete |
 | MSG-01 | Phase 11 | Pending |
 | MSG-02 | Phase 11 | Pending |
 | MSG-03 | Phase 11 | Pending |

@@ -43,7 +43,7 @@ See [milestones/v3.2-ROADMAP.md](milestones/v3.2-ROADMAP.md)
   5. Messages, threads, and participants received from the server are persisted to GRDB and survive app termination — the local database is the single source of truth for UI
 **Plans**: 5 plans
 Plans:
-- [ ] 10-01-PLAN.md -- Xcode project setup, protocol models, JCS canonicalizer, base64url
+- [x] 10-01-PLAN.md -- Xcode project setup, protocol models, JCS canonicalizer, base64url
 - [ ] 10-02-PLAN.md -- Ed25519 KeyManager, MessageSigner, cross-platform test vectors
 - [ ] 10-03-PLAN.md -- GRDB persistence layer (AppDatabase, migrations, record types)
 - [ ] 10-04-PLAN.md -- WebSocket networking, AINMClient protocol handshake, AppState
@@ -95,7 +95,7 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 10. Foundation | v3.3 | 0/0 | Not started | - |
+| 10. Foundation | v3.3 | 1/5 | In Progress|  |
 | 11. Core Messaging UI | v3.3 | 0/0 | Not started | - |
 | 12. Streaming & Interactive Blocks | v3.3 | 0/0 | Not started | - |
 | 13. AI-Native Features & Platform | v3.3 | 0/0 | Not started | - |
