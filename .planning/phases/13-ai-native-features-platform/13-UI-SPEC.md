@@ -5,6 +5,7 @@ status: draft
 shadcn_initialized: false
 preset: none
 created: 2026-03-29
+revised: 2026-03-29
 ---
 
 # Phase 13 -- UI Design Contract
@@ -29,12 +30,13 @@ Carries forward from Phase 12. No changes to design system tooling.
 
 ## Spacing Scale
 
-Inherited from Phase 12 without modification.
+Inherited from Phase 12 with one addition: 12pt for component-internal padding.
 
 | Token | Value | Usage |
 |-------|-------|-------|
 | xs | 4pt | Icon gaps, inline padding, mention chip internal padding |
 | sm | 8pt | Compact element spacing, tool call indicator row internal |
+| md-sm | 12pt | Component-internal padding (tool call indicator, sub-thread indicator leading) |
 | md | 16pt | Default element spacing, card padding, section gaps |
 | lg | 24pt | Memory panel section padding, agent card detail padding |
 | xl | 32pt | Horizontal page margins |
@@ -61,6 +63,8 @@ Inherited from Phase 12. All sizes use SwiftUI semantic text styles for automati
 | Heading | `.title2` | 22pt | bold (700) | 1.27 (28pt leading) |
 | Caption | `.caption` | 12pt | regular (400) | 1.33 (16pt leading) |
 
+Four sizes: 12, 15, 17, 22pt. Two weights: regular (400) + bold (700).
+
 Additional type roles specific to Phase 13:
 
 | Role | SwiftUI Style | Default Size | Weight | Usage |
@@ -72,13 +76,14 @@ Additional type roles specific to Phase 13:
 | Mention highlight | `.body` | 17pt | bold (700) | @-mention spans in rendered message text |
 | Mention autocomplete name | `.body` | 17pt | regular (400) | Participant name in autocomplete row |
 | Mention autocomplete address | `.caption` | 12pt | regular (400) | Participant AINM address in autocomplete row |
-| Agent card name | `.title3` | 20pt | bold (700) | Agent name in discovery list and detail header |
+| Agent card name | `.title2` | 22pt | bold (700) | Agent name in discovery list and detail header |
 | Agent card description | `.body` | 17pt | regular (400) | Agent description in discovery list and detail |
 | Skill tag | `.caption` | 12pt | bold (700) | Skill/capability tags on Agent Card |
 | Memory fact key | `.subheadline` | 15pt | bold (700) | Archival fact key in memory list |
 | Memory fact value | `.body` | 17pt | regular (400) | Archival fact value in memory list |
 | Memory fact metadata | `.caption` | 12pt | regular (400) | "Stored by {agent} on {date}" in memory list |
 | Context summary | `.body` | 17pt | regular (400) | Conversation summary text in context panel |
+| Section header | `.subheadline` | 15pt | bold (700) | "Skills", "Tools", "Summary", "Active Context", "Archival Facts", "Participants" |
 | Sub-thread badge | `.caption` | 12pt | bold (700) | "N replies" badge on parent messages |
 | Sub-thread banner label | `.subheadline` | 15pt | bold (700) | "Thread from {sender}" banner in sub-thread view |
 | Deep link error | `.body` | 17pt | regular (400) | Error message when deep link target not found |
@@ -262,7 +267,7 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
 - Leading: `AvatarView(participantType: "agent", size: 44)` with orange tint
 - 12pt gap
 - VStack leading-aligned:
-  - Name: `.title3` bold, `Color(.label)`, single line truncated
+  - Name: `.title2` bold, `Color(.label)`, single line truncated
   - Description: `.body` regular, `Color(.secondaryLabel)`, max 2 lines
   - HStack of skill tags (first 3): capsule pills with `Color(.tertiarySystemFill)` background, `.caption` bold text, 4pt vertical padding, 8pt horizontal padding, 4pt spacing between pills
 - Trailing: `chevron.right`, `Color(.tertiaryLabel)`, 14pt
@@ -271,7 +276,7 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
 - Icon: `magnifyingglass` at 48pt, `Color(.tertiaryLabel)`
 - Heading: "No agents discovered" in `.title2` bold
 - Body: "Connect to an agent by entering their AINM address" in `.subheadline` regular, `Color(.secondaryLabel)`
-- CTA: Text field with "agent@server.example" placeholder + "Connect" button (accent, `.borderedProminent`)
+- CTA: Text field with "agent@server.example" placeholder + "Add Agent" button (accent, `.borderedProminent`)
 
 **Search behavior:**
 - Filters locally cached agent cards by name, description, and skill tags
@@ -293,14 +298,14 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
   - Badge text: `.caption` bold
 
 **Skills section:**
-- Section header: "Skills" in `.headline` bold, 24pt top padding
+- Section header: "Skills" in `.subheadline` bold, 24pt top padding
 - Each skill: VStack with 12pt spacing
   - Name: `.subheadline` bold
   - Description: `.body` regular, `Color(.secondaryLabel)`
   - Tags: HStack of capsule pills (same style as row tags)
 
 **Tools section:**
-- Section header: "Tools" in `.headline` bold, 24pt top padding
+- Section header: "Tools" in `.subheadline` bold, 24pt top padding
 - Each tool: VStack with 8pt spacing
   - Name: `.subheadline` bold, monospaced design
   - Description: `.body` regular, `Color(.secondaryLabel)`
@@ -323,26 +328,26 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
 **Sheet content:**
 
 **Section 1: Conversation Summary**
-- Section header: "Summary" in `.headline` bold
+- Section header: "Summary" in `.subheadline` bold
 - Body: conversation summary text from context frame, `.body` regular
 - If no summary: "No summary available" in `.body` regular, `Color(.secondaryLabel)`
 
 **Section 2: Active Context**
-- Section header: "Active Context" in `.headline` bold
+- Section header: "Active Context" in `.subheadline` bold
 - Subtitle: "{messageCount} messages from {windowStart}" in `.caption` regular, `Color(.secondaryLabel)`
 - List of recent message summaries:
   - Each row: sender name in `.subheadline` bold, summary in `.body` regular, timestamp in `.caption` `Color(.secondaryLabel)`
   - Max 10 rows displayed, scrollable
 
 **Section 3: Archival Facts (preview)**
-- Section header: "Archival Facts" in `.headline` bold with trailing "View All" button (`.caption` bold, accent color)
+- Section header: "Archival Facts" in `.subheadline` bold with trailing "View All" button (`.caption` bold, accent color)
 - Show first 5 facts as compact rows:
   - Key: `.subheadline` bold
   - Value: `.body` regular, single line truncated
 - "View All" navigates to full ArchivalMemoryView
 
 **Participants section:**
-- Section header: "Participants" in `.headline` bold
+- Section header: "Participants" in `.subheadline` bold
 - Each participant: HStack with `AvatarView(size: 24)`, name `.subheadline`, presence dot (green = online, gray = offline) 8pt circle
 
 ### Component 7: ArchivalMemoryView (AI-05)
@@ -455,7 +460,7 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
 | Agent discovery empty heading | "No agents discovered" |
 | Agent discovery empty body | "Connect to an agent by entering their AINM address" |
 | Agent discovery connect placeholder | "agent@server.example" |
-| Agent discovery connect button | "Connect" |
+| Agent discovery connect button | "Add Agent" |
 | Agent card start conversation | "Start Conversation" |
 | Agent card streaming badge | "Streaming" |
 | Agent card memory badge | "Memory" |
@@ -488,7 +493,7 @@ Phase 13 introduces five distinct feature areas. Each has its own focal point:
 
 Destructive actions in this phase:
 - **Delete archival fact**: Swipe-to-delete with confirmation alert. Alert title "Delete Fact", body "This will permanently remove this fact from {agent}'s memory.", destructive "Delete" button + "Cancel" dismiss.
-- **No other destructive actions**: Branch Thread, Start Conversation, and Connect are all additive operations.
+- **No other destructive actions**: Branch Thread, Start Conversation, and Add Agent are all additive operations.
 
 ---
 
@@ -527,7 +532,7 @@ Destructive actions in this phase:
 | Search text entered | Filters visible list by name, description, and skill tag substring match |
 | Tap agent row | Pushes AgentCardDetailView |
 | Tap "Start Conversation" | Creates new thread with agent, navigates to thread |
-| Tap "Connect" with address | Fetches Agent Card via identity resolution chain. On success: adds to list. On failure: inline error "Could not reach agent at this address". |
+| Tap "Add Agent" with address | Fetches Agent Card via identity resolution chain. On success: adds to list. On failure: inline error "Could not reach agent at this address". |
 | Pull to refresh | Re-fetches all cached agent cards with ETag-based conditional requests |
 
 ### Memory Context Interactions
