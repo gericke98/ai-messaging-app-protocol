@@ -119,6 +119,19 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v5_create_memory_facts") { db in
+            try db.create(table: "memoryFact") { t in
+                t.primaryKey("factId", .text).notNull()
+                t.column("key", .text).notNull()
+                t.column("value", .text).notNull()
+                t.column("tags", .text)
+                t.column("storedBy", .text).notNull()
+                t.column("storedAt", .text).notNull()
+            }
+            try db.create(index: "idx_memoryFact_key", on: "memoryFact", columns: ["key"])
+            try db.create(index: "idx_memoryFact_storedBy", on: "memoryFact", columns: ["storedBy"])
+        }
+
         try migrator.migrate(dbPool)
     }
 }

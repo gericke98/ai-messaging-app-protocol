@@ -35,6 +35,11 @@ final class AppState {
     var activePresence: [String: PresenceEntry] = [:]
     private var presenceCleanupTask: Task<Void, Never>?
 
+    // MARK: - Memory Context
+
+    /// Context frames keyed by threadId, updated from server push notifications.
+    var contextFrames: [String: ContextFrame] = [:]
+
     // MARK: - Tool Call State
 
     /// Tool call states keyed by threadId, each containing an array of ToolCallState per call_id.
@@ -107,6 +112,13 @@ final class AppState {
             await client.setToolEventCallback { [weak self] threadId, event in
                 Task { @MainActor in
                     self?.handleToolEvent(threadId: threadId, event: event)
+                }
+            }
+
+            // Wire context frame callback for memory transparency
+            await client.setContextFrameCallback { [weak self] frame in
+                Task { @MainActor in
+                    self?.contextFrames[frame.threadId] = frame
                 }
             }
         }
@@ -257,6 +269,26 @@ final class AppState {
     /// Get tool calls for a thread, sorted by startedAt.
     func toolCalls(forThread threadId: String) -> [ToolCallState] {
         (toolCallStates[threadId] ?? []).sorted { $0.startedAt < $1.startedAt }
+    }
+
+    // MARK: - Memory Context
+
+    /// Return the latest context frame for a given thread.
+    func contextFrame(forThread threadId: String) -> ContextFrame? {
+        contextFrames[threadId]
+    }
+
+    /// Query archival memory facts from the server.
+    func queryMemory(query: String) async throws -> [ContextFrame.ArchivalFact] {
+        guard let client else { throw AINMClient.ClientError.notConnected }
+        let result = try await client.memoryQuery(query: query)
+        return result.facts
+    }
+
+    /// Evict (delete) a specific archival memory fact from the server.
+    func evictMemoryFact(factId: String) async throws {
+        guard let client else { throw AINMClient.ClientError.notConnected }
+        try await client.memoryEvict(factId: factId)
     }
 
     // MARK: - Presence Handling

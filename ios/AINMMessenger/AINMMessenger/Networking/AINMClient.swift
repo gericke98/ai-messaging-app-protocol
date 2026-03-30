@@ -30,6 +30,7 @@ actor AINMClient {
     private let appDatabase: AppDatabase
     private let streamingManager = StreamingManager()
     private var nextRequestId: Int = 1
+    private var pendingResponses: [Int: CheckedContinuation<Data, Error>] = [:]
 
     private(set) var state: ClientState = .disconnected
     private(set) var serverCapabilities: ServerCapabilities?
@@ -43,6 +44,7 @@ actor AINMClient {
     var onPresenceNotify: ((PresenceNotifyParams) -> Void)?
     var onMessageDelivered: ((String) -> Void)?  // identity of sender
     var onToolEvent: ((String, ToolCallEvent) -> Void)?  // threadId, event
+    var onContextFrame: ((ContextFrame) -> Void)?
 
     /// Set the presence notification callback. Called from AppState.setup().
     func setPresenceCallback(onPresence: @escaping @Sendable (PresenceNotifyParams) -> Void) {
@@ -57,6 +59,11 @@ actor AINMClient {
     /// Set the tool event callback for tool call visibility.
     func setToolEventCallback(onToolEvent: @escaping @Sendable (String, ToolCallEvent) -> Void) {
         self.onToolEvent = onToolEvent
+    }
+
+    /// Set the context frame callback for memory transparency.
+    func setContextFrameCallback(onFrame: @escaping @Sendable (ContextFrame) -> Void) {
+        self.onContextFrame = onFrame
     }
 
     init(
@@ -282,11 +289,67 @@ actor AINMClient {
         }
     }
 
+    /// Query archival memory facts from the server.
+    func memoryQuery(query: String, tier: String = "archival") async throws -> MemoryQueryResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestId,
+            "method": "ainm.memory.query",
+            "params": ["query": query, "tier": tier]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        try await webSocket.send(data)
+
+        let responseData = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            pendingResponses[requestId] = continuation
+        }
+        let response = try JSONDecoder().decode(JsonRpcResponse.self, from: responseData)
+        if let error = response.error {
+            throw ClientError.handshakeFailed(error.message)
+        }
+        guard let resultValue = response.result else {
+            throw ClientError.handshakeFailed("No result in memory query response")
+        }
+        let resultData = try JSONEncoder().encode(resultValue)
+        return try JSONDecoder().decode(MemoryQueryResult.self, from: resultData)
+    }
+
+    /// Evict (delete) a specific archival memory fact from the server.
+    func memoryEvict(factId: String) async throws {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestId,
+            "method": "ainm.memory.evict",
+            "params": ["fact_id": factId]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        try await webSocket.send(data)
+
+        let responseData = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            pendingResponses[requestId] = continuation
+        }
+        let response = try JSONDecoder().decode(JsonRpcResponse.self, from: responseData)
+        if let error = response.error {
+            throw ClientError.handshakeFailed(error.message)
+        }
+    }
+
     /// Disconnect gracefully.
     func disconnect() async {
         receiveTask?.cancel()
         receiveTask = nil
         await streamingManager.clearAllStreams()
+        // Cancel any pending response continuations
+        for (_, continuation) in pendingResponses {
+            continuation.resume(throwing: ClientError.notConnected)
+        }
+        pendingResponses.removeAll()
         await webSocket.disconnect()
         state = .disconnected
     }
@@ -378,8 +441,18 @@ actor AINMClient {
                         onToolEvent?(threadId, event)
                     }
                 }
+            case "ainm.context.frame":
+                if let paramsData = extractParams(json),
+                   let frame = try? JSONDecoder().decode(ContextFrame.self, from: paramsData) {
+                    onContextFrame?(frame)
+                }
             default:
                 break  // Unknown notification, skip
+            }
+        } else if let responseId = json["id"] as? Int {
+            // It's a response to a pending request
+            if let continuation = pendingResponses.removeValue(forKey: responseId) {
+                continuation.resume(returning: data)
             }
         }
     }
