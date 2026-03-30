@@ -131,6 +131,12 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 
 ---
 
+## Focal Point
+
+Primary visual focal point during streaming: the accumulating text in the StreamingMessageView at the bottom of the thread, anchored by the blinking cursor. All auto-scroll behavior and layout decisions prioritize keeping this focal point visible when the user has not manually scrolled away.
+
+---
+
 ## Component Inventory
 
 ### Component 1: StreamingMessageView (STR-01, STR-04)
@@ -153,7 +159,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 - On `stream.end`, do NOT remove the streaming view immediately
 - Transition to "finalizing" state: cursor disappears, content remains visible
 - When collapsed `ainm.message.deliver` arrives and is persisted to GRDB, the GRDB observation replaces the streaming placeholder seamlessly (matched by pre-assigned `message_id`)
-- If collapsed message does not arrive within 5 seconds, show "Unverified" badge (SF Symbol `exclamationmark.triangle.fill`, caption, secondary color) below the message
+- If collapsed message does not arrive within 5 seconds, show "Not verified" badge (SF Symbol `exclamationmark.triangle.fill`, caption, secondary color) below the message. VoiceOver: `.accessibilityLabel("Message not verified")`, `.accessibilityHint("The signed message was not received from the server within the expected time.")`
 
 ### Component 2: CursorView (STR-01)
 
@@ -237,7 +243,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 
 **Interaction:**
 - Tap (if `confirmation` is null): immediately send ActionBlock
-- Tap (if `confirmation` is non-null): show `.confirmationDialog` with confirmation text. Two options: "{label}" (proceed) and "Cancel"
+- Tap (if `confirmation` is non-null): show `.confirmationDialog` with confirmation text. Two options: "{label}" (proceed) and "Go Back"
 - After ActionBlock sent: button transitions to disabled state with label unchanged
 - Loading state while sending: replace label with `ProgressView()` spinner (14pt)
 
@@ -281,7 +287,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 
 **Submit button:**
 - Full width, 44pt height, accent background, white text
-- Label: value of `submit_label` (default "Submit"), `.body` bold
+- Label: value of `submit_label` from the block payload. Agents SHOULD always provide a `submit_label`; if omitted, fall back to "Send Response" as a last-resort default. `.body` bold
 - Positioned below all fields with 16pt top spacing
 - Disabled (tertiary fill) when form has validation errors after first submit attempt
 
@@ -307,7 +313,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 - Minimum column width: 80pt
 - Column widths: flexible, auto-sized to content with 80pt minimum
 - Header row: `Color(.tertiarySystemBackground)` background, `.caption` bold uppercase, 8pt vertical padding, 12pt horizontal padding
-- Data cells: `.subheadline` regular, 10pt vertical padding, 12pt horizontal padding
+- Data cells: `.subheadline` regular, 8pt vertical padding, 12pt horizontal padding
 - Row separator: 0.5pt `Color(.separator)` between rows
 - Alternating row backgrounds: odd rows `Color(.systemBackground)`, even rows `Color(.secondarySystemBackground)`
 - Text alignment per column `align` field (`.leading`, `.trailing`, `.center`)
@@ -328,7 +334,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 - Tap sends ActionBlock with full row data as `data` payload
 
 **Empty table (zero rows):**
-- Show "No data" text centered in table body area, `.subheadline`, `Color.secondary`
+- Show "No rows to display" text centered in table body area, `.subheadline`, `Color.secondary`
 
 ### Component 8: ApprovalBlockView (INT-04)
 
@@ -373,7 +379,7 @@ Inherited from Phase 11. SwiftUI semantic colors exclusively for automatic light
 - Tap option button: immediately send ActionBlock with `data: { "value": "{option.value}" }`
 - After sending: all buttons transition to disabled state
 - On receiving corresponding ActionBlock or server state update: transition to resolved state
-- Error `-32071` (already resolved): show alert "This approval has already been resolved by another participant", then transition to the server-provided `current_status`
+- Error `-32071` (already resolved): show alert "This approval has already been resolved by another participant", dismiss with "Got It", then transition to the server-provided `current_status`
 
 ### Component 9: ActionBlockView (read-only display)
 
@@ -408,27 +414,28 @@ Already implemented in ContentBlockRenderer. Extends automatically to new block 
 | Stop generating loading | "Stopping..." |
 | Typing indicator (human) | "{name} is typing..." |
 | Typing indicator (agent) | "{name} is processing..." |
-| Stream unverified badge | "Unverified" |
+| Stream not-verified badge | "Not verified" |
 | Stream finalize timeout | (no visible text -- badge appears after 5s) |
-| Form submit default | "Submit" |
+| Form submit default | "Send Response" (last-resort fallback; agents SHOULD always provide `submit_label`) |
 | Form required field indicator | " *" (red asterisk appended to label) |
 | Form validation: required | "Required" |
 | Form validation: regex fail | "Invalid format" |
-| Table empty state | "No data" |
+| Table empty state | "No rows to display" |
 | Table actions column header | "Actions" |
+| Table data cell vertical padding | 8pt |
 | Approval pending status | "Awaiting Approval" |
 | Approval approved status | "Approved" |
 | Approval rejected status | "Rejected" |
 | Approval changes status | "Changes Requested" |
 | Approval already resolved alert title | "Already Resolved" |
 | Approval already resolved alert body | "This approval has already been resolved by another participant." |
-| Approval already resolved alert dismiss | "OK" |
-| Button confirmation cancel | "Cancel" |
+| Approval already resolved alert dismiss | "Got It" |
+| Button confirmation cancel | "Go Back" |
 | Button loading state | (ProgressView spinner, no text) |
 | Action block prefix | (none -- uses fallback text from ActionBlock directly) |
 
 Destructive actions in this phase:
-- **Danger-style ButtonBlock tap**: Confirmation dialog shown when `confirmation` field is non-null. Dialog uses the `confirmation` string as body text, with the button `label` as the confirm action and "Cancel" as dismiss.
+- **Danger-style ButtonBlock tap**: Confirmation dialog shown when `confirmation` field is non-null. Dialog uses the `confirmation` string as body text, with the button `label` as the confirm action and "Go Back" as dismiss.
 - **Reject approval option**: No extra confirmation beyond the tap itself. The protocol treats rejection as a standard option selection, not a destructive action requiring double-confirmation.
 
 ---
@@ -444,7 +451,7 @@ Destructive actions in this phase:
 | User taps "Stop Generating" | `ainm.stream.cancel` sent. Button shows "Stopping..." Deltas may still arrive briefly. Stream ends with `status: "cancelled"`. Partial content preserved. |
 | Stream ends (completed) | Cursor disappears. Content stays visible in "finalizing" state. Collapsed signed message arrives via GRDB observation, replacing placeholder. |
 | Stream ends (cancelled) | Same as completed. Partial content is the collapsed message content. |
-| Collapsed message timeout (5s) | "Unverified" badge appears below message. Content remains readable. |
+| Collapsed message timeout (5s) | "Not verified" badge appears below message. Content remains readable. |
 | User scrolls up during stream | Auto-scroll stops. "New messages" pill from Phase 11 appears at bottom. User can tap to jump to current streaming position. |
 
 ### Interactive Block Interactions
@@ -452,7 +459,7 @@ Destructive actions in this phase:
 | Interaction | Behavior |
 |-------------|----------|
 | Tap ButtonBlock (no confirmation) | Immediately construct and send ActionBlock. Button transitions to disabled + spinner. |
-| Tap ButtonBlock (with confirmation) | Show `.confirmationDialog` with confirmation text. On confirm: send ActionBlock. On cancel: no action. |
+| Tap ButtonBlock (with confirmation) | Show `.confirmationDialog` with confirmation text. On confirm: send ActionBlock. On "Go Back": no action. |
 | Tap disabled ButtonBlock | No response. Visual state clearly communicates non-interactivity. |
 | Submit FormBlock | Validate all fields. If errors: show inline error messages below failing fields, do not submit. If valid: send ActionBlock with form data. Submit button transitions to disabled + spinner. |
 | Tap sortable table column header | Toggle sort: unsorted -> ascending -> descending -> unsorted. Sort applied client-side only. |
@@ -500,9 +507,9 @@ Destructive actions in this phase:
                     |        |
          [message.deliver] [5s timeout]
                     |        |
-              +-----v--+  +-v----------+
-              | Merged  |  | Unverified |
-              +--------+  +-----------+
+              +-----v--+  +-v--------------+
+              | Merged  |  | Not verified   |
+              +--------+  +----------------+
 ```
 
 ### ApprovalBlock State Machine
@@ -540,7 +547,7 @@ Destructive actions in this phase:
           |   Dialog     |       |
           +--+-------+---+       |
              |       |           |
-         [cancel] [confirm]      |
+        [Go Back] [confirm]      |
              |       |           |
              |       +-----+-----+
              |             |
@@ -570,6 +577,7 @@ Destructive actions in this phase:
 | VoiceOver: FormBlock | Each field gets `.accessibilityLabel("{label}")`. Required fields: append "required" to label. Validation errors announced via `.accessibilityValue("{error}")`. |
 | VoiceOver: TableBlock | Table announced as "Table with {N} rows and {M} columns". Each cell: "{column label}: {value}". Row actions announced per row. |
 | VoiceOver: ApprovalBlock | Status announced: "Approval: {title}, status: {status}". Options announced as buttons. Resolved state: "Resolved as {status}". |
+| VoiceOver: Not verified badge | `.accessibilityLabel("Message not verified")`, `.accessibilityHint("The signed message was not received from the server within the expected time.")` |
 | Reduced motion | Cursor: static (no blink). Typing dots: static (no bounce). All functional animations (button press feedback) preserved. |
 | Color contrast | All semantic colors meet WCAG AA in both light and dark mode. Status colors (yellow/green/red/orange) used only as supplementary indicators alongside text labels and icons. |
 
