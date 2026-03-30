@@ -44,3 +44,8 @@ redb = "3.1"
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 tower = "0.5"
+hex = "0.4"
+
+[[example]]
+name = "generate_vectors"
+path = "../tests/vectors/generate_vectors.rs"

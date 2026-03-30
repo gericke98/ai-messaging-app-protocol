@@ -1,0 +1,89 @@
+{
+  "description": "Ed25519 signing test vectors for cross-platform validation",
+  "spec_reference": "security.md Section 10 + RFC 8032",
+  "note": "Private key included ONLY for testing. Never include real private keys in test vectors.",
+  "key_pair": {
+    "algorithm": "Ed25519",
+    "private_key_seed_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "private_key_base64url": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A",
+    "public_key_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "public_key_base64url": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+    "source": "RFC 8032 Section 7.1 Test Vector 1 seed (public key derived by ring/CryptoKit)"
+  },
+  "vectors": [
+    {
+      "name": "simple_text_message",
+      "description": "security.md Section 10.2",
+      "envelope_without_signature": {
+        "id": "01935801-0000-7000-8000-000000000001",
+        "from": "test@example.com",
+        "thread_id": "01935800-0000-7000-8000-000000000001",
+        "timestamp": "2026-01-01T00:00:00.000Z",
+        "type": "message",
+        "content": [
+          {
+            "type": "text",
+            "version": "1.0",
+            "source": "user",
+            "text": "Hello, world!",
+            "fallback": "Hello, world!"
+          }
+        ]
+      },
+      "expected_canonical": "{\"content\":[{\"fallback\":\"Hello, world!\",\"source\":\"user\",\"text\":\"Hello, world!\",\"type\":\"text\",\"version\":\"1.0\"}],\"from\":\"test@example.com\",\"id\":\"01935801-0000-7000-8000-000000000001\",\"thread_id\":\"01935800-0000-7000-8000-000000000001\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"type\":\"message\"}",
+      "expected_signature_base64url": "g4IEEoDQVaxvCbOOw5t6gx3jfDYLNFQjlCG_CUbBWan4hsVBLS9E3l1CoNiP0FxN4iysJnBvFqeeQ1MSlN1RDA"
+    },
+    {
+      "name": "unicode_content",
+      "description": "security.md Section 10.3",
+      "envelope_without_signature": {
+        "id": "01935801-0000-7000-8000-000000000002",
+        "from": "test@example.com",
+        "thread_id": "01935800-0000-7000-8000-000000000001",
+        "timestamp": "2026-01-01T00:00:01.000Z",
+        "type": "message",
+        "content": [
+          {
+            "type": "text",
+            "version": "1.0",
+            "source": "user",
+            "text": "Hola mundo! \ud83c\udf0d \u4f60\u597d\u4e16\u754c",
+            "fallback": "Hola mundo!"
+          }
+        ]
+      },
+      "expected_canonical": "{\"content\":[{\"fallback\":\"Hola mundo!\",\"source\":\"user\",\"text\":\"Hola mundo! \ud83c\udf0d \u4f60\u597d\u4e16\u754c\",\"type\":\"text\",\"version\":\"1.0\"}],\"from\":\"test@example.com\",\"id\":\"01935801-0000-7000-8000-000000000002\",\"thread_id\":\"01935800-0000-7000-8000-000000000001\",\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"type\":\"message\"}",
+      "expected_signature_base64url": "ErWVpudM2A5vEmydOlBT7GOmjft0YL0_xwdhJ_0FXSpENmK5eNJPsI72kUk3dBpMUEKufS5XyQ7zbejJJTkYAQ"
+    },
+    {
+      "name": "multiple_content_blocks",
+      "description": "security.md Section 10.4",
+      "envelope_without_signature": {
+        "id": "01935801-0000-7000-8000-000000000003",
+        "from": "weather-bot@agents.example.com",
+        "thread_id": "01935800-0000-7000-8000-000000000001",
+        "timestamp": "2026-01-01T00:00:02.000Z",
+        "type": "message",
+        "content": [
+          {
+            "type": "text",
+            "version": "1.0",
+            "source": "agent",
+            "text": "Here is the weather data:",
+            "fallback": "Here is the weather data:"
+          },
+          {
+            "type": "code",
+            "version": "1.0",
+            "source": "agent",
+            "language": "json",
+            "code": "{\"city\":\"Madrid\",\"temp_c\":22}",
+            "fallback": "Madrid: 22C"
+          }
+        ]
+      },
+      "expected_canonical": "{\"content\":[{\"fallback\":\"Here is the weather data:\",\"source\":\"agent\",\"text\":\"Here is the weather data:\",\"type\":\"text\",\"version\":\"1.0\"},{\"code\":\"{\\\"city\\\":\\\"Madrid\\\",\\\"temp_c\\\":22}\",\"fallback\":\"Madrid: 22C\",\"language\":\"json\",\"source\":\"agent\",\"type\":\"code\",\"version\":\"1.0\"}],\"from\":\"weather-bot@agents.example.com\",\"id\":\"01935801-0000-7000-8000-000000000003\",\"thread_id\":\"01935800-0000-7000-8000-000000000001\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"type\":\"message\"}",
+      "expected_signature_base64url": "0LTPKAqd27V9W7JK0Gla4oQ8vyWklpz5ArL74Jyw4lJwioIl_X2Uv7fHdSA1KKvYDs3_7n6pBNckZmRHOUGBAw"
+    }
+  ]
+}

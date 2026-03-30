@@ -1,0 +1,46 @@
+{
+  "description": "JCS canonicalization test vectors for cross-platform validation",
+  "spec_reference": "RFC 8785 (JSON Canonicalization Scheme)",
+  "vectors": [
+    {
+      "name": "simple_sorted_keys",
+      "input": { "b": 2, "a": 1 },
+      "expected_canonical": "{\"a\":1,\"b\":2}"
+    },
+    {
+      "name": "nested_objects",
+      "input": { "z": { "b": 2, "a": 1 }, "a": 0 },
+      "expected_canonical": "{\"a\":0,\"z\":{\"a\":1,\"b\":2}}"
+    },
+    {
+      "name": "boolean_null_types",
+      "input": { "active": true, "deleted": false, "meta": null },
+      "expected_canonical": "{\"active\":true,\"deleted\":false,\"meta\":null}"
+    },
+    {
+      "name": "string_escaping",
+      "input": { "text": "line1\nline2\ttab" },
+      "expected_canonical": "{\"text\":\"line1\\nline2\\ttab\"}"
+    },
+    {
+      "name": "message_envelope_shape",
+      "input": {
+        "id": "019580a1-7b3e-7000-8000-abcdef123456",
+        "from": "alice@messaging.example.com",
+        "thread_id": "019580a0-1234-7000-8000-000000000001",
+        "timestamp": "2026-03-28T12:34:56.789Z",
+        "type": "message",
+        "content": [
+          {
+            "type": "text",
+            "version": "1.0",
+            "source": "user",
+            "text": "Hello",
+            "fallback": "Hello"
+          }
+        ]
+      },
+      "expected_canonical": "{\"content\":[{\"fallback\":\"Hello\",\"source\":\"user\",\"text\":\"Hello\",\"type\":\"text\",\"version\":\"1.0\"}],\"from\":\"alice@messaging.example.com\",\"id\":\"019580a1-7b3e-7000-8000-abcdef123456\",\"thread_id\":\"019580a0-1234-7000-8000-000000000001\",\"timestamp\":\"2026-03-28T12:34:56.789Z\",\"type\":\"message\"}"
+    }
+  ]
+}
