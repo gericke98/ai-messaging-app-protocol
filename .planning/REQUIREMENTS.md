@@ -56,8 +56,8 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 - [x] **PLT-01**: App caches messages, threads, and participants locally via GRDB.swift
 - [x] **PLT-02**: App provides offline access to cached messages
 - [x] **PLT-03**: App supports light and dark mode via SwiftUI semantic colors
-- [ ] **PLT-04**: User can branch sub-threads from any message (one level per spec)
-- [ ] **PLT-05**: App supports deep linking to specific threads and messages
+- [x] **PLT-04**: User can branch sub-threads from any message (one level per spec)
+- [x] **PLT-05**: App supports deep linking to specific threads and messages
 
 ## v2 Requirements
 
@@ -139,8 +139,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | PLT-01 | Phase 10 | Complete |
 | PLT-02 | Phase 11 | Complete |
 | PLT-03 | Phase 11 | Complete |
-| PLT-04 | Phase 13 | Pending |
-| PLT-05 | Phase 13 | Pending |
+| PLT-04 | Phase 13 | Complete |
+| PLT-05 | Phase 13 | Complete |
 
 **Coverage:**
 - v1 requirements: 34 total

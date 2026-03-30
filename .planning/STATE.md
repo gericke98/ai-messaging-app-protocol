@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
-status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-03-30T15:05:40.792Z"
+status: verifying
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-03-30T15:17:41.256Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 9
   percent: 56
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 13 (ai-native-features-platform) — EXECUTING
 Plan: 5 of 5 complete (Wave 1 done)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
 Progress: [#####-----] 56%
@@ -50,6 +50,8 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 13]: Actor-based AgentCardService for thread-safe HTTP + GRDB Agent Card caching
 - [Phase 13]: CheckedContinuation-based pending response pattern for request-response methods during active receive loop
 - [Phase 13]: Context frames stored as dictionary keyed by threadId in AppState for O(1) lookup
+- [Phase 13]: Info.plist placed at project root to avoid Xcode auto-resource-copy conflict
+- [Phase 13]: Sub-thread cache loaded eagerly in MessageThreadViewModel for O(1) indicator lookups
 
 ### Pending Todos
 
@@ -61,6 +63,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-30T15:05:40.789Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-03-30T15:17:41.254Z
+Stopped at: Completed 13-05-PLAN.md
 Resume file: None
