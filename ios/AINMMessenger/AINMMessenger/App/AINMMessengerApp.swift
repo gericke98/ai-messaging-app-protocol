@@ -10,9 +10,7 @@ struct AINMMessengerApp: App {
                 Group {
                     switch appState.connectionState {
                     case .connected:
-                        // Placeholder -- ConversationListView created in Plan 02
-                        Text("Conversations")
-                            .navigationTitle("Conversations")
+                        ConversationListView(appState: appState)
                     default:
                         OnboardingView(appState: appState)
                     }
