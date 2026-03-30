@@ -24,9 +24,13 @@ struct AppDatabase: Sendable {
         return db
     }
 
-    /// Create in-memory database for testing.
+    /// Create temporary database for testing.
+    /// Uses a unique file in the temp directory (DatabasePool requires WAL mode,
+    /// which is not supported for in-memory databases).
     static func makeInMemory() throws -> AppDatabase {
-        let dbPool = try DatabasePool(path: ":memory:")
+        let tempDir = NSTemporaryDirectory()
+        let dbPath = (tempDir as NSString).appendingPathComponent("ainm-test-\(UUID().uuidString).sqlite")
+        let dbPool = try DatabasePool(path: dbPath)
         let db = AppDatabase(dbPool: dbPool)
         try db.migrate()
         return db
