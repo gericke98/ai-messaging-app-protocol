@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentBlockRenderer: View {
     let block: ContentBlock
     var isHumanBubble: Bool = false
+    var onAction: ((_ actionId: String, _ data: [String: Any]) -> Void)? = nil
 
     var body: some View {
         switch block {
@@ -16,6 +17,16 @@ struct ContentBlockRenderer: View {
             ImageBlockView(content: content)
         case .file(let content):
             FileBlockView(content: content)
+        case .button(let content):
+            ButtonBlockView(content: content, onAction: onAction)
+        case .form(let content):
+            FormBlockView(content: content, onAction: onAction)
+        case .table(let content):
+            TableBlockView(content: content, onAction: onAction)
+        case .approval(let content):
+            ApprovalBlockView(content: content, onAction: onAction)
+        case .action(let content):
+            ActionBlockView(content: content)
         case .unknown(let fallback):
             Text(fallback)
                 .font(.body)
