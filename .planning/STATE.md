@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-03-30T02:10:06.097Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-03-30T02:26:48.319Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 10 (foundation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Accumulated Context
 
 | Phase 10-foundation P03 | 18min | 2 tasks | 5 files |
+| Phase 10-foundation P04 | 5m40s | 2 tasks | 4 files |
 
 ### Decisions
 
@@ -62,6 +63,8 @@ Recent decisions affecting current work:
 - [v3.3 init]: Coarse granularity — 4 phases (10-13) derived from 34 requirements
 - [Phase 10-foundation]: Used temp file for GRDB test databases (DatabasePool requires WAL mode, incompatible with :memory:)
 - [Phase 10-foundation]: Content blocks stored as JSON text column for Phase 10 simplicity
+- [Phase 10-foundation]: Used nonisolated(unsafe) for ISO8601DateFormatter static (Swift 6 strict concurrency)
+- [Phase 10-foundation]: GRDB dbPool.write requires await in actor context (async bridge in Swift 6)
 
 ### Pending Todos
 
@@ -75,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T02:10:06.091Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-03-30T02:26:48.317Z
+Stopped at: Completed 10-04-PLAN.md
 Resume file: None

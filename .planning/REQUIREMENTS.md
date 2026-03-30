@@ -9,8 +9,8 @@ Requirements for the native iOS reference client. Each maps to roadmap phases.
 
 ### Networking & Identity
 
-- [ ] **NET-01**: App connects to AINM server via WebSocket with JSON-RPC 2.0 framing
-- [ ] **NET-02**: App completes `ainm.initialize` handshake with capability negotiation
+- [x] **NET-01**: App connects to AINM server via WebSocket with JSON-RPC 2.0 framing
+- [x] **NET-02**: App completes `ainm.initialize` handshake with capability negotiation
 - [ ] **NET-03**: User can set server URL and display name during onboarding (simple identity flow)
 - [x] **NET-04**: App generates Ed25519 keypair and stores private key in iOS Keychain
 - [x] **NET-05**: App signs all outgoing messages with Ed25519 via Apple CryptoKit
@@ -107,8 +107,8 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NET-01 | Phase 10 | Pending |
-| NET-02 | Phase 10 | Pending |
+| NET-01 | Phase 10 | Complete |
+| NET-02 | Phase 10 | Complete |
 | NET-03 | Phase 10 | Pending |
 | NET-04 | Phase 10 | Complete |
 | NET-05 | Phase 10 | Complete |
