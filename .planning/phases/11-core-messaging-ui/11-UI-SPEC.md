@@ -63,11 +63,11 @@ Additional type roles specific to messaging:
 | Role | SwiftUI Style | Default Size | Weight | Usage |
 |------|---------------|-------------|--------|-------|
 | Code | `.system(.body, design: .monospaced)` | 15pt | regular (400) | CodeBlock content |
-| Timestamp | `.caption2` | 11pt | regular (400) | Message timestamps, relative dates |
-| Agent Badge | `.caption` | 12pt | semibold (600) | "Agent" type label next to agent name |
-| Sender Name | `.subheadline` | 15pt | semibold (600) | Participant name above message |
+| Timestamp | `.caption` | 12pt | regular (400) | Message timestamps, relative dates |
+| Agent Badge | `.caption` | 12pt | bold (700) | "Agent" type label next to agent name |
+| Sender Name | `.subheadline` | 15pt | bold (700) | Participant name above message |
 
-Weights used: regular (400) + bold (700) for headings, semibold (600) for emphasis labels.
+Weights used: regular (400) + bold (700). Two weights only.
 
 ---
 
@@ -110,11 +110,11 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 
 ### Screen 1: Conversation List (MSG-01, D-05, D-06, D-07)
 
-**Layout:** NavigationStack root. Full-width List with conversation rows sorted by most recent activity.
+**Layout:** NavigationStack root. Full-width List with conversation rows sorted by most recent activity. Primary visual anchor: thread title text (.subheadline bold) in the topmost conversation row.
 
 **Conversation Row:**
 - Leading: 36pt avatar circle (SF Symbol `person.fill` for humans, `cpu.fill` for agents, with background tint)
-- Center stack (vertical): thread title (.subheadline, semibold), last message preview (.caption, secondary color, 2-line max truncation), relative timestamp (.caption2, secondary color, trailing-aligned)
+- Center stack (vertical): thread title (.subheadline, bold), last message preview (.caption, secondary color, 2-line max truncation), relative timestamp (.caption, secondary color, trailing-aligned)
 - Trailing: unread badge (8pt blue dot) when unread count > 0
 - Row height: automatic, minimum 64pt
 - Tap: push to message thread (Screen 2)
@@ -146,15 +146,15 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 - Right-aligned chat bubble with accent background, white text
 - Rounded corners: 12pt, bottom-right corner 4pt (tail effect)
 - Maximum width: 75% of screen width
-- Sender name above first message in group (.subheadline, semibold) -- omitted for consecutive same-sender (D-03)
-- Timestamp on last message in group (.caption2, secondary color, right-aligned below bubble)
+- Sender name above first message in group (.subheadline, bold) -- omitted for consecutive same-sender (D-03)
+- Timestamp on last message in group (.caption, secondary color, right-aligned below bubble)
 
 **Message Rendering -- Agent Messages (D-01):**
 - Left-aligned, full-width flat container
 - Background: `Color(.secondarySystemGroupedBackground)` with 12pt corner radius
-- Agent badge: SF Symbol `cpu.fill` + agent name (.subheadline, semibold) + "Agent" label (.caption, semibold, secondary color) per D-02
+- Agent badge: SF Symbol `cpu.fill` + agent name (.subheadline, bold) + "Agent" label (.caption, bold, secondary color) per D-02
 - Content blocks render full-width inside container
-- Timestamp on last message in group (.caption2, secondary color, left-aligned below container)
+- Timestamp on last message in group (.caption, secondary color, left-aligned below container)
 
 **Message Grouping (D-03):**
 - Consecutive messages from same sender grouped
@@ -199,7 +199,7 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 - Autocomplete dropdown: rows with avatar + name + type badge (human/agent)
 - Selected participants as chips/tags in the To field
 - Message text field (same as Screen 2a composer)
-- Navigation bar: "Cancel" (leading), "New Conversation" title, no trailing
+- Navigation bar: "Discard" (leading), "New Conversation" title, no trailing
 
 **Behavior:**
 - Thread created on first message send via `thread.create` protocol message
@@ -215,7 +215,7 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 
 **CodeBlock (MSG-05, D-08):**
 - Container: full available width, `Color(.tertiarySystemBackground)` background, 8pt corner radius
-- Header row: language label (.caption, semibold, secondary color) left-aligned, "Copy" button (.caption, accent color) right-aligned
+- Header row: language label (.caption, bold, secondary color) left-aligned, "Copy" button (.caption, accent color) right-aligned
 - Code content: monospaced font (.system(.body, design: .monospaced), 15pt), horizontal scroll for long lines
 - Syntax highlighting: regex-based `AttributedString` coloring for keywords, strings, comments, numbers
 - Languages: Swift, Python, JavaScript, TypeScript, Rust, Go, Java, JSON, HTML, CSS
@@ -234,7 +234,7 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 **FileBlock (MSG-07, Claude's Discretion):**
 - Container: rounded rectangle border (1pt, `Color(.separator)`), 8pt corner radius, 12pt padding
 - Leading: SF Symbol `doc.fill` at 28pt, secondary color
-- Center stack: filename (.subheadline, semibold, primary color), file size (.caption, secondary color, formatted as KB/MB/GB)
+- Center stack: filename (.subheadline, bold, primary color), file size (.caption, secondary color, formatted as KB/MB/GB)
 - Trailing: SF Symbol `arrow.down.circle` at 24pt, accent color (download button)
 - Tap anywhere on row: initiate download via share sheet (`UIActivityViewController`)
 - Download state: replace arrow icon with ProgressView while downloading, checkmark when complete
@@ -260,6 +260,7 @@ This phase uses SwiftUI semantic colors exclusively for automatic light/dark mod
 | Composer placeholder | "Message..." |
 | New thread title | "New Conversation" |
 | New thread To field | "To: Add participants..." |
+| New thread dismiss | "Discard" |
 | Code copy confirmation | "Copied!" |
 | Load more indicator | "Loading older messages..." |
 | New messages pill | "New messages" (with down arrow icon) |
