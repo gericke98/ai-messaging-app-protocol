@@ -13,6 +13,12 @@ website/.docusaurus/
 website/docs/spec/
 website/static/schemas/*.json
 
+# Xcode
+ios/AINMMessenger/AINMMessenger.xcodeproj/project.xcworkspace/
+ios/AINMMessenger/AINMMessenger.xcodeproj/xcuserdata/
+xcuserdata/
+*.xcuserstate
+
 # OS files
 .DS_Store
 
