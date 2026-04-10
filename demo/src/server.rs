@@ -49,6 +49,8 @@ pub struct ServerState {
     pub federation: Option<FederationContext>,
     /// Optional PostgreSQL pool for production persistence.
     pub db: Option<sqlx::PgPool>,
+    /// Optional sender to trigger memory compilation.
+    pub compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
 }
 
 /// Start the Axum WebSocket server on a random available port (legacy mode).
@@ -69,6 +71,7 @@ pub async fn start(
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
         db: None,
+        compile_tx: None,
     };
 
     let app = Router::new()
@@ -98,6 +101,7 @@ pub async fn start_federation(
     federation: Option<FederationContext>,
     port: u16,
     db: Option<sqlx::PgPool>,
+    compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
     let (to_human_tx, _) = broadcast::channel::<String>(256);
@@ -111,6 +115,7 @@ pub async fn start_federation(
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,
         db,
+        compile_tx,
     };
 
     let app = Router::new()

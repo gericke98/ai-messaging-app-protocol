@@ -1,9 +1,11 @@
 mod agent;
+mod compiler;
 mod config;
 mod db;
 mod error;
 mod federation;
 mod graph;
+mod llm;
 mod identity;
 mod persistence;
 mod protocol;
@@ -310,6 +312,29 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         None
     };
 
+    // 7c. Initialize LLM client and compilation worker (if DB is available)
+    let compile_tx: Option<tokio::sync::mpsc::Sender<compiler::CompileRequest>> = if let Some(ref pool) = db_pool {
+        let llm_api_key = std::env::var("AINM_LLM__API_KEY").ok();
+        let llm_model = std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let llm_base_url = std::env::var("AINM_LLM__BASE_URL").ok();
+
+        let llm_client: Arc<dyn llm::LlmClient> = if let Some(api_key) = llm_api_key {
+            tracing::info!("[llm] Using OpenAI-compatible client (model: {llm_model})");
+            Arc::new(llm::OpenAiClient::new(api_key, llm_model, llm_base_url))
+        } else {
+            tracing::info!("[llm] No AINM_LLM__API_KEY configured, using mock LLM client");
+            Arc::new(llm::MockLlmClient::empty())
+        };
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<compiler::CompileRequest>(64);
+        // The compilation notification channel reuses the human broadcast for now
+        let (compile_notify_tx, _) = tokio::sync::broadcast::channel::<String>(64);
+        compiler::spawn_compilation_worker(rx, pool.clone(), llm_client, compile_notify_tx);
+        Some(tx)
+    } else {
+        None
+    };
+
     // 8. Create broadcast channel for local delivery
     let (local_delivery_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
@@ -343,6 +368,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         Some(fed_context),
         cli.port,
         db_pool,
+        compile_tx,
     )
     .await?;
 

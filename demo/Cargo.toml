@@ -49,6 +49,9 @@ figment = { version = "0.10", features = ["toml", "env"] }
 # Typed errors at layer boundaries
 thiserror = "2"
 
+# Async trait support for LLM client abstraction
+async-trait = "0.1"
+
 # HTTP server for federation TLS listener (low-level hyper for axum TLS integration)
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
