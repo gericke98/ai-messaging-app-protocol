@@ -8,7 +8,8 @@ fs.mkdirSync(docsSpecDir, { recursive: true });
 
 const specOrder = [
   'identity', 'security', 'transport', 'content', 'interactive',
-  'threading', 'streaming', 'agent-card', 'memory', 'tool-visibility', 'compatibility'
+  'threading', 'streaming', 'agent-card', 'memory', 'compound-memory',
+  'tool-visibility', 'compatibility'
 ];
 
 specOrder.forEach((name, index) => {

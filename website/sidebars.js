@@ -18,6 +18,7 @@ const sidebars = {
         'spec/streaming',
         'spec/agent-card',
         'spec/memory',
+        'spec/compound-memory',
         'spec/tool-visibility',
         'spec/compatibility',
       ],
