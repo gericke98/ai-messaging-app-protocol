@@ -260,7 +260,7 @@
     },
     "MemoryCapabilities": {
       "type": "object",
-      "description": "Memory capabilities declared during ainm.initialize negotiation. See memory.md Section 6.",
+      "description": "Memory capabilities declared during ainm.initialize negotiation. See memory.md Section 6 and compound-memory.md Section 10.1.",
       "properties": {
         "conversation": {
           "type": "boolean",
@@ -276,6 +276,41 @@
           "type": "integer",
           "default": 32768,
           "description": "Maximum context frame size in bytes. Recommended default: 32KB (32768 bytes)."
+        },
+        "graph": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether compound memory graph operations are supported. See compound-memory.md."
+        },
+        "compilation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether LLM-powered memory compilation is supported. See compound-memory.md Section 5."
+        },
+        "briefing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether agent briefings from compound memory are supported. See compound-memory.md Section 6."
+        },
+        "export": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether memory export/import is supported. See compound-memory.md Section 8."
+        },
+        "maxGraphNodes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum nodes per user memory graph. Only relevant when graph=true."
+        },
+        "maxGraphEdges": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum edges per user memory graph. Only relevant when graph=true."
+        },
+        "supportedExportFormats": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Export formats supported. Only relevant when export=true."
         }
       }
     },

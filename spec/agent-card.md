@@ -213,7 +213,10 @@ All AINM-specific fields live under a top-level `ainm` object. This namespacing 
     },
     "memory": {
       "archivalSupported": true,
-      "contextFramePreferred": true
+      "contextFramePreferred": true,
+      "requestedScopes": ["identity", "preferences", "expertise"],
+      "minimumScopes": ["identity"],
+      "supportsBriefing": true
     },
     "tools": [
       {
@@ -276,6 +279,9 @@ Memory capability details:
 |-------|------|----------|-------------|
 | `archivalSupported` | boolean | REQUIRED | Whether the agent supports archival memory operations (storing and querying cross-conversation knowledge). |
 | `contextFramePreferred` | boolean | REQUIRED | Whether the agent prefers to receive a context frame on thread join rather than raw message history. When `true`, the server SHOULD deliver a structured context frame per D-14. |
+| `requestedScopes` | array of strings | OPTIONAL | Compound memory scopes the agent would ideally receive in briefings (e.g., `["identity", "preferences", "expertise"]`). See `compound-memory.md` Section 10.2. If omitted, the server uses capability-based scope inference. |
+| `minimumScopes` | array of strings | OPTIONAL | Minimum compound memory scopes required for the agent to function effectively. If the user's consent level does not cover these scopes, the server MAY warn the user. |
+| `supportsBriefing` | boolean | OPTIONAL | Whether the agent understands and can process `ainm.memory.briefing` notifications. Default: `false`. Agents that do not support briefing still benefit from compound memory indirectly through enriched context frames. |
 
 **`ainm.tools`** (array, REQUIRED)
 

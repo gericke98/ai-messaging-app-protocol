@@ -16,6 +16,8 @@ AINM defines a three-tier memory model inspired by Letta/MemGPT's hierarchical m
 
 3. **Archival memory** -- persistent, cross-conversation knowledge stored as structured facts. Each participant has their own private archival store. Agents use archival memory to remember user preferences, learned patterns, and long-term knowledge that spans multiple conversations.
 
+A fourth tier -- **compound memory** -- extends this model with a user-owned knowledge graph that accumulates structured knowledge across all conversations. Compound memory is specified separately in `compound-memory.md` and is an OPTIONAL capability. Servers that do not support compound memory continue to operate with the three-tier model defined in this specification, unchanged.
+
 The server is authoritative for all memory management (decision D-13). Participants can request memory operations -- storing facts, querying history, evicting stale knowledge -- but the server enforces storage quotas, retention policies, and access control. This centralized authority prevents memory abuse and ensures consistent behavior across implementations.
 
 Memory operations are private exchanges between a participant and the server. When an agent queries conversation memory for earlier discussion or looks up a user's preferences from archival memory, those queries are NOT visible to other thread participants (decision from RESEARCH.md Open Question 3 and UI-SPEC Contract 13). This privacy is essential: agents should be able to recall context without broadcasting their retrieval strategy to the entire thread.

@@ -142,6 +142,55 @@ channels:
       contextFrameNotification:
         $ref: "#/components/messages/ContextFrameNotification"
 
+  compoundMemory:
+    address: /
+    description: >
+      Compound memory operations: user memory graph queries, traversals,
+      contributions, compilation notifications, agent briefings, memory
+      grant/revoke, and export/import. All operations extend the base
+      memory channel. See compound-memory.md.
+    servers:
+      - $ref: "#/servers/client-server"
+    messages:
+      graphQueryRequest:
+        $ref: "#/components/messages/GraphQueryRequest"
+      graphQueryResponse:
+        $ref: "#/components/messages/GraphQueryResponse"
+      graphTraverseRequest:
+        $ref: "#/components/messages/GraphTraverseRequest"
+      graphTraverseResponse:
+        $ref: "#/components/messages/GraphTraverseResponse"
+      graphContributeRequest:
+        $ref: "#/components/messages/GraphContributeRequest"
+      graphContributeResponse:
+        $ref: "#/components/messages/GraphContributeResponse"
+      compilationNotification:
+        $ref: "#/components/messages/CompilationNotification"
+      lintRequest:
+        $ref: "#/components/messages/LintRequest"
+      lintResponse:
+        $ref: "#/components/messages/LintResponse"
+      briefingNotification:
+        $ref: "#/components/messages/BriefingNotification"
+      briefingAckNotification:
+        $ref: "#/components/messages/BriefingAckNotification"
+      memoryGrantRequest:
+        $ref: "#/components/messages/MemoryGrantRequest"
+      memoryGrantResponse:
+        $ref: "#/components/messages/MemoryGrantResponse"
+      memoryRevokeRequest:
+        $ref: "#/components/messages/MemoryRevokeRequest"
+      memoryRevokeResponse:
+        $ref: "#/components/messages/MemoryRevokeResponse"
+      memoryExportRequest:
+        $ref: "#/components/messages/MemoryExportRequest"
+      memoryExportResponse:
+        $ref: "#/components/messages/MemoryExportResponse"
+      memoryImportRequest:
+        $ref: "#/components/messages/MemoryImportRequest"
+      memoryImportResponse:
+        $ref: "#/components/messages/MemoryImportResponse"
+
   toolEvents:
     address: /
     description: >
@@ -465,6 +514,170 @@ operations:
     messages:
       - $ref: "#/channels/memory/messages/contextFrameNotification"
 
+  # --- Compound Memory ---
+  sendGraphQuery:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Client queries user memory graph via ainm.memory.graph.query"
+    description: >
+      Queries the user's compound memory graph with optional filters for
+      node type, category, temporal validity, and confidence. Agents receive
+      only nodes within their granted scopes.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/graphQueryRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/graphQueryResponse"
+
+  sendGraphTraverse:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Client traverses memory graph from a starting node via ainm.memory.graph.traverse"
+    description: >
+      Traverses the user memory graph from a start node, following edges
+      up to a specified depth. Returns the reachable subgraph.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/graphTraverseRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/graphTraverseResponse"
+
+  sendGraphContribute:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Agent contributes knowledge to user memory graph via ainm.memory.graph.contribute"
+    description: >
+      Agents explicitly contribute learned facts or relationships to the
+      user's compound memory. Contributions are flagged with the agent's
+      identity and subject to moderation.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/graphContributeRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/graphContributeResponse"
+
+  receiveCompilation:
+    action: receive
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Server notifies user of compilation pass via ainm.memory.compile"
+    description: >
+      Delivered to user clients after a memory compilation pass completes.
+      Contains summary of nodes/edges created, updated, and superseded.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/compilationNotification"
+
+  sendLint:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Client requests graph health check via ainm.memory.lint"
+    description: >
+      Scans the user memory graph for contradictions, orphan nodes,
+      stale nodes, and knowledge gaps. Returns findings with severity.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/lintRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/lintResponse"
+
+  receiveBriefing:
+    action: receive
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Server delivers agent briefing via ainm.memory.briefing"
+    description: >
+      Delivered to agents on thread join with a scoped view of the user's
+      compound memory, filtered by agent capabilities and user consent level.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/briefingNotification"
+
+  sendBriefingAck:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "Agent acknowledges briefing receipt via ainm.memory.briefing.ack"
+    description: >
+      Agent confirms it received and processed the briefing. Enables
+      server to track briefing delivery success.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/briefingAckNotification"
+
+  sendMemoryGrant:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "User grants memory scopes to an agent via ainm.memory.grant"
+    description: >
+      User grants specific compound memory scopes to an agent. User-only
+      operation; agents cannot call this method.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/memoryGrantRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/memoryGrantResponse"
+
+  sendMemoryRevoke:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "User revokes memory scopes from an agent via ainm.memory.revoke"
+    description: >
+      User revokes compound memory scopes from an agent. Silently reduces
+      future briefing scope for that agent.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/memoryRevokeRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/memoryRevokeResponse"
+
+  sendMemoryExport:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "User exports compound memory via ainm.memory.export"
+    description: >
+      Exports the user's complete compound memory in ainm-memory-v1 format.
+      User-only operation for data portability.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/memoryExportRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/memoryExportResponse"
+
+  sendMemoryImport:
+    action: send
+    channel:
+      $ref: "#/channels/compoundMemory"
+    summary: "User imports compound memory via ainm.memory.import"
+    description: >
+      Imports compound memory from an ainm-memory-v1 document with
+      configurable conflict resolution strategy.
+    messages:
+      - $ref: "#/channels/compoundMemory/messages/memoryImportRequest"
+    reply:
+      channel:
+        $ref: "#/channels/compoundMemory"
+      messages:
+        - $ref: "#/channels/compoundMemory/messages/memoryImportResponse"
+
   # --- Tool Events ---
   receiveToolCallStarted:
     action: receive
@@ -779,6 +992,147 @@ components:
       contentType: application/json
       payload:
         $ref: "schemas/memory.schema.json#/$defs/ContextFrame"
+
+    # --- Compound Memory Messages ---
+    GraphQueryRequest:
+      name: ainm.memory.graph.query
+      title: Graph Query Request
+      summary: Queries the user's compound memory graph with filters.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphQueryParams"
+
+    GraphQueryResponse:
+      name: ainm.memory.graph.query.response
+      title: Graph Query Response
+      summary: Returns matching nodes and optionally edges from the memory graph.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphQueryResult"
+
+    GraphTraverseRequest:
+      name: ainm.memory.graph.traverse
+      title: Graph Traverse Request
+      summary: Traverses the memory graph from a starting node.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphTraverseParams"
+
+    GraphTraverseResponse:
+      name: ainm.memory.graph.traverse.response
+      title: Graph Traverse Response
+      summary: Returns the reachable subgraph from the start node.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphTraverseResult"
+
+    GraphContributeRequest:
+      name: ainm.memory.graph.contribute
+      title: Graph Contribute Request
+      summary: Agent contributes a learned fact or relationship to the user's memory graph.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphContributeParams"
+
+    GraphContributeResponse:
+      name: ainm.memory.graph.contribute.response
+      title: Graph Contribute Response
+      summary: Server confirms contribution with assigned node_id and edge_ids.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/GraphContributeResult"
+
+    CompilationNotification:
+      name: ainm.memory.compile
+      title: Compilation Notification
+      summary: Server notifies user that a memory compilation pass completed.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/CompilationNotification"
+
+    LintRequest:
+      name: ainm.memory.lint
+      title: Lint Request
+      summary: Client requests a health check of the user's memory graph.
+      contentType: application/json
+
+    LintResponse:
+      name: ainm.memory.lint.response
+      title: Lint Response
+      summary: Returns findings about contradictions, stale nodes, and gaps.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/LintResult"
+
+    BriefingNotification:
+      name: ainm.memory.briefing
+      title: Agent Briefing
+      summary: >
+        Server delivers a scoped view of user compound memory to an agent,
+        filtered by agent capabilities and user consent level.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/AgentBriefing"
+
+    BriefingAckNotification:
+      name: ainm.memory.briefing.ack
+      title: Briefing Acknowledgment
+      summary: Agent acknowledges receipt of a briefing.
+      contentType: application/json
+
+    MemoryGrantRequest:
+      name: ainm.memory.grant
+      title: Memory Grant Request
+      summary: User grants compound memory scopes to an agent.
+      contentType: application/json
+
+    MemoryGrantResponse:
+      name: ainm.memory.grant.response
+      title: Memory Grant Response
+      summary: Server confirms scope grant with effective scopes.
+      contentType: application/json
+
+    MemoryRevokeRequest:
+      name: ainm.memory.revoke
+      title: Memory Revoke Request
+      summary: User revokes compound memory scopes from an agent.
+      contentType: application/json
+
+    MemoryRevokeResponse:
+      name: ainm.memory.revoke.response
+      title: Memory Revoke Response
+      summary: Server confirms scope revocation.
+      contentType: application/json
+
+    MemoryExportRequest:
+      name: ainm.memory.export
+      title: Memory Export Request
+      summary: User exports complete compound memory in ainm-memory-v1 format.
+      contentType: application/json
+
+    MemoryExportResponse:
+      name: ainm.memory.export.response
+      title: Memory Export Response
+      summary: Returns the full ainm-memory-v1 export document.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/MemoryExport"
+
+    MemoryImportRequest:
+      name: ainm.memory.import
+      title: Memory Import Request
+      summary: User imports compound memory from an ainm-memory-v1 document.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/MemoryImportParams"
+
+    MemoryImportResponse:
+      name: ainm.memory.import.response
+      title: Memory Import Response
+      summary: Server reports import results with counts of imported, skipped, and merged nodes.
+      contentType: application/json
+      payload:
+        $ref: "schemas/compound-memory.schema.json#/$defs/MemoryImportResult"
 
     # --- Tool Event Messages ---
     # Tool events are message types delivered via ainm.message.deliver,

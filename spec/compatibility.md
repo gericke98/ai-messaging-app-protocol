@@ -836,6 +836,43 @@ A user delegates a research task to an external A2A agent through the bridge. Th
 }
 ```
 
+## 9. Compound Memory Interoperability
+
+Compound memory (`compound-memory.md`) defines a user-owned knowledge graph with an open export format. This section describes how compound memory interoperates with external memory systems.
+
+### 9.1 MCP Resource Exposure
+
+The user memory graph can be exposed as an MCP resource via the MCP bridge. This enables MCP-compatible tools to query compound memory through standard MCP `resources/read` operations.
+
+**Resource URI convention:** `ainm://memory/graph/{scope}` where `{scope}` is a memory scope name (e.g., `identity`, `preferences`, `expertise`).
+
+The MCP bridge translates `resources/read` requests into `ainm.memory.graph.query` calls, applying the same scope and consent restrictions as native AINM operations.
+
+### 9.2 Mem0 Format Bridge
+
+The `ainm-memory-v1` export format is designed to be transformable to and from Mem0's memory format:
+
+| Mem0 Concept | AINM Compound Memory Equivalent |
+|-------------|--------------------------------|
+| `memory` record | Semantic `MemoryNode` (category: `preference` or `fact`) |
+| `entity` | `MemoryNode` (category: `relationship` or `fact`) |
+| `relation` | `MemoryEdge` |
+| `user_id` scope | `user_identity` field |
+| `agent_id` scope | `source.contributed_by` provenance field |
+
+A conversion utility can transform between the two formats, enabling users to import existing Mem0 memories into AINM compound memory or export AINM compound memory for use in Mem0-based systems.
+
+### 9.3 Obsidian Vault Export
+
+The compound memory graph can be exported as an Obsidian-compatible vault:
+
+- Each `MemoryNode` becomes a markdown file named `{label}.md` (sanitized for filesystem)
+- Node `properties` and `temporal` metadata are encoded as YAML frontmatter
+- `MemoryEdge` relationships become `[[wikilinks]]` in the source node's file
+- Node `type` and `category` are encoded as Obsidian tags (e.g., `#semantic/preference`)
+
+This bridges the protocol with Karpathy's LLM knowledge base workflow, enabling users to browse and edit their compound memory using Obsidian's graph view.
+
 ## References
 
 - **identity.md** -- Identity model, registration, address format (bridge identity convention)
@@ -848,10 +885,11 @@ A user delegates a research task to an external A2A agent through the bridge. Th
 - **streaming.md** -- Streaming lifecycle (A2A streaming maps to AINM streaming)
 - **interactive.md** -- Interactive blocks (A2A input-required maps to FormBlock/ApprovalBlock)
 - **memory.md** -- Memory tiers (bridge participants participate in memory operations)
+- **compound-memory.md** -- Compound memory graph, compilation, briefings, portability
 - **MCP Specification** -- `tools/list`, `tools/call`, `notifications/tools/list_changed`
 - **A2A Specification** -- Agent Cards, task lifecycle states, artifacts
 
 ---
 
 *AI-Native Messaging Protocol -- Compatibility Bridge Specification v0.1.0*
-*Cross-references: identity.md (bridge identity), security.md (signing), content.md (content blocks), transport.md (methods), threading.md (sub-threads), agent-card.md (tool discovery), tool-visibility.md (tool events), streaming.md (streaming), interactive.md (forms/approvals), memory.md (memory operations)*
+*Cross-references: identity.md (bridge identity), security.md (signing), content.md (content blocks), transport.md (methods), threading.md (sub-threads), agent-card.md (tool discovery), tool-visibility.md (tool events), streaming.md (streaming), interactive.md (forms/approvals), memory.md (memory operations), compound-memory.md (compound memory interop)*

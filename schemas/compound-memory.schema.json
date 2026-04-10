@@ -1,0 +1,754 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ainm.dev/schemas/compound-memory.schema.json",
+  "title": "AINM Protocol - Compound Memory Schemas",
+  "description": "JSON Schema definitions for compound memory: user memory graph (nodes, edges), memory compilation, agent briefings, and memory portability. See compound-memory.md.",
+  "$defs": {
+    "NodeType": {
+      "type": "string",
+      "enum": ["semantic", "episodic", "procedural"],
+      "description": "Cognitive type of a memory node. semantic=stable facts, episodic=time-bound events, procedural=learned patterns."
+    },
+    "SemanticCategory": {
+      "type": "string",
+      "enum": ["preference", "fact", "skill", "relationship", "tool"],
+      "description": "Categories for semantic nodes. See compound-memory.md Section 4.1.1."
+    },
+    "EpisodicCategory": {
+      "type": "string",
+      "enum": ["event", "decision", "outcome", "interaction"],
+      "description": "Categories for episodic nodes. See compound-memory.md Section 4.1.1."
+    },
+    "ProceduralCategory": {
+      "type": "string",
+      "enum": ["pattern", "workflow", "strategy", "communication"],
+      "description": "Categories for procedural nodes. See compound-memory.md Section 4.1.1."
+    },
+    "NodeCategory": {
+      "type": "string",
+      "description": "Finer classification within a node type. Servers MAY define additional categories beyond the core taxonomy.",
+      "examples": ["preference", "fact", "skill", "event", "decision", "pattern", "workflow"]
+    },
+    "ConfidenceScore": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence score. 0.9-1.0=explicitly stated, 0.7-0.89=strongly inferred, 0.5-0.69=moderately inferred, 0.3-0.49=weakly inferred, 0.0-0.29=speculative."
+    },
+    "Provenance": {
+      "type": "object",
+      "description": "Metadata tracking where a node or edge originated. See compound-memory.md Section 4.1.3.",
+      "required": ["contributed_by", "extracted_at"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread where this knowledge was extracted. Optional for cross-thread synthesis or imports."
+        },
+        "message_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Specific message that triggered extraction. Optional for synthesized or imported nodes."
+        },
+        "contributed_by": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "AINM address of the agent or compilation engine that produced this knowledge."
+        },
+        "extracted_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "When this node was created or last updated."
+        },
+        "compilation_pass": {
+          "type": "string",
+          "description": "Identifier of the compilation pass that produced this node. Enables audit."
+        }
+      }
+    },
+    "TemporalValidity": {
+      "type": "object",
+      "description": "Time window during which a node or edge is considered current. See compound-memory.md Section 4.1.4.",
+      "required": ["valid_from", "valid_until"],
+      "properties": {
+        "valid_from": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp",
+          "description": "When this knowledge became valid."
+        },
+        "valid_until": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" },
+            { "type": "null" }
+          ],
+          "description": "When this knowledge ceased to be valid. null if currently valid."
+        },
+        "superseded_by": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/UUIDv7" },
+            { "type": "null" }
+          ],
+          "description": "node_id of the superseding node, if any."
+        }
+      }
+    },
+    "MemoryNode": {
+      "type": "object",
+      "description": "An entity in the user memory graph. Represents a discrete piece of knowledge about the user. See compound-memory.md Section 4.1.",
+      "required": ["node_id", "type", "category", "label", "confidence", "source", "temporal"],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Server-assigned unique identifier."
+        },
+        "type": {
+          "$ref": "#/$defs/NodeType"
+        },
+        "category": {
+          "$ref": "#/$defs/NodeCategory"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Human-readable label. Examples: 'Prefers TypeScript over JavaScript', 'Decided to use PostgreSQL'."
+        },
+        "properties": {
+          "type": "object",
+          "description": "Arbitrary key-value properties. Keys are strings. Values are strings, numbers, booleans, or arrays of strings. Max 4KB serialized.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "source": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "temporal": {
+          "$ref": "#/$defs/TemporalValidity"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20,
+          "description": "Categorization tags for filtering. Max 20 tags, each 1-64 characters."
+        }
+      }
+    },
+    "MemoryEdge": {
+      "type": "object",
+      "description": "A directed relationship between two memory nodes. See compound-memory.md Section 4.2.",
+      "required": ["edge_id", "source_node", "target_node", "relationship", "confidence", "source", "temporal"],
+      "properties": {
+        "edge_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Server-assigned unique identifier."
+        },
+        "source_node": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "node_id of the source node."
+        },
+        "target_node": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "node_id of the target node."
+        },
+        "relationship": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Relationship type. Core types: uses, prefers_over, works_at, works_with, decided_on, led_to, requires, part_of, learned_from, contradicts, similar_to. Servers MAY define additional types.",
+          "examples": ["uses", "prefers_over", "works_at", "decided_on", "led_to"]
+        },
+        "properties": {
+          "type": "object",
+          "description": "Additional relationship properties. Same constraints as node properties.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0,
+          "description": "Relationship strength. Higher = stronger/more frequent. Default: 1.0."
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "source": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "temporal": {
+          "$ref": "#/$defs/TemporalValidity"
+        }
+      }
+    },
+    "MemoryScope": {
+      "type": "string",
+      "enum": ["identity", "preferences", "expertise", "goals", "history", "patterns"],
+      "description": "Named subset of the user memory graph. See compound-memory.md Section 7.1."
+    },
+    "ConsentLevel": {
+      "type": "string",
+      "enum": ["minimal", "standard", "full"],
+      "description": "User's global consent level for compound memory sharing. minimal=identity only, standard=+preferences+expertise+goals, full=all scopes."
+    },
+    "BriefingScope": {
+      "type": "string",
+      "enum": ["full", "domain-scoped", "minimal"],
+      "description": "Breadth of memory included in a briefing."
+    },
+    "BriefingNodeSummary": {
+      "type": "object",
+      "description": "Compact representation of a memory node within a briefing section.",
+      "required": ["node_id", "label", "confidence", "valid_from"],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "valid_from": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        }
+      }
+    },
+    "AgentBriefing": {
+      "type": "object",
+      "description": "Structured onboarding packet delivered to agents from the user's compound memory. See compound-memory.md Section 6.3.",
+      "required": ["briefing_id", "thread_id", "user_identity", "generated_at", "scope", "consent_level", "sections"],
+      "properties": {
+        "briefing_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Unique identifier for this briefing instance."
+        },
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread context for this briefing."
+        },
+        "user_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress",
+          "description": "The user whose compound memory is being briefed."
+        },
+        "generated_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        },
+        "scope": {
+          "$ref": "#/$defs/BriefingScope"
+        },
+        "consent_level": {
+          "$ref": "#/$defs/ConsentLevel"
+        },
+        "sections": {
+          "type": "object",
+          "description": "Briefing content organized by category.",
+          "properties": {
+            "identity": {
+              "type": "object",
+              "description": "Core identity facts (name, location, timezone, role).",
+              "additionalProperties": { "type": "string" }
+            },
+            "preferences": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/BriefingNodeSummary" },
+              "description": "Relevant preferences."
+            },
+            "expertise": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/BriefingNodeSummary" },
+              "description": "Skill and expertise areas."
+            },
+            "active_goals": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/BriefingNodeSummary" },
+              "description": "Current objectives and active projects."
+            },
+            "interaction_patterns": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/BriefingNodeSummary" },
+              "description": "Communication and behavioral patterns."
+            },
+            "relevant_history": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/BriefingNodeSummary" },
+              "description": "Contextually relevant episodic nodes."
+            }
+          }
+        },
+        "graph_snapshot": {
+          "type": "object",
+          "description": "Raw graph data for the scoped subgraph. Included when scope is full or domain-scoped.",
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryNode" }
+            },
+            "edges": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryEdge" }
+            }
+          }
+        },
+        "token_budget_used": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Approximate token count of the briefing payload."
+        }
+      }
+    },
+    "CompilationResult": {
+      "type": "object",
+      "description": "Summary of a memory compilation pass. See compound-memory.md Section 5.4.",
+      "required": ["nodes_created", "nodes_updated", "nodes_superseded", "edges_created", "edges_updated", "contradictions_resolved", "lint_warnings"],
+      "properties": {
+        "nodes_created": { "type": "integer", "minimum": 0 },
+        "nodes_updated": { "type": "integer", "minimum": 0 },
+        "nodes_superseded": { "type": "integer", "minimum": 0 },
+        "edges_created": { "type": "integer", "minimum": 0 },
+        "edges_updated": { "type": "integer", "minimum": 0 },
+        "contradictions_resolved": { "type": "integer", "minimum": 0 },
+        "lint_warnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "CompilationNotification": {
+      "type": "object",
+      "description": "Notification sent after a compilation pass completes. See compound-memory.md Section 5.4.",
+      "required": ["user_identity", "compilation_id", "timestamp", "source_threads", "result"],
+      "properties": {
+        "user_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress"
+        },
+        "compilation_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        },
+        "source_threads": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/UUIDv7" },
+          "description": "Threads processed in this compilation pass."
+        },
+        "result": {
+          "$ref": "#/$defs/CompilationResult"
+        }
+      }
+    },
+    "LintFinding": {
+      "type": "object",
+      "description": "A single health-check finding from the lint operation. See compound-memory.md Section 5.5.",
+      "required": ["type", "severity", "description", "node_ids"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["contradiction", "orphan", "stale", "gap", "overconnected"],
+          "description": "Finding type."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["warning", "info"],
+          "description": "Finding severity."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the finding."
+        },
+        "node_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/UUIDv7" },
+          "description": "Nodes involved in the finding."
+        }
+      }
+    },
+    "LintResult": {
+      "type": "object",
+      "description": "Response from the lint operation. See compound-memory.md Section 5.5.",
+      "required": ["lint_id", "timestamp", "findings", "summary"],
+      "properties": {
+        "lint_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7"
+        },
+        "timestamp": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LintFinding" }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["total_nodes", "total_edges", "contradictions", "orphan_nodes", "stale_nodes"],
+          "properties": {
+            "total_nodes": { "type": "integer", "minimum": 0 },
+            "total_edges": { "type": "integer", "minimum": 0 },
+            "contradictions": { "type": "integer", "minimum": 0 },
+            "orphan_nodes": { "type": "integer", "minimum": 0 },
+            "stale_nodes": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "GraphQueryParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.graph.query. See compound-memory.md Section 11.1.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Text search across node labels and properties."
+        },
+        "type_filter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NodeType" },
+          "description": "Filter by node type."
+        },
+        "category_filter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NodeCategory" },
+          "description": "Filter by node category."
+        },
+        "temporal_filter": {
+          "type": "string",
+          "enum": ["current", "all", "historical"],
+          "default": "current",
+          "description": "current=valid_until is null, all=include superseded, historical=only superseded."
+        },
+        "min_confidence": {
+          "$ref": "#/$defs/ConfidenceScore",
+          "description": "Minimum confidence score filter."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "include_edges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include edges connecting returned nodes."
+        }
+      }
+    },
+    "GraphQueryResult": {
+      "type": "object",
+      "description": "Response from ainm.memory.graph.query.",
+      "required": ["nodes", "total_count", "returned_count"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MemoryNode" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MemoryEdge" }
+        },
+        "total_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total matching nodes (before limit applied)."
+        },
+        "returned_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of nodes returned (after limit)."
+        }
+      }
+    },
+    "GraphTraverseParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.graph.traverse. See compound-memory.md Section 11.2.",
+      "required": ["start_node"],
+      "properties": {
+        "start_node": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "node_id to start traversal from."
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 2
+        },
+        "relationship_filter": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Only follow edges with these relationship types."
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["outgoing", "incoming", "both"],
+          "default": "both"
+        },
+        "temporal_filter": {
+          "type": "string",
+          "enum": ["current", "all", "historical"],
+          "default": "current"
+        }
+      }
+    },
+    "GraphTraverseResult": {
+      "type": "object",
+      "description": "Response from ainm.memory.graph.traverse.",
+      "required": ["subgraph", "traversal_depth_reached"],
+      "properties": {
+        "subgraph": {
+          "type": "object",
+          "required": ["nodes", "edges"],
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryNode" }
+            },
+            "edges": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryEdge" }
+            }
+          }
+        },
+        "traversal_depth_reached": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "GraphContributeParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.graph.contribute. See compound-memory.md Section 7.4.",
+      "required": ["thread_id", "node"],
+      "properties": {
+        "thread_id": {
+          "$ref": "common.schema.json#/$defs/UUIDv7",
+          "description": "Thread context for provenance."
+        },
+        "node": {
+          "type": "object",
+          "description": "The node to contribute (without node_id — server assigns it).",
+          "required": ["type", "category", "label", "confidence"],
+          "properties": {
+            "type": { "$ref": "#/$defs/NodeType" },
+            "category": { "$ref": "#/$defs/NodeCategory" },
+            "label": { "type": "string", "minLength": 1, "maxLength": 512 },
+            "confidence": { "$ref": "#/$defs/ConfidenceScore" },
+            "properties": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "number" },
+                  { "type": "boolean" },
+                  { "type": "array", "items": { "type": "string" } }
+                ]
+              }
+            },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "maxItems": 20
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "Optional edges to create alongside the contributed node.",
+          "items": {
+            "type": "object",
+            "required": ["relationship", "confidence"],
+            "properties": {
+              "target_node": {
+                "$ref": "common.schema.json#/$defs/UUIDv7",
+                "description": "Existing node_id to connect to."
+              },
+              "target_label": {
+                "type": "string",
+                "description": "Label of target node (server resolves to existing node or creates new)."
+              },
+              "relationship": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "confidence": { "$ref": "#/$defs/ConfidenceScore" }
+            }
+          }
+        }
+      }
+    },
+    "GraphContributeResult": {
+      "type": "object",
+      "description": "Response from ainm.memory.graph.contribute.",
+      "required": ["contributed", "node_id"],
+      "properties": {
+        "contributed": { "type": "boolean" },
+        "node_id": { "$ref": "common.schema.json#/$defs/UUIDv7" },
+        "edge_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/UUIDv7" }
+        }
+      }
+    },
+    "MemoryExport": {
+      "type": "object",
+      "description": "Portable export format for compound memory. See compound-memory.md Section 8.1.",
+      "required": ["format", "version", "exported_at", "user_identity", "graph", "metadata"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "ainm-memory-v1",
+          "description": "Format identifier."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Format version (semver)."
+        },
+        "exported_at": {
+          "$ref": "common.schema.json#/$defs/RFC3339Timestamp"
+        },
+        "user_identity": {
+          "$ref": "common.schema.json#/$defs/AINMAddress"
+        },
+        "graph": {
+          "type": "object",
+          "required": ["nodes", "edges"],
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryNode" }
+            },
+            "edges": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/MemoryEdge" }
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "required": ["node_count", "edge_count"],
+          "properties": {
+            "node_count": { "type": "integer", "minimum": 0 },
+            "edge_count": { "type": "integer", "minimum": 0 },
+            "earliest_node": { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" },
+            "latest_node": { "$ref": "common.schema.json#/$defs/RFC3339Timestamp" },
+            "export_source_server": { "type": "string" },
+            "export_protocol_version": { "type": "string" }
+          }
+        }
+      }
+    },
+    "ConflictStrategy": {
+      "type": "string",
+      "enum": ["prefer-newer", "prefer-existing", "keep-both"],
+      "description": "Strategy for handling conflicts during memory import."
+    },
+    "MemoryImportParams": {
+      "type": "object",
+      "description": "Parameters for ainm.memory.import. See compound-memory.md Section 8.3.",
+      "required": ["format", "data"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "ainm-memory-v1"
+        },
+        "data": {
+          "$ref": "#/$defs/MemoryExport"
+        },
+        "conflict_strategy": {
+          "$ref": "#/$defs/ConflictStrategy",
+          "default": "prefer-newer"
+        }
+      }
+    },
+    "MemoryImportResult": {
+      "type": "object",
+      "description": "Response from ainm.memory.import.",
+      "required": ["imported", "nodes_imported", "nodes_skipped", "nodes_merged", "edges_imported", "edges_skipped", "conflicts_detected", "conflicts_resolved"],
+      "properties": {
+        "imported": { "type": "boolean" },
+        "nodes_imported": { "type": "integer", "minimum": 0 },
+        "nodes_skipped": { "type": "integer", "minimum": 0 },
+        "nodes_merged": { "type": "integer", "minimum": 0 },
+        "edges_imported": { "type": "integer", "minimum": 0 },
+        "edges_skipped": { "type": "integer", "minimum": 0 },
+        "conflicts_detected": { "type": "integer", "minimum": 0 },
+        "conflicts_resolved": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "CompoundMemoryCapabilities": {
+      "type": "object",
+      "description": "Extended memory capabilities for compound memory. Nested under capabilities.memory in ainm.initialized.",
+      "properties": {
+        "conversation": { "type": "boolean" },
+        "archival": { "type": "boolean" },
+        "graph": {
+          "type": "boolean",
+          "description": "Server supports user memory graph and graph operations."
+        },
+        "compilation": {
+          "type": "boolean",
+          "description": "Server runs LLM-powered memory compilation."
+        },
+        "briefing": {
+          "type": "boolean",
+          "description": "Server generates agent briefings from compound memory."
+        },
+        "export": {
+          "type": "boolean",
+          "description": "Server supports memory export/import."
+        },
+        "maxGraphNodes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum nodes per user memory graph."
+        },
+        "maxGraphEdges": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum edges per user memory graph."
+        },
+        "supportedExportFormats": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Export formats supported by the server."
+        }
+      }
+    },
+    "AgentCardMemoryExtension": {
+      "type": "object",
+      "description": "Agent Card extension for compound memory awareness. See compound-memory.md Section 10.2.",
+      "properties": {
+        "requestedScopes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MemoryScope" },
+          "description": "Memory scopes the agent ideally receives."
+        },
+        "minimumScopes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MemoryScope" },
+          "description": "Minimum scopes for the agent to function."
+        },
+        "supportsBriefing": {
+          "type": "boolean",
+          "description": "Whether the agent can process ainm.memory.briefing notifications."
+        }
+      }
+    },
+    "CompoundMemoryErrorCode": {
+      "type": "integer",
+      "enum": [-32060, -32061, -32062, -32063, -32064, -32065, -32066, -32067],
+      "description": "Error codes for compound memory operations. -32060=graph quota exceeded, -32061=unauthorized, -32062=not supported, -32063=invalid export format, -32064=import validation failed, -32065=briefing not available, -32066=node not found, -32067=contribution rejected."
+    }
+  }
+}
