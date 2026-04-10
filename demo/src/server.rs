@@ -929,6 +929,160 @@ async fn handle_agent_connection(
                             let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
                         }
                     }
+                    // ── Compound Memory: Briefing, Grant/Revoke, Export/Import ──
+                    "ainm.memory.briefing" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("");
+                            let user_addr = params.get("user_identity").and_then(|u| u.as_str()).unwrap_or(&from_addr);
+
+                            match crate::briefing::generate_briefing(
+                                db, user_addr, &from_addr, thread_id,
+                                crate::briefing::ConsentLevel::Standard,
+                            ).await {
+                                Ok(briefing) => {
+                                    if has_id {
+                                        let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), briefing);
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    if has_id {
+                                        let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32065, &format!("Briefing failed: {e}"));
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.briefing.ack" => {
+                        // Acknowledgment notification — no response needed
+                        if let Some(params) = parsed.get("params") {
+                            let briefing_id = params.get("briefing_id").and_then(|b| b.as_str()).unwrap_or("unknown");
+                            tracing::info!("[briefing] Agent {} acknowledged briefing {}", from_addr, briefing_id);
+                        }
+                    }
+                    "ainm.memory.grant" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let agent_addr = params.get("agent_identity").and_then(|a| a.as_str()).unwrap_or("");
+                            let scopes: Vec<String> = params.get("scopes")
+                                .and_then(|s| s.as_array())
+                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .unwrap_or_default();
+                            let consent_str = params.get("consent_level").and_then(|c| c.as_str()).unwrap_or("standard");
+                            let consent = crate::briefing::ConsentLevel::from_str(consent_str);
+
+                            match crate::briefing::grant_scopes(db, &from_addr, agent_addr, &scopes, consent).await {
+                                Ok(()) => {
+                                    if has_id {
+                                        let result = serde_json::json!({
+                                            "granted": true,
+                                            "agent_identity": agent_addr,
+                                            "effective_scopes": scopes,
+                                            "effective_consent_level": consent.as_str(),
+                                        });
+                                        let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    if has_id {
+                                        let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Grant failed: {e}"));
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.revoke" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let agent_addr = params.get("agent_identity").and_then(|a| a.as_str()).unwrap_or("");
+                            let scopes: Vec<String> = params.get("scopes")
+                                .and_then(|s| s.as_array())
+                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .unwrap_or_default();
+
+                            match crate::briefing::revoke_scopes(db, &from_addr, agent_addr, &scopes).await {
+                                Ok(()) => {
+                                    if has_id {
+                                        let result = serde_json::json!({ "revoked": true, "agent_identity": agent_addr });
+                                        let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    if has_id {
+                                        let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Revoke failed: {e}"));
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.export" => {
+                        if let Some(ref db) = state.db {
+                            let include_superseded = parsed.get("params")
+                                .and_then(|p| p.get("include_superseded"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+
+                            match crate::graph::export_graph(db, &from_addr, include_superseded).await {
+                                Ok((nodes, edges)) => {
+                                    let earliest = nodes.first().map(|n| n.valid_from.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+                                    let latest = nodes.last().map(|n| n.valid_from.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+                                    let result = serde_json::json!({
+                                        "format": "ainm-memory-v1",
+                                        "version": "1.0.0",
+                                        "exported_at": protocol::now_rfc3339(),
+                                        "user_identity": from_addr,
+                                        "graph": {
+                                            "nodes": nodes.iter().map(|n| n.to_protocol_json()).collect::<Vec<_>>(),
+                                            "edges": edges.iter().map(|e| e.to_protocol_json()).collect::<Vec<_>>(),
+                                        },
+                                        "metadata": {
+                                            "node_count": nodes.len(),
+                                            "edge_count": edges.len(),
+                                            "earliest_node": earliest,
+                                            "latest_node": latest,
+                                        }
+                                    });
+                                    if has_id {
+                                        let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    if has_id {
+                                        let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Export failed: {e}"));
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
                     "ainm.stream.start"
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
