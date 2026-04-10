@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod error;
 mod federation;
+mod graph;
 mod identity;
 mod persistence;
 mod protocol;

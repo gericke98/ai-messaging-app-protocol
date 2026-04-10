@@ -715,6 +715,215 @@ async fn handle_agent_connection(
                             }
                         }
                     }
+                    // ── Compound Memory: Graph Operations ──
+                    "ainm.memory.graph.query" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let text_q = params.get("query").and_then(|q| q.as_str());
+                            let min_conf = params.get("min_confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32;
+                            let lim = params.get("limit").and_then(|l| l.as_i64()).unwrap_or(20);
+                            let temporal = params.get("temporal_filter").and_then(|t| t.as_str()).unwrap_or("current");
+                            let include_edges = params.get("include_edges").and_then(|e| e.as_bool()).unwrap_or(false);
+
+                            match crate::graph::query_nodes(db, &from_addr, text_q, None, None, temporal, min_conf, lim).await {
+                                Ok(nodes) => {
+                                    let node_ids: Vec<uuid::Uuid> = nodes.iter().map(|n| n.id).collect();
+                                    let edges = if include_edges && !node_ids.is_empty() {
+                                        crate::graph::get_edges_for_nodes(db, &from_addr, &node_ids).await.unwrap_or_default()
+                                    } else {
+                                        vec![]
+                                    };
+                                    let total = nodes.len();
+                                    let result = serde_json::json!({
+                                        "nodes": nodes.iter().map(|n| n.to_protocol_json()).collect::<Vec<_>>(),
+                                        "edges": edges.iter().map(|e| e.to_protocol_json()).collect::<Vec<_>>(),
+                                        "total_count": total,
+                                        "returned_count": total,
+                                    });
+                                    if has_id {
+                                        let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("[graph] query failed: {e}");
+                                    if has_id {
+                                        let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Graph query failed: {e}"));
+                                        let mut sender = ws_sender.lock().await;
+                                        let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.graph.traverse" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let start_str = params.get("start_node").and_then(|s| s.as_str()).unwrap_or("");
+                            let max_depth = params.get("max_depth").and_then(|d| d.as_i64()).unwrap_or(2) as i32;
+                            let direction = params.get("direction").and_then(|d| d.as_str()).unwrap_or("both");
+
+                            if let Ok(start_uuid) = uuid::Uuid::parse_str(start_str) {
+                                match crate::graph::traverse(db, &from_addr, start_uuid, max_depth, direction, None).await {
+                                    Ok((nodes, edges)) => {
+                                        let result = serde_json::json!({
+                                            "subgraph": {
+                                                "nodes": nodes.iter().map(|n| n.to_protocol_json()).collect::<Vec<_>>(),
+                                                "edges": edges.iter().map(|e| e.to_protocol_json()).collect::<Vec<_>>(),
+                                            },
+                                            "traversal_depth_reached": max_depth,
+                                        });
+                                        if has_id {
+                                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                            let mut sender = ws_sender.lock().await;
+                                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if has_id {
+                                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Traversal failed: {e}"));
+                                            let mut sender = ws_sender.lock().await;
+                                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                        }
+                                    }
+                                }
+                            } else if has_id {
+                                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32066, "Invalid start_node UUID");
+                                let mut sender = ws_sender.lock().await;
+                                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.graph.contribute" => {
+                        if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+                            let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            if let Some(node_data) = params.get("node") {
+                                let node_type = node_data.get("type").and_then(|t| t.as_str()).unwrap_or("semantic");
+                                let category = node_data.get("category").and_then(|c| c.as_str()).unwrap_or("fact");
+                                let label = node_data.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                                let confidence = node_data.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.85) as f32;
+                                // Cap agent contributions at 0.85
+                                let confidence = confidence.min(0.85);
+                                let properties = node_data.get("properties").cloned().unwrap_or(serde_json::json!({}));
+                                let tags = node_data.get("tags").cloned().unwrap_or(serde_json::json!([]));
+                                let provenance = serde_json::json!({
+                                    "thread_id": thread_id,
+                                    "contributed_by": from_addr,
+                                    "extracted_at": protocol::now_rfc3339(),
+                                });
+
+                                // Determine user_addr: for agent contributions, we need the user in the thread
+                                // For now, use from_addr as user_addr (the contributor)
+                                // In production, this would resolve to the thread owner
+                                let user_addr = &from_addr;
+
+                                match crate::graph::insert_node(db, user_addr, node_type, category, label, &properties, confidence, &provenance, &tags).await {
+                                    Ok(node_id) => {
+                                        // Process optional edges
+                                        let mut edge_ids = Vec::new();
+                                        if let Some(edges) = params.get("edges").and_then(|e| e.as_array()) {
+                                            for edge_data in edges {
+                                                let rel = edge_data.get("relationship").and_then(|r| r.as_str()).unwrap_or("related_to");
+                                                let edge_conf = edge_data.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.85) as f32;
+                                                if let Some(target_id_str) = edge_data.get("target_node").and_then(|t| t.as_str()) {
+                                                    if let Ok(target_uuid) = uuid::Uuid::parse_str(target_id_str) {
+                                                        if let Ok(eid) = crate::graph::insert_edge(db, user_addr, node_id, target_uuid, rel, 1.0, edge_conf, &provenance, &serde_json::json!({})).await {
+                                                            edge_ids.push(eid.to_string());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if has_id {
+                                            let result = serde_json::json!({
+                                                "contributed": true,
+                                                "node_id": node_id.to_string(),
+                                                "edge_ids": edge_ids,
+                                            });
+                                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                            let mut sender = ws_sender.lock().await;
+                                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if has_id {
+                                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32067, &format!("Contribution rejected: {e}"));
+                                            let mut sender = ws_sender.lock().await;
+                                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
+                    "ainm.memory.lint" => {
+                        if let Some(ref db) = state.db {
+                            let contradictions = crate::graph::find_contradictions(db, &from_addr).await.unwrap_or_default();
+                            let orphans = crate::graph::find_orphans(db, &from_addr).await.unwrap_or_default();
+                            let stale = crate::graph::find_stale(db, &from_addr, 180).await.unwrap_or_default();
+                            let (total_nodes, total_edges) = crate::graph::graph_stats(db, &from_addr).await.unwrap_or((0, 0));
+
+                            let mut findings = Vec::new();
+                            for (s, t, _) in &contradictions {
+                                findings.push(serde_json::json!({
+                                    "type": "contradiction",
+                                    "severity": "warning",
+                                    "description": "Two active nodes may assert conflicting facts",
+                                    "node_ids": [s.to_string(), t.to_string()],
+                                }));
+                            }
+                            for oid in &orphans {
+                                findings.push(serde_json::json!({
+                                    "type": "orphan",
+                                    "severity": "info",
+                                    "description": "Node has no edges connecting it to the rest of the graph",
+                                    "node_ids": [oid.to_string()],
+                                }));
+                            }
+                            for sid in &stale {
+                                findings.push(serde_json::json!({
+                                    "type": "stale",
+                                    "severity": "info",
+                                    "description": "Node has not been updated in over 6 months",
+                                    "node_ids": [sid.to_string()],
+                                }));
+                            }
+
+                            let result = serde_json::json!({
+                                "lint_id": protocol::new_message_id(),
+                                "timestamp": protocol::now_rfc3339(),
+                                "findings": findings,
+                                "summary": {
+                                    "total_nodes": total_nodes,
+                                    "total_edges": total_edges,
+                                    "contradictions": contradictions.len(),
+                                    "orphan_nodes": orphans.len(),
+                                    "stale_nodes": stale.len(),
+                                },
+                            });
+                            if has_id {
+                                let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                let mut sender = ws_sender.lock().await;
+                                let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            }
+                        } else if has_id {
+                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                            let mut sender = ws_sender.lock().await;
+                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                        }
+                    }
                     "ainm.stream.start"
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
