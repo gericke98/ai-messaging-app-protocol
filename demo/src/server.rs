@@ -43,10 +43,12 @@ pub struct ServerState {
     pub to_human_tx: broadcast::Sender<String>,
     /// Active threads (thread_id list).
     pub threads: Arc<Mutex<Vec<String>>>,
-    /// In-memory archival fact store keyed by fact key.
+    /// In-memory archival fact store keyed by fact key (fallback when no DB).
     pub archival_store: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     /// Optional federation context for cross-server routing.
     pub federation: Option<FederationContext>,
+    /// Optional PostgreSQL pool for production persistence.
+    pub db: Option<sqlx::PgPool>,
 }
 
 /// Start the Axum WebSocket server on a random available port (legacy mode).
@@ -66,6 +68,7 @@ pub async fn start(
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
+        db: None,
     };
 
     let app = Router::new()
@@ -94,6 +97,7 @@ pub async fn start_federation(
     agent_card: serde_json::Value,
     federation: Option<FederationContext>,
     port: u16,
+    db: Option<sqlx::PgPool>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
     let (to_human_tx, _) = broadcast::channel::<String>(256);
@@ -106,6 +110,7 @@ pub async fn start_federation(
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,
+        db,
     };
 
     let app = Router::new()
@@ -414,8 +419,24 @@ async fn handle_agent_connection(
                                     "stored_at": stored_at
                                 });
 
-                                // Store in archival_store
-                                archival_store.lock().await.insert(key.clone(), archival_fact.clone());
+                                // Store: PostgreSQL if available, else in-memory fallback
+                                if let Some(ref db) = state.db {
+                                    if let Err(e) = crate::repository::store_fact(
+                                        db,
+                                        &fact_id,
+                                        &from_identity,
+                                        Some(&thread_id),
+                                        &key,
+                                        &value,
+                                        &tags,
+                                        &from_identity,
+                                    ).await {
+                                        tracing::error!("[memory] PostgreSQL store failed: {e}, falling back to in-memory");
+                                        archival_store.lock().await.insert(key.clone(), archival_fact.clone());
+                                    }
+                                } else {
+                                    archival_store.lock().await.insert(key.clone(), archival_fact.clone());
+                                }
 
                                 // Send response
                                 if has_id {
@@ -494,13 +515,33 @@ async fn handle_agent_connection(
                                 .and_then(|l| l.as_u64())
                                 .unwrap_or(10) as usize;
 
-                            let store = archival_store.lock().await;
-                            let results: Vec<serde_json::Value> = store
-                                .iter()
-                                .filter(|(k, _)| key_prefix.is_empty() || k.starts_with(&key_prefix))
-                                .take(limit)
-                                .map(|(_, v)| v.clone())
-                                .collect();
+                            // Query: PostgreSQL if available, else in-memory fallback
+                            let results: Vec<serde_json::Value> = if let Some(ref db) = state.db {
+                                match crate::repository::query_facts(
+                                    db,
+                                    &from_addr,
+                                    if key_prefix.is_empty() { None } else { Some(&key_prefix) },
+                                    limit as i64,
+                                ).await {
+                                    Ok(rows) => rows.iter().map(|r| r.to_protocol_json()).collect(),
+                                    Err(e) => {
+                                        tracing::error!("[memory] PostgreSQL query failed: {e}, falling back to in-memory");
+                                        let store = archival_store.lock().await;
+                                        store.iter()
+                                            .filter(|(k, _)| key_prefix.is_empty() || k.starts_with(&key_prefix))
+                                            .take(limit)
+                                            .map(|(_, v)| v.clone())
+                                            .collect()
+                                    }
+                                }
+                            } else {
+                                let store = archival_store.lock().await;
+                                store.iter()
+                                    .filter(|(k, _)| key_prefix.is_empty() || k.starts_with(&key_prefix))
+                                    .take(limit)
+                                    .map(|(_, v)| v.clone())
+                                    .collect()
+                            };
 
                             let query_result = serde_json::json!({
                                 "results": results,
@@ -529,7 +570,18 @@ async fn handle_agent_connection(
                             let _ = to_human_tx.send(serde_json::to_string(&query_notify).unwrap());
 
                             // Build and send ainm.context.frame notification
-                            let archival_facts: Vec<serde_json::Value> = store.values().cloned().collect();
+                            let archival_facts: Vec<serde_json::Value> = if let Some(ref db) = state.db {
+                                match crate::repository::get_all_facts(db, &from_addr).await {
+                                    Ok(rows) => rows.iter().map(|r| r.to_protocol_json()).collect(),
+                                    Err(_) => {
+                                        let store = archival_store.lock().await;
+                                        store.values().cloned().collect()
+                                    }
+                                }
+                            } else {
+                                let store = archival_store.lock().await;
+                                store.values().cloned().collect()
+                            };
                             let now = protocol::now_rfc3339();
                             let msg_id = protocol::new_message_id();
 
@@ -610,8 +662,18 @@ async fn handle_agent_connection(
                                             .await;
                                     }
                                 } else {
-                                    let mut store = archival_store.lock().await;
-                                    let evicted = store.remove(&key).is_some();
+                                    // Evict: PostgreSQL if available, else in-memory fallback
+                                    let evicted = if let Some(ref db) = state.db {
+                                        match crate::repository::evict_fact(db, &from_addr, &key).await {
+                                            Ok(deleted) => deleted,
+                                            Err(e) => {
+                                                tracing::error!("[memory] PostgreSQL evict failed: {e}, falling back to in-memory");
+                                                archival_store.lock().await.remove(&key).is_some()
+                                            }
+                                        }
+                                    } else {
+                                        archival_store.lock().await.remove(&key).is_some()
+                                    };
 
                                     if evicted {
                                         if has_id {

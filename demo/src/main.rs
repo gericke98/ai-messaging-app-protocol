@@ -1,4 +1,7 @@
 mod agent;
+mod config;
+mod db;
+mod error;
 mod federation;
 mod identity;
 mod persistence;
@@ -6,6 +9,7 @@ mod protocol;
 mod relay;
 mod render;
 mod repl;
+mod repository;
 mod server;
 mod signing;
 mod streaming;
@@ -284,6 +288,27 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         }
     }
 
+    // 7b. Initialize PostgreSQL if configured
+    let app_config = config::load().unwrap_or_else(|e| {
+        tracing::warn!("[config] Failed to load config: {e}, using defaults");
+        config::AppConfig { database: config::DatabaseConfig::default() }
+    });
+    let db_pool = if app_config.database.url.is_some() {
+        match db::init_pool(&app_config.database).await {
+            Ok(pool) => {
+                tracing::info!("[db] PostgreSQL connected and migrations applied");
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!("[db] PostgreSQL init failed: {e}. Running without database persistence.");
+                None
+            }
+        }
+    } else {
+        tracing::info!("[db] No AINM_DATABASE__URL configured, using in-memory storage");
+        None
+    };
+
     // 8. Create broadcast channel for local delivery
     let (local_delivery_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
@@ -316,6 +341,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         agent_card.clone(),
         Some(fed_context),
         cli.port,
+        db_pool,
     )
     .await?;
 

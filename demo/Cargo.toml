@@ -40,6 +40,15 @@ clap = { version = "4.6", features = ["derive"] }
 # Persistent embedded storage for offline queue, dedup cache, TOFU pins, thread messages
 redb = "3.1"
 
+# PostgreSQL (production persistence for facts, threads, messages, graph)
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "uuid", "chrono", "migrate"] }
+
+# Configuration management (layered: TOML + env vars)
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# Typed errors at layer boundaries
+thiserror = "2"
+
 # HTTP server for federation TLS listener (low-level hyper for axum TLS integration)
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
