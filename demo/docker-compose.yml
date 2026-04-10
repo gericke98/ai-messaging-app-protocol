@@ -1,12 +1,39 @@
 services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: ainm
+      POSTGRES_USER: ainm
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ainm"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      federation:
+
   server-a:
     build: .
     ports:
       - "8080:8080"
       - "8443:8443"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./certs:/certs:ro
       - server-a-data:/data
+    environment:
+      AINM_DATABASE__URL: postgres://ainm:dev_password@postgres:5432/ainm
+      AINM_LLM__API_KEY: ${AINM_LLM__API_KEY:-}
+      AINM_LLM__MODEL: ${AINM_LLM__MODEL:-gpt-4o-mini}
+      AINM_LLM__BASE_URL: ${AINM_LLM__BASE_URL:-}
+      RUST_LOG: info
     command:
       - "--mode"
       - "human"
@@ -38,9 +65,17 @@ services:
     ports:
       - "9080:9080"
       - "9443:9443"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./certs:/certs:ro
       - server-b-data:/data
+    environment:
+      AINM_DATABASE__URL: postgres://ainm:dev_password@postgres:5432/ainm_b
+      AINM_LLM__API_KEY: ${AINM_LLM__API_KEY:-}
+      AINM_LLM__MODEL: ${AINM_LLM__MODEL:-gpt-4o-mini}
+      RUST_LOG: info
     command:
       - "--mode"
       - "agent"
@@ -64,13 +99,12 @@ services:
       federation:
         aliases:
           - server-b.local
-    depends_on:
-      - server-a
 
 networks:
   federation:
     driver: bridge
 
 volumes:
+  pg-data:
   server-a-data:
   server-b-data:

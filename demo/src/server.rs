@@ -125,6 +125,8 @@ pub async fn start_federation(
             "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
+        .route("/health/live", get(|| async { StatusCode::OK }))
+        .route("/health/ready", get(health_ready_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
@@ -172,6 +174,20 @@ async fn agent_card_handler(
         body,
     )
         .into_response()
+}
+
+/// Health readiness check — verifies database connectivity.
+async fn health_ready_handler(State(state): State<ServerState>) -> StatusCode {
+    if let Some(ref db) = state.db {
+        if crate::db::health_check(db).await {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    } else {
+        // No DB configured — still healthy (in-memory mode)
+        StatusCode::OK
+    }
 }
 
 /// WebSocket upgrade handler.
