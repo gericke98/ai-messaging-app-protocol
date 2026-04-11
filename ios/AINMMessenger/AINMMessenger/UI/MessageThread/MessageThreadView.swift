@@ -9,6 +9,7 @@ struct MessageThreadView: View {
     @State private var viewModel: MessageThreadViewModel?
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var showMemoryContext = false
+    @State private var showMemoryGraph = false
     @State private var parentThreadInfo: (parentThreadId: String, parentMessageId: String, senderName: String)?
     @State private var showMessageNotFound = false
 
@@ -19,6 +20,13 @@ struct MessageThreadView: View {
                 SubThreadBannerView(parentSenderName: info.senderName) {
                     appState.scrollToMessageId = info.parentMessageId
                     appState.selectedThreadId = info.parentThreadId
+                }
+            }
+
+            // Briefing banner (shows when agent received a briefing for this thread)
+            if let briefing = appState.latestBriefing, briefing.threadId == threadId {
+                BriefingBannerView(briefing: briefing) {
+                    showMemoryGraph = true
                 }
             }
 
@@ -114,28 +122,40 @@ struct MessageThreadView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if viewModel?.hasAgentParticipant == true {
+                HStack(spacing: 8) {
                     Button {
-                        showMemoryContext = true
+                        showMemoryGraph = true
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "brain")
-                            Text("Context")
-                                .font(.caption.bold())
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12))
-                        .foregroundStyle(Color.accentColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Image(systemName: "brain.head.profile")
                     }
-                    .accessibilityLabel("View memory context")
+                    .accessibilityLabel("View memory graph")
+
+                    if viewModel?.hasAgentParticipant == true {
+                        Button {
+                            showMemoryContext = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "brain")
+                                Text("Context")
+                                    .font(.caption.bold())
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.accentColor.opacity(0.12))
+                            .foregroundStyle(Color.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .accessibilityLabel("View memory context")
+                    }
                 }
             }
         }
         .sheet(isPresented: $showMemoryContext) {
             MemoryContextView(threadId: threadId, appState: appState)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showMemoryGraph) {
+            MemoryGraphView(appState: appState)
         }
         .overlay(alignment: .bottom) {
             if showMessageNotFound {

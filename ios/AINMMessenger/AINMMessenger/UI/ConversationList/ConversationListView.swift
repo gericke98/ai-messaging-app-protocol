@@ -6,6 +6,7 @@ import SwiftUI
 struct ConversationListView: View {
     @Bindable var appState: AppState
     @State private var viewModel: ConversationListViewModel?
+    @State private var showMemoryGraph = false
 
     var body: some View {
         contentView
@@ -16,6 +17,12 @@ struct ConversationListView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
+                        Button {
+                            showMemoryGraph = true
+                        } label: {
+                            Image(systemName: "brain.head.profile")
+                                .accessibilityLabel("Memory graph")
+                        }
                         NavigationLink {
                             AgentDiscoveryView(appState: appState)
                         } label: {
@@ -47,6 +54,9 @@ struct ConversationListView: View {
             }
             .sheet(isPresented: $appState.showNewThreadComposer) {
                 NewThreadComposerView(appState: appState)
+            }
+            .sheet(isPresented: $showMemoryGraph) {
+                MemoryGraphView(appState: appState)
             }
     }
 

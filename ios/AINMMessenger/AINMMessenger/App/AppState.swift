@@ -41,6 +41,17 @@ final class AppState {
     /// Context frames keyed by threadId, updated from server push notifications.
     var contextFrames: [String: ContextFrame] = [:]
 
+    // MARK: - Compound Memory
+
+    /// Latest compound memory graph fetched from server, cached locally.
+    var memoryGraph: GraphSnapshot?
+    /// Latest briefing received (server push or request).
+    var latestBriefing: AgentBriefing?
+    /// Latest lint result from graph health check.
+    var lintResult: LintResult?
+    /// Cached graph stats (node count, edge count) for quick display.
+    var graphStats: (nodes: Int, edges: Int)?
+
     // MARK: - Tool Call State
 
     /// Tool call states keyed by threadId, each containing an array of ToolCallState per call_id.
@@ -120,6 +131,19 @@ final class AppState {
             await client.setContextFrameCallback { [weak self] frame in
                 Task { @MainActor in
                     self?.contextFrames[frame.threadId] = frame
+                }
+            }
+
+            // Wire compound memory callbacks
+            await client.setBriefingCallback { [weak self] briefing in
+                Task { @MainActor in
+                    self?.latestBriefing = briefing
+                }
+            }
+            await client.setCompilationCallback { [weak self] _ in
+                Task { @MainActor in
+                    // Refresh graph when compilation completes
+                    await self?.fetchMemoryGraph()
                 }
             }
         }
@@ -302,6 +326,62 @@ final class AppState {
     func evictMemoryFact(factId: String) async throws {
         guard let client else { throw AINMClient.ClientError.notConnected }
         try await client.memoryEvict(factId: factId)
+    }
+
+    // MARK: - Compound Memory Operations
+
+    /// Fetch the full memory graph from the server and cache locally.
+    func fetchMemoryGraph() async {
+        guard let client else { return }
+        do {
+            let result = try await client.graphQuery(includeEdges: true, limit: 500)
+            let snapshot = GraphSnapshot(nodes: result.nodes, edges: result.edges)
+            memoryGraph = snapshot
+            graphStats = (result.totalCount, result.edges.count)
+
+            // Sync to local GRDB cache
+            if let db = appDatabase {
+                let repo = MemoryRepository(dbPool: db.dbPool)
+                try await repo.replaceAll(nodes: result.nodes, edges: result.edges)
+            }
+        } catch {
+            // Non-fatal — compound memory is optional
+        }
+    }
+
+    /// Run a lint pass on the memory graph.
+    func runLint() async {
+        guard let client else { return }
+        do {
+            lintResult = try await client.lint()
+        } catch {
+            // Non-fatal
+        }
+    }
+
+    /// Export the user's memory graph in ainm-memory-v1 format.
+    func exportMemory() async -> MemoryExport? {
+        guard let client else { return nil }
+        return try? await client.exportMemory()
+    }
+
+    /// Grant memory scopes to an agent.
+    func grantScopes(agent: String, scopes: [String], consentLevel: String = "standard") async {
+        guard let client else { return }
+        _ = try? await client.grantMemoryScopes(
+            agentIdentity: agent,
+            scopes: scopes,
+            consentLevel: consentLevel
+        )
+    }
+
+    /// Revoke memory scopes from an agent.
+    func revokeScopes(agent: String, scopes: [String]) async {
+        guard let client else { return }
+        _ = try? await client.revokeMemoryScopes(
+            agentIdentity: agent,
+            scopes: scopes
+        )
     }
 
     // MARK: - Presence Handling

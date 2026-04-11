@@ -7,6 +7,7 @@ struct MemoryContextView: View {
     let appState: AppState
 
     @State private var showArchivalMemory = false
+    @State private var showMemoryGraph = false
 
     private var frame: ContextFrame? { appState.contextFrame(forThread: threadId) }
 
@@ -14,6 +15,7 @@ struct MemoryContextView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    compoundMemoryBanner
                     summarySection
                     activeContextSection
                     archivalFactsPreview
@@ -26,7 +28,47 @@ struct MemoryContextView: View {
             .navigationDestination(isPresented: $showArchivalMemory) {
                 ArchivalMemoryView(appState: appState)
             }
+            .navigationDestination(isPresented: $showMemoryGraph) {
+                MemoryGraphView(appState: appState)
+            }
         }
+    }
+
+    // MARK: - Compound Memory Banner
+
+    @ViewBuilder
+    private var compoundMemoryBanner: some View {
+        Button {
+            showMemoryGraph = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "brain.head.profile")
+                    .font(.title2)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Memory Graph")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Color(.label))
+                    if let stats = appState.graphStats {
+                        Text("\(stats.nodes) nodes, \(stats.edges) edges")
+                            .font(.caption)
+                            .foregroundStyle(Color(.secondaryLabel))
+                    } else {
+                        Text("View your compound memory")
+                            .font(.caption)
+                            .foregroundStyle(Color(.secondaryLabel))
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(Color(.tertiaryLabel))
+            }
+            .padding(16)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Summary Section

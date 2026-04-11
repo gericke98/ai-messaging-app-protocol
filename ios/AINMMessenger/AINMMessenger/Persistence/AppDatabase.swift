@@ -132,6 +132,40 @@ struct AppDatabase: Sendable {
             try db.create(index: "idx_memoryFact_storedBy", on: "memoryFact", columns: ["storedBy"])
         }
 
+        migrator.registerMigration("v6_create_compound_memory") { db in
+            try db.create(table: "memoryNode") { t in
+                t.primaryKey("nodeId", .text).notNull()             // UUID string
+                t.column("nodeType", .text).notNull()               // semantic, episodic, procedural
+                t.column("category", .text).notNull()               // preference, fact, skill, event, etc.
+                t.column("label", .text).notNull()
+                t.column("propertiesJson", .text)                   // JSON string
+                t.column("confidence", .double).notNull()
+                t.column("provenanceJson", .text)                   // JSON string (source)
+                t.column("validFrom", .text).notNull()              // RFC 3339
+                t.column("validUntil", .text)                       // RFC 3339 (null = current)
+                t.column("supersededBy", .text)                     // UUID string
+                t.column("tagsJson", .text)                         // JSON string
+            }
+            try db.create(index: "idx_memoryNode_type", on: "memoryNode", columns: ["nodeType"])
+            try db.create(index: "idx_memoryNode_category", on: "memoryNode", columns: ["category"])
+            try db.create(index: "idx_memoryNode_validUntil", on: "memoryNode", columns: ["validUntil"])
+
+            try db.create(table: "memoryEdge") { t in
+                t.primaryKey("edgeId", .text).notNull()             // UUID string
+                t.column("sourceNode", .text).notNull()             // FK to memoryNode
+                t.column("targetNode", .text).notNull()             // FK to memoryNode
+                t.column("relationship", .text).notNull()
+                t.column("weight", .double)
+                t.column("confidence", .double).notNull()
+                t.column("provenanceJson", .text)                   // JSON string
+                t.column("validFrom", .text).notNull()              // RFC 3339
+                t.column("validUntil", .text)                       // RFC 3339
+                t.column("propertiesJson", .text)                   // JSON string
+            }
+            try db.create(index: "idx_memoryEdge_source", on: "memoryEdge", columns: ["sourceNode"])
+            try db.create(index: "idx_memoryEdge_target", on: "memoryEdge", columns: ["targetNode"])
+        }
+
         try migrator.migrate(dbPool)
     }
 }

@@ -283,6 +283,116 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
     }
 }
 
+/// Store a message to PostgreSQL and optionally trigger memory compilation.
+///
+/// Messages are stored for history. Compilation is triggered after agent responses
+/// (which represent completed exchanges with the richest extractable knowledge).
+/// A minimum message count threshold prevents compilation on trivial threads.
+async fn store_and_maybe_compile(
+    db: &sqlx::PgPool,
+    compile_tx: &Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
+    thread_id: &str,
+    from_addr: &str,
+    content: &serde_json::Value,
+    trigger_compilation: bool,
+) {
+    // 0. Ensure thread exists (FK constraint on messages table)
+    let _ = sqlx::query(
+        "INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(thread_id)
+    .bind("local")
+    .execute(db)
+    .await;
+
+    // 1. Store message to PostgreSQL
+    let next_seq: Option<(i64,)> = sqlx::query_as(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE thread_id = $1",
+    )
+    .bind(thread_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    let seq = next_seq.map(|(s,)| s).unwrap_or(1);
+
+    let _ = sqlx::query(
+        "INSERT INTO messages (thread_id, sequence, from_addr, content) \
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+    )
+    .bind(thread_id)
+    .bind(seq)
+    .bind(from_addr)
+    .bind(content)
+    .execute(db)
+    .await;
+
+    // 2. Optionally trigger compilation (only after agent responses)
+    if !trigger_compilation {
+        return;
+    }
+    let Some(tx) = compile_tx else { return };
+
+    // Fetch recent messages for this thread (last 20 for compilation context)
+    let rows: Vec<(String, serde_json::Value, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT from_addr, content, created_at FROM messages \
+         WHERE thread_id = $1 ORDER BY sequence DESC LIMIT 20",
+    )
+    .bind(thread_id)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    // Need at least 2 messages (1 human + 1 agent) to compile
+    if rows.len() < 2 {
+        return;
+    }
+
+    // Convert to ConversationMessage format (reversed to chronological order)
+    let messages: Vec<crate::llm::ConversationMessage> = rows
+        .into_iter()
+        .rev()
+        .map(|(addr, content, ts)| {
+            let text = content
+                .as_array()
+                .and_then(|arr| arr.first())
+                .and_then(|block| block.get("fallback").or(block.get("text")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            crate::llm::ConversationMessage {
+                from: addr,
+                content: text,
+                timestamp: ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            }
+        })
+        .collect();
+
+    // Determine user_addr: the human participant (non-agent sender)
+    // Heuristic: the first sender that isn't the current from_addr (agent)
+    let user_addr = messages
+        .iter()
+        .find(|m| m.from != from_addr)
+        .map(|m| m.from.clone())
+        .unwrap_or_else(|| from_addr.to_string());
+
+    let req = crate::compiler::CompileRequest {
+        user_addr,
+        thread_id: thread_id.to_string(),
+        messages,
+    };
+
+    if let Err(e) = tx.try_send(req) {
+        tracing::warn!("[compiler] Failed to enqueue compilation: {e}");
+    } else {
+        tracing::info!(
+            "[compiler] Triggered compilation for thread {}",
+            thread_id
+        );
+    }
+}
+
 /// Handle the agent's WebSocket connection.
 async fn handle_agent_connection(
     ws_sender: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
@@ -386,6 +496,28 @@ async fn handle_agent_connection(
                                         serde_json::to_string(&resp).unwrap().into(),
                                     ))
                                     .await;
+                            }
+
+                            // Store agent message and trigger compilation
+                            // Agent responses complete an exchange — richest knowledge source
+                            if let Some(ref db) = state.db {
+                                let thread_id = params
+                                    .get("thread_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
+                                let content = params
+                                    .get("content")
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!([]));
+                                store_and_maybe_compile(
+                                    db,
+                                    &state.compile_tx,
+                                    thread_id,
+                                    from,
+                                    &content,
+                                    true, // trigger compilation on agent responses
+                                )
+                                .await;
                             }
                         }
                     }
@@ -1371,6 +1503,27 @@ async fn handle_human_connection(
                                     serde_json::to_string(&resp).unwrap().into(),
                                 ))
                                 .await;
+
+                            // Store human message (no compilation trigger — wait for agent response)
+                            if let Some(ref db) = state.db {
+                                let thread_id = params
+                                    .get("thread_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
+                                let content = params
+                                    .get("content")
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!([]));
+                                store_and_maybe_compile(
+                                    db,
+                                    &state.compile_tx,
+                                    thread_id,
+                                    from,
+                                    &content,
+                                    false, // don't trigger compilation on human messages
+                                )
+                                .await;
+                            }
                         }
                     }
                     "ainm.stream.cancel" => {

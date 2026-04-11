@@ -45,6 +45,8 @@ actor AINMClient {
     var onMessageDelivered: ((String) -> Void)?  // identity of sender
     var onToolEvent: ((String, ToolCallEvent) -> Void)?  // threadId, event
     var onContextFrame: ((ContextFrame) -> Void)?
+    var onBriefing: ((AgentBriefing) -> Void)?
+    var onCompilation: ((CompilationNotification) -> Void)?
 
     /// Set the presence notification callback. Called from AppState.setup().
     func setPresenceCallback(onPresence: @escaping @Sendable (PresenceNotifyParams) -> Void) {
@@ -64,6 +66,16 @@ actor AINMClient {
     /// Set the context frame callback for memory transparency.
     func setContextFrameCallback(onFrame: @escaping @Sendable (ContextFrame) -> Void) {
         self.onContextFrame = onFrame
+    }
+
+    /// Set the briefing callback for agent onboarding notifications.
+    func setBriefingCallback(onBriefing: @escaping @Sendable (AgentBriefing) -> Void) {
+        self.onBriefing = onBriefing
+    }
+
+    /// Set the compilation callback for memory graph updates.
+    func setCompilationCallback(onCompilation: @escaping @Sendable (CompilationNotification) -> Void) {
+        self.onCompilation = onCompilation
     }
 
     init(
@@ -380,6 +392,141 @@ actor AINMClient {
         }
     }
 
+    // MARK: - Compound Memory Operations
+
+    /// Query the user's memory graph with optional filters.
+    func graphQuery(
+        query: String? = nil,
+        minConfidence: Float? = nil,
+        temporalFilter: String? = nil,
+        includeEdges: Bool = true,
+        limit: Int? = nil
+    ) async throws -> GraphQueryResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        var params: [String: Any] = ["include_edges": includeEdges]
+        if let query { params["query"] = query }
+        if let minConfidence { params["min_confidence"] = minConfidence }
+        if let temporalFilter { params["temporal_filter"] = temporalFilter }
+        if let limit { params["limit"] = limit }
+        return try await sendRpcRequest(method: "ainm.memory.graph.query", params: params)
+    }
+
+    /// Traverse the memory graph from a starting node.
+    func graphTraverse(
+        startNode: String,
+        maxDepth: Int = 2,
+        direction: String? = nil
+    ) async throws -> GraphTraverseResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        var params: [String: Any] = ["start_node": startNode, "max_depth": maxDepth]
+        if let direction { params["direction"] = direction }
+        return try await sendRpcRequest(method: "ainm.memory.graph.traverse", params: params)
+    }
+
+    /// Contribute a new node (and optional edges) to the memory graph.
+    func graphContribute(
+        threadId: String,
+        node: [String: Any],
+        edges: [[String: Any]]? = nil
+    ) async throws -> GraphContributeResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        var params: [String: Any] = ["thread_id": threadId, "node": node]
+        if let edges { params["edges"] = edges }
+        return try await sendRpcRequest(method: "ainm.memory.graph.contribute", params: params)
+    }
+
+    /// Request an agent briefing for a thread.
+    func requestBriefing(threadId: String, userIdentity: String) async throws -> AgentBriefing {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let params: [String: Any] = ["thread_id": threadId, "user_identity": userIdentity]
+        return try await sendRpcRequest(method: "ainm.memory.briefing", params: params)
+    }
+
+    /// Acknowledge receipt of a briefing.
+    func acknowledgeBriefing(briefingId: String) async throws {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestId,
+            "method": "ainm.memory.briefing.ack",
+            "params": ["briefing_id": briefingId]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        try await webSocket.send(data)
+    }
+
+    /// Grant memory scopes to an agent.
+    func grantMemoryScopes(
+        agentIdentity: String,
+        scopes: [String],
+        consentLevel: String = "standard"
+    ) async throws -> MemoryGrantResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let params: [String: Any] = [
+            "agent_identity": agentIdentity,
+            "scopes": scopes,
+            "consent_level": consentLevel
+        ]
+        return try await sendRpcRequest(method: "ainm.memory.grant", params: params)
+    }
+
+    /// Revoke memory scopes from an agent.
+    func revokeMemoryScopes(
+        agentIdentity: String,
+        scopes: [String]
+    ) async throws -> MemoryRevokeResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let params: [String: Any] = [
+            "agent_identity": agentIdentity,
+            "scopes": scopes
+        ]
+        return try await sendRpcRequest(method: "ainm.memory.revoke", params: params)
+    }
+
+    /// Export the user's full memory graph in ainm-memory-v1 format.
+    func exportMemory(includeSuperseded: Bool = false) async throws -> MemoryExport {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let params: [String: Any] = ["include_superseded": includeSuperseded]
+        return try await sendRpcRequest(method: "ainm.memory.export", params: params)
+    }
+
+    /// Run a lint pass on the memory graph.
+    func lint() async throws -> LintResult {
+        guard case .connected = state else { throw ClientError.notConnected }
+        return try await sendRpcRequest(method: "ainm.memory.lint", params: [:])
+    }
+
+    // MARK: - RPC Helper
+
+    /// Send a JSON-RPC request and decode the response into the given type.
+    private func sendRpcRequest<T: Decodable>(method: String, params: [String: Any]) async throws -> T {
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestId,
+            "method": method,
+            "params": params
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        try await webSocket.send(data)
+
+        let responseData = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            pendingResponses[requestId] = continuation
+        }
+        let response = try JSONDecoder().decode(JsonRpcResponse.self, from: responseData)
+        if let error = response.error {
+            throw ClientError.handshakeFailed(error.message)
+        }
+        guard let resultValue = response.result else {
+            throw ClientError.handshakeFailed("No result in \(method) response")
+        }
+        let resultData = try JSONEncoder().encode(resultValue)
+        return try JSONDecoder().decode(T.self, from: resultData)
+    }
+
     /// Disconnect gracefully.
     func disconnect() async {
         receiveTask?.cancel()
@@ -485,6 +632,16 @@ actor AINMClient {
                 if let paramsData = extractParams(json),
                    let frame = try? JSONDecoder().decode(ContextFrame.self, from: paramsData) {
                     onContextFrame?(frame)
+                }
+            case "ainm.memory.briefing":
+                if let paramsData = extractParams(json),
+                   let briefing = try? JSONDecoder().decode(AgentBriefing.self, from: paramsData) {
+                    onBriefing?(briefing)
+                }
+            case "ainm.memory.compile":
+                if let paramsData = extractParams(json),
+                   let notification = try? JSONDecoder().decode(CompilationNotification.self, from: paramsData) {
+                    onCompilation?(notification)
                 }
             default:
                 break  // Unknown notification, skip
