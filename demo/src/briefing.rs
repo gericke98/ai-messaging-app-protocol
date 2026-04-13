@@ -12,6 +12,7 @@ use sqlx::PgPool;
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /// Memory scopes that can be independently granted/revoked.
+#[allow(dead_code)]
 pub const SCOPES: &[&str] = &[
     "identity",
     "preferences",

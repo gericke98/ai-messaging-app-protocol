@@ -77,7 +77,7 @@ impl HumanRegistry {
             .insert(user_addr.to_string());
     }
 
-    /// Send a message to all connections of a specific user.
+    #[allow(dead_code)]
     pub async fn send_to_user(&self, user_addr: &str, msg: &str) {
         let map = self.connections.lock().await;
         if let Some(senders) = map.get(user_addr) {

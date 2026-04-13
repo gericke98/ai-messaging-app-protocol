@@ -248,8 +248,8 @@ async fn find_existing_node(
 /// or "fact" category where having two active would be contradictory.
 /// Simple heuristic: for preference and tool categories, only one active node per subcategory.
 async fn find_contradicting_node(
-    db: &PgPool,
-    user_addr: &str,
+    _db: &PgPool,
+    _user_addr: &str,
     category: &str,
     _label: &str,
 ) -> Result<Option<Uuid>, AppError> {

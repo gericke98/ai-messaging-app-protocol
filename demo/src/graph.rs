@@ -42,6 +42,7 @@ pub struct EdgeRow {
 #[derive(Debug, Clone, FromRow)]
 pub struct TraversalHit {
     pub node_id: Uuid,
+    #[allow(dead_code)]
     pub depth: i32,
 }
 
@@ -175,7 +176,7 @@ pub async fn supersede_node(
     Ok(())
 }
 
-/// Delete a node and its edges (CASCADE handles edges).
+#[allow(dead_code)]
 pub async fn delete_node(pool: &PgPool, node_id: Uuid) -> Result<bool, StorageError> {
     let result = sqlx::query("DELETE FROM memory_nodes WHERE id = $1")
         .bind(node_id)
@@ -204,7 +205,7 @@ pub async fn query_nodes(
          valid_from, valid_until, superseded_by, provenance, tags, created_at, updated_at \
          FROM memory_nodes WHERE user_addr = $1 AND confidence >= $2",
     );
-    let mut param_idx = 3u32;
+    let param_idx = 3u32;
 
     // Temporal filter
     match temporal_filter {
@@ -219,7 +220,7 @@ pub async fn query_nodes(
         if !q.is_empty() {
             ts_query_str = q.split_whitespace().collect::<Vec<_>>().join(" & ");
             sql.push_str(&format!(" AND search_vector @@ to_tsquery('english', ${param_idx})"));
-            param_idx += 1;
+            let _ = param_idx; // consumed by the format above
         } else {
             ts_query_str = String::new();
         }

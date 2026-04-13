@@ -134,6 +134,7 @@ pub fn build_server_identity(
 }
 
 /// Cached agent card with TTL-based expiry (D-03: 5-minute TTL).
+#[allow(dead_code)]
 pub struct AgentCardEntry {
     pub card: serde_json::Value,
     pub fetched_at: std::time::Instant,
@@ -141,7 +142,7 @@ pub struct AgentCardEntry {
 }
 
 impl AgentCardEntry {
-    /// Returns true if this cache entry has expired.
+    #[allow(dead_code)]
     pub fn is_expired(&self) -> bool {
         self.fetched_at.elapsed() > self.ttl
     }
@@ -149,6 +150,7 @@ impl AgentCardEntry {
 
 /// In-memory cache of resolved remote server identities.
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 pub struct RemoteServerCache {
     inner: Arc<Mutex<HashMap<String, ServerIdentity>>>,
     agent_cards: Arc<Mutex<HashMap<String, AgentCardEntry>>>,
@@ -162,7 +164,7 @@ impl RemoteServerCache {
         }
     }
 
-    /// Get a cached agent card if present and not expired. Removes expired entries.
+    #[allow(dead_code)]
     pub fn get_agent_card(&self, key: &str) -> Option<serde_json::Value> {
         let mut cards = self.agent_cards.lock().unwrap();
         if let Some(entry) = cards.get(key) {
@@ -177,7 +179,7 @@ impl RemoteServerCache {
         }
     }
 
-    /// Cache an agent card with a 5-minute TTL (D-03).
+    #[allow(dead_code)]
     pub fn insert_agent_card(&self, key: &str, card: serde_json::Value) {
         self.agent_cards.lock().unwrap().insert(
             key.to_string(),

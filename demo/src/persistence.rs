@@ -45,7 +45,7 @@ impl PersistenceLayer {
         Ok(Self { db: Arc::new(db) })
     }
 
-    /// Get a reference to the underlying database for direct transactions.
+    #[allow(dead_code)]
     pub fn db(&self) -> &Database {
         &self.db
     }

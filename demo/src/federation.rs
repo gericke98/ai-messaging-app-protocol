@@ -146,6 +146,7 @@ pub fn parse_origin_domain(thread_id: &str) -> Option<&str> {
 ///
 /// Passed to the relay handler and used by the relay sender.
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct FederationState {
     /// This server's domain identity (e.g., "server-a.local").
     pub server_id: String,
@@ -751,8 +752,7 @@ async fn handle_context_push(
     )
 }
 
-/// Request backfill from origin server for a thread.
-/// Used for testing and as a reference client implementation.
+#[allow(dead_code)]
 pub async fn request_backfill(
     http_client: &reqwest::Client,
     origin_relay_endpoint: &str,

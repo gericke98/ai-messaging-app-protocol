@@ -2,6 +2,7 @@ use thiserror::Error;
 
 /// Storage layer errors.
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum StorageError {
     #[error("database query failed: {0}")]
     Query(#[from] sqlx::Error),
@@ -15,6 +16,7 @@ pub enum StorageError {
 
 /// Application-level errors that map to JSON-RPC error codes.
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum AppError {
     #[error(transparent)]
     Storage(#[from] StorageError),
@@ -30,7 +32,7 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// Map to JSON-RPC error code.
+    #[allow(dead_code)]
     pub fn jsonrpc_code(&self) -> i32 {
         match self {
             AppError::Storage(StorageError::NotFound { .. }) => -32044,
