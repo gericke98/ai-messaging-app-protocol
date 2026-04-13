@@ -34,29 +34,33 @@ pub struct FederationContext {
 
 /// Registry of connected human WebSocket sessions.
 /// Maps user_addr → list of per-connection senders (supports multiple tabs/devices).
+/// Also tracks thread participation for scoped message delivery.
 #[derive(Clone)]
 pub struct HumanRegistry {
-    inner: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<String>>>>>,
+    connections: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<String>>>>>,
+    /// thread_id → set of user_addrs participating in that thread.
+    thread_participants: Arc<Mutex<HashMap<String, std::collections::HashSet<String>>>>,
 }
 
 impl HumanRegistry {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            thread_participants: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Register a new human connection. Returns the receiver for that connection.
     pub async fn register(&self, user_addr: &str) -> tokio::sync::mpsc::UnboundedReceiver<String> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut map = self.inner.lock().await;
+        let mut map = self.connections.lock().await;
         map.entry(user_addr.to_string()).or_default().push(tx);
         rx
     }
 
     /// Unregister a human connection (removes closed senders).
     pub async fn cleanup(&self, user_addr: &str) {
-        let mut map = self.inner.lock().await;
+        let mut map = self.connections.lock().await;
         if let Some(senders) = map.get_mut(user_addr) {
             senders.retain(|tx| !tx.is_closed());
             if senders.is_empty() {
@@ -65,9 +69,17 @@ impl HumanRegistry {
         }
     }
 
+    /// Record that a user is participating in a thread.
+    pub async fn join_thread(&self, user_addr: &str, thread_id: &str) {
+        let mut map = self.thread_participants.lock().await;
+        map.entry(thread_id.to_string())
+            .or_default()
+            .insert(user_addr.to_string());
+    }
+
     /// Send a message to all connections of a specific user.
     pub async fn send_to_user(&self, user_addr: &str, msg: &str) {
-        let map = self.inner.lock().await;
+        let map = self.connections.lock().await;
         if let Some(senders) = map.get(user_addr) {
             for tx in senders {
                 let _ = tx.send(msg.to_string());
@@ -75,9 +87,31 @@ impl HumanRegistry {
         }
     }
 
+    /// Send a message to all humans participating in a specific thread.
+    /// Falls back to all connected humans if the thread has no tracked participants.
+    pub async fn send_to_thread(&self, thread_id: &str, msg: &str) {
+        let participants = self.thread_participants.lock().await;
+        if let Some(users) = participants.get(thread_id) {
+            if !users.is_empty() {
+                let conns = self.connections.lock().await;
+                for user_addr in users {
+                    if let Some(senders) = conns.get(user_addr) {
+                        for tx in senders {
+                            let _ = tx.send(msg.to_string());
+                        }
+                    }
+                }
+                return;
+            }
+        }
+        drop(participants);
+        // Fallback: deliver to all (thread not yet tracked, e.g. legacy mode)
+        self.send_to_all(msg).await;
+    }
+
     /// Send a message to all connected humans.
     pub async fn send_to_all(&self, msg: &str) {
-        let map = self.inner.lock().await;
+        let map = self.connections.lock().await;
         for senders in map.values() {
             for tx in senders {
                 let _ = tx.send(msg.to_string());
@@ -494,6 +528,10 @@ async fn handle_agent_connection(
                                 .get("from")
                                 .and_then(|f| f.as_str())
                                 .unwrap_or("");
+                            let thread_id = params
+                                .get("thread_id")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
                             let verified = if let Some(pk) =
                                 identity_store.get_public_key_bytes(from)
                             {
@@ -504,10 +542,6 @@ async fn handle_agent_connection(
 
                             // Federation-aware routing for agent responses
                             if let Some(ref fed) = state.federation {
-                                let thread_id = params
-                                    .get("thread_id")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
                                 let origin = federation::parse_origin_domain(thread_id)
                                     .unwrap_or("");
 
@@ -515,7 +549,7 @@ async fn handle_agent_connection(
                                     // Thread originated on remote server: relay response back
                                     fed.relay_sender.enqueue(origin, params.clone());
                                 } else {
-                                    // Local thread: deliver to human locally
+                                    // Local thread: deliver to thread participants
                                     let deliver = protocol::new_notification(
                                         "ainm.message.deliver",
                                         serde_json::json!({
@@ -524,7 +558,7 @@ async fn handle_agent_connection(
                                         }),
                                     );
                                     let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                    human_registry.send_to_all(&deliver_text).await;
+                                    human_registry.send_to_thread(thread_id, &deliver_text).await;
                                 }
                             } else {
                                 // Legacy mode
@@ -536,7 +570,7 @@ async fn handle_agent_connection(
                                     }),
                                 );
                                 let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                human_registry.send_to_all(&deliver_text).await;
+                                human_registry.send_to_thread(thread_id, &deliver_text).await;
                             }
 
                             if has_id {
@@ -671,7 +705,7 @@ async fn handle_agent_connection(
                                         "status": "stored"
                                     }),
                                 );
-                                human_registry.send_to_all(&serde_json::to_string(&store_notify).unwrap()).await;
+                                human_registry.send_to_thread(&thread_id, &serde_json::to_string(&store_notify).unwrap()).await;
 
                                 // After successful memory store in a federated thread,
                                 // push context update to remote servers (ainm.context-push)
@@ -777,7 +811,7 @@ async fn handle_agent_connection(
                                 "ainm.memory.query.result",
                                 query_result,
                             );
-                            human_registry.send_to_all(&serde_json::to_string(&query_notify).unwrap()).await;
+                            human_registry.send_to_thread(&thread_id, &serde_json::to_string(&query_notify).unwrap()).await;
 
                             // Build and send ainm.context.frame notification
                             let archival_facts: Vec<serde_json::Value> = if let Some(ref db) = state.db {
@@ -821,7 +855,7 @@ async fn handle_agent_connection(
                                     }
                                 }),
                             );
-                            human_registry.send_to_all(&serde_json::to_string(&context_frame).unwrap()).await;
+                            human_registry.send_to_thread(&thread_id, &serde_json::to_string(&context_frame).unwrap()).await;
                         }
                     }
                     "ainm.memory.evict" => {
@@ -906,7 +940,7 @@ async fn handle_agent_connection(
                                                 "status": "evicted"
                                             }),
                                         );
-                                        human_registry.send_to_all(&serde_json::to_string(&evict_notify).unwrap()).await;
+                                        human_registry.send_to_thread(&thread_id, &serde_json::to_string(&evict_notify).unwrap()).await;
                                     } else if has_id {
                                         let err = protocol::new_error(
                                             parsed.get("id").cloned().unwrap(),
@@ -1291,8 +1325,20 @@ async fn handle_agent_connection(
                     | "ainm.stream.delta"
                     | "ainm.stream.end"
                     | "ainm.presence.update" => {
-                        // Always deliver locally
-                        human_registry.send_to_all(&text_str).await;
+                        // Deliver to thread participants
+                        let stream_tid = parsed.get("params")
+                            .and_then(|p| p.get("thread_id"))
+                            .and_then(|t| t.as_str())
+                            .or_else(|| {
+                                // For delta/end events, look up thread_id from stream_id mapping
+                                parsed.get("params")
+                                    .and_then(|p| p.get("stream_id"))
+                                    .and_then(|s| s.as_str())
+                                    .and_then(|sid| stream_thread_map.get(sid))
+                                    .map(|s| s.as_str())
+                            })
+                            .unwrap_or("");
+                        human_registry.send_to_thread(stream_tid, &text_str).await;
 
                         // Federation relay if thread is federated (D-04: stream events via ainm.relay)
                         if let Some(ref fed) = state.federation {
@@ -1441,6 +1487,7 @@ async fn handle_human_connection(
                                 .to_string()
                         };
                         threads.lock().await.push(thread_id.clone());
+                        state.human_registry.join_thread(&human_addr, &thread_id).await;
 
                         // After thread creation with federation, push existing context
                         // frames to remote servers so they start with knowledge
@@ -1512,6 +1559,15 @@ async fn handle_human_connection(
                             } else {
                                 false
                             };
+
+                            // Track thread participation for scoped delivery
+                            let msg_thread_id = params
+                                .get("thread_id")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
+                            if !msg_thread_id.is_empty() {
+                                state.human_registry.join_thread(&human_addr, msg_thread_id).await;
+                            }
 
                             // Federation-aware routing
                             if let Some(ref fed) = state.federation {
