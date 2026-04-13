@@ -51,6 +51,8 @@ pub struct ServerState {
     pub db: Option<sqlx::PgPool>,
     /// Optional sender to trigger memory compilation.
     pub compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
+    /// Broadcast sender for compilation notifications (worker → human clients).
+    pub compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
 }
 
 /// Start the Axum WebSocket server on a random available port (legacy mode).
@@ -72,6 +74,7 @@ pub async fn start(
         federation: None,
         db: None,
         compile_tx: None,
+        compile_notify_tx: None,
     };
 
     let app = Router::new()
@@ -102,6 +105,7 @@ pub async fn start_federation(
     port: u16,
     db: Option<sqlx::PgPool>,
     compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
+    compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
     let (to_human_tx, _) = broadcast::channel::<String>(256);
@@ -116,6 +120,7 @@ pub async fn start_federation(
         federation,
         db,
         compile_tx,
+        compile_notify_tx,
     };
 
     let app = Router::new()
@@ -1309,6 +1314,22 @@ async fn handle_human_connection(
     let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
 
+    // Task: forward compilation notifications to human WebSocket
+    let ws_sender_compile = ws_sender.clone();
+    let compile_forward_handle = if let Some(ref notify_tx) = state.compile_notify_tx {
+        let mut rx = notify_tx.subscribe();
+        Some(tokio::spawn(async move {
+            while let Ok(msg) = rx.recv().await {
+                let mut sender = ws_sender_compile.lock().await;
+                if sender.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
+            }
+        }))
+    } else {
+        None
+    };
+
     // Task: forward agent messages/notifications to human WebSocket
     let forward_handle = tokio::spawn(async move {
         while let Ok(msg) = from_agent_rx.recv().await {
@@ -1544,4 +1565,7 @@ async fn handle_human_connection(
     }
 
     forward_handle.abort();
+    if let Some(h) = compile_forward_handle {
+        h.abort();
+    }
 }
