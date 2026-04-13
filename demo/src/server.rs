@@ -284,7 +284,7 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
     if is_agent {
         handle_agent_connection(ws_sender, ws_receiver, state, from_addr).await;
     } else {
-        handle_human_connection(ws_sender, ws_receiver, state).await;
+        handle_human_connection(ws_sender, ws_receiver, state, from_addr).await;
     }
 }
 
@@ -1306,6 +1306,7 @@ async fn handle_human_connection(
     ws_sender: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
     mut ws_receiver: futures_util::stream::SplitStream<WebSocket>,
     state: ServerState,
+    human_addr: String,
 ) {
     let mut from_agent_rx = state.to_human_tx.subscribe();
     let to_agent_tx = state.to_agent_tx.clone();
@@ -1314,12 +1315,24 @@ async fn handle_human_connection(
     let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
 
-    // Task: forward compilation notifications to human WebSocket
+    // Task: forward compilation notifications scoped to this user
     let ws_sender_compile = ws_sender.clone();
+    let user_identity = human_addr.clone();
     let compile_forward_handle = if let Some(ref notify_tx) = state.compile_notify_tx {
         let mut rx = notify_tx.subscribe();
         Some(tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
+                // Only forward notifications addressed to this user
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
+                    let target = parsed
+                        .get("params")
+                        .and_then(|p| p.get("user_identity"))
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("");
+                    if target != user_identity {
+                        continue;
+                    }
+                }
                 let mut sender = ws_sender_compile.lock().await;
                 if sender.send(Message::Text(msg.into())).await.is_err() {
                     break;
