@@ -32,6 +32,60 @@ pub struct FederationContext {
     pub remote_cache: crate::identity::RemoteServerCache,
 }
 
+/// Registry of connected human WebSocket sessions.
+/// Maps user_addr → list of per-connection senders (supports multiple tabs/devices).
+#[derive(Clone)]
+pub struct HumanRegistry {
+    inner: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<String>>>>>,
+}
+
+impl HumanRegistry {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Register a new human connection. Returns the receiver for that connection.
+    pub async fn register(&self, user_addr: &str) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut map = self.inner.lock().await;
+        map.entry(user_addr.to_string()).or_default().push(tx);
+        rx
+    }
+
+    /// Unregister a human connection (removes closed senders).
+    pub async fn cleanup(&self, user_addr: &str) {
+        let mut map = self.inner.lock().await;
+        if let Some(senders) = map.get_mut(user_addr) {
+            senders.retain(|tx| !tx.is_closed());
+            if senders.is_empty() {
+                map.remove(user_addr);
+            }
+        }
+    }
+
+    /// Send a message to all connections of a specific user.
+    pub async fn send_to_user(&self, user_addr: &str, msg: &str) {
+        let map = self.inner.lock().await;
+        if let Some(senders) = map.get(user_addr) {
+            for tx in senders {
+                let _ = tx.send(msg.to_string());
+            }
+        }
+    }
+
+    /// Send a message to all connected humans.
+    pub async fn send_to_all(&self, msg: &str) {
+        let map = self.inner.lock().await;
+        for senders in map.values() {
+            for tx in senders {
+                let _ = tx.send(msg.to_string());
+            }
+        }
+    }
+}
+
 /// Shared server state accessible by all handlers.
 #[derive(Clone)]
 pub struct ServerState {
@@ -39,8 +93,8 @@ pub struct ServerState {
     pub agent_card: serde_json::Value,
     /// Sender for messages going to the agent.
     pub to_agent_tx: broadcast::Sender<String>,
-    /// Sender for messages going to the human (from agent).
-    pub to_human_tx: broadcast::Sender<String>,
+    /// Registry of connected human sessions for scoped message delivery.
+    pub human_registry: HumanRegistry,
     /// Active threads (thread_id list).
     pub threads: Arc<Mutex<Vec<String>>>,
     /// In-memory archival fact store keyed by fact key (fallback when no DB).
@@ -62,13 +116,12 @@ pub async fn start(
     agent_card: serde_json::Value,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
-    let (to_human_tx, _) = broadcast::channel::<String>(256);
 
     let state = ServerState {
         identity_store,
         agent_card,
         to_agent_tx,
-        to_human_tx,
+        human_registry: HumanRegistry::new(),
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
@@ -108,13 +161,12 @@ pub async fn start_federation(
     compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
-    let (to_human_tx, _) = broadcast::channel::<String>(256);
 
     let state = ServerState {
         identity_store,
         agent_card,
         to_agent_tx,
-        to_human_tx,
+        human_registry: HumanRegistry::new(),
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,
@@ -406,7 +458,7 @@ async fn handle_agent_connection(
     from_addr: String,
 ) {
     let mut from_human_rx = state.to_agent_tx.subscribe();
-    let to_human_tx = state.to_human_tx.clone();
+    let human_registry = state.human_registry.clone();
     let identity_store = state.identity_store.clone();
     let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
@@ -472,7 +524,7 @@ async fn handle_agent_connection(
                                         }),
                                     );
                                     let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                    let _ = to_human_tx.send(deliver_text);
+                                    human_registry.send_to_all(&deliver_text).await;
                                 }
                             } else {
                                 // Legacy mode
@@ -484,7 +536,7 @@ async fn handle_agent_connection(
                                     }),
                                 );
                                 let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                let _ = to_human_tx.send(deliver_text);
+                                human_registry.send_to_all(&deliver_text).await;
                             }
 
                             if has_id {
@@ -619,7 +671,7 @@ async fn handle_agent_connection(
                                         "status": "stored"
                                     }),
                                 );
-                                let _ = to_human_tx.send(serde_json::to_string(&store_notify).unwrap());
+                                human_registry.send_to_all(&serde_json::to_string(&store_notify).unwrap()).await;
 
                                 // After successful memory store in a federated thread,
                                 // push context update to remote servers (ainm.context-push)
@@ -725,7 +777,7 @@ async fn handle_agent_connection(
                                 "ainm.memory.query.result",
                                 query_result,
                             );
-                            let _ = to_human_tx.send(serde_json::to_string(&query_notify).unwrap());
+                            human_registry.send_to_all(&serde_json::to_string(&query_notify).unwrap()).await;
 
                             // Build and send ainm.context.frame notification
                             let archival_facts: Vec<serde_json::Value> = if let Some(ref db) = state.db {
@@ -769,7 +821,7 @@ async fn handle_agent_connection(
                                     }
                                 }),
                             );
-                            let _ = to_human_tx.send(serde_json::to_string(&context_frame).unwrap());
+                            human_registry.send_to_all(&serde_json::to_string(&context_frame).unwrap()).await;
                         }
                     }
                     "ainm.memory.evict" => {
@@ -854,8 +906,7 @@ async fn handle_agent_connection(
                                                 "status": "evicted"
                                             }),
                                         );
-                                        let _ = to_human_tx
-                                            .send(serde_json::to_string(&evict_notify).unwrap());
+                                        human_registry.send_to_all(&serde_json::to_string(&evict_notify).unwrap()).await;
                                     } else if has_id {
                                         let err = protocol::new_error(
                                             parsed.get("id").cloned().unwrap(),
@@ -1241,7 +1292,7 @@ async fn handle_agent_connection(
                     | "ainm.stream.end"
                     | "ainm.presence.update" => {
                         // Always deliver locally
-                        let _ = to_human_tx.send(text_str.clone());
+                        human_registry.send_to_all(&text_str).await;
 
                         // Federation relay if thread is federated (D-04: stream events via ainm.relay)
                         if let Some(ref fed) = state.federation {
@@ -1308,7 +1359,11 @@ async fn handle_human_connection(
     state: ServerState,
     human_addr: String,
 ) {
-    let mut from_agent_rx = state.to_human_tx.subscribe();
+    // Register this human connection in the registry
+    let mut from_registry_rx = state.human_registry.register(&human_addr).await;
+    let registry_for_cleanup = state.human_registry.clone();
+    let cleanup_addr = human_addr.clone();
+
     let to_agent_tx = state.to_agent_tx.clone();
     let identity_store = state.identity_store.clone();
     let threads = state.threads.clone();
@@ -1322,7 +1377,6 @@ async fn handle_human_connection(
         let mut rx = notify_tx.subscribe();
         Some(tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
-                // Only forward notifications addressed to this user
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
                     let target = parsed
                         .get("params")
@@ -1343,9 +1397,9 @@ async fn handle_human_connection(
         None
     };
 
-    // Task: forward agent messages/notifications to human WebSocket
+    // Task: forward registry messages (from agent handler) to this human's WebSocket
     let forward_handle = tokio::spawn(async move {
-        while let Ok(msg) = from_agent_rx.recv().await {
+        while let Some(msg) = from_registry_rx.recv().await {
             let mut sender = ws_sender_clone.lock().await;
             if sender.send(Message::Text(msg.into())).await.is_err() {
                 break;
@@ -1581,4 +1635,6 @@ async fn handle_human_connection(
     if let Some(h) = compile_forward_handle {
         h.abort();
     }
+    // Deregister this connection from the human registry
+    registry_for_cleanup.cleanup(&cleanup_addr).await;
 }
