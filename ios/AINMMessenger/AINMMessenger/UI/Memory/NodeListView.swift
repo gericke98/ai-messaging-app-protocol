@@ -94,7 +94,7 @@ struct NodeListView: View {
             HStack(spacing: 6) {
                 categoryBadge(node.category)
                 if let tags = node.tags, case .array(let arr) = tags {
-                    ForEach(arr.prefix(3), id: \.self) { tag in
+                    ForEach(Array(arr.prefix(3).enumerated()), id: \.offset) { _, tag in
                         if case .string(let s) = tag {
                             Text(s)
                                 .font(.caption2)
