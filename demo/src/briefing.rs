@@ -388,3 +388,52 @@ fn estimate_tokens(nodes: &[graph::NodeRow]) -> usize {
         .sum();
     chars / 4
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_consent_level_from_str() {
+        assert_eq!(ConsentLevel::from_str("minimal"), ConsentLevel::Minimal);
+        assert_eq!(ConsentLevel::from_str("standard"), ConsentLevel::Standard);
+        assert_eq!(ConsentLevel::from_str("full"), ConsentLevel::Full);
+        assert_eq!(ConsentLevel::from_str("unknown"), ConsentLevel::Standard);
+        assert_eq!(ConsentLevel::from_str(""), ConsentLevel::Standard);
+    }
+
+    #[test]
+    fn test_consent_level_as_str() {
+        assert_eq!(ConsentLevel::Minimal.as_str(), "minimal");
+        assert_eq!(ConsentLevel::Standard.as_str(), "standard");
+        assert_eq!(ConsentLevel::Full.as_str(), "full");
+    }
+
+    #[test]
+    fn test_included_scopes_minimal() {
+        let scopes = ConsentLevel::Minimal.included_scopes();
+        assert_eq!(scopes, vec!["identity"]);
+    }
+
+    #[test]
+    fn test_included_scopes_standard() {
+        let scopes = ConsentLevel::Standard.included_scopes();
+        assert_eq!(scopes, vec!["identity", "preferences", "expertise", "goals"]);
+    }
+
+    #[test]
+    fn test_included_scopes_full() {
+        let scopes = ConsentLevel::Full.included_scopes();
+        assert_eq!(scopes.len(), 6);
+        assert!(scopes.contains(&"history"));
+        assert!(scopes.contains(&"patterns"));
+    }
+
+    #[test]
+    fn test_scope_to_categories() {
+        assert_eq!(scope_to_categories("identity"), vec!["fact"]);
+        assert_eq!(scope_to_categories("preferences"), vec!["preference", "tool"]);
+        assert_eq!(scope_to_categories("expertise"), vec!["skill"]);
+        assert!(scope_to_categories("unknown").is_empty());
+    }
+}

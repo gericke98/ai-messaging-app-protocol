@@ -430,3 +430,36 @@ pub fn spawn_compilation_worker(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_meaningful_rejects_short() {
+        assert!(!is_meaningful("hi"));
+        assert!(!is_meaningful("ok"));
+        assert!(!is_meaningful(""));
+        assert!(!is_meaningful("   "));
+    }
+
+    #[test]
+    fn test_is_meaningful_rejects_punctuation() {
+        assert!(!is_meaningful("!!!???"));
+        assert!(!is_meaningful("..."));
+    }
+
+    #[test]
+    fn test_is_meaningful_accepts_content() {
+        assert!(is_meaningful("I like Rust programming"));
+        assert!(is_meaningful("Can you help me with this?"));
+        assert!(is_meaningful("Hello world"));
+    }
+
+    #[test]
+    fn test_is_meaningful_edge_cases() {
+        assert!(!is_meaningful("ab"));        // < 5 chars
+        assert!(is_meaningful("a b c"));      // 3 alpha, len 5 — passes both checks
+        assert!(!is_meaningful(".. .."));     // len 5 but only 0 alpha
+    }
+}
