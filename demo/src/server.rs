@@ -6,7 +6,7 @@ use crate::signing;
 use anyhow::Result;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -120,6 +120,87 @@ impl HumanRegistry {
     }
 }
 
+/// Registry of connected agent WebSocket sessions.
+/// Maps agent identity → list of per-connection senders (supports multiple instances).
+/// Also stores agent card data derived from init capabilities.
+#[derive(Clone)]
+pub struct AgentRegistry {
+    connections: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<String>>>>>,
+    agent_cards: Arc<Mutex<HashMap<String, serde_json::Value>>>,
+}
+
+impl AgentRegistry {
+    pub fn new() -> Self {
+        Self {
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            agent_cards: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Register a new agent connection with its card data. Returns the receiver.
+    pub async fn register(
+        &self,
+        identity: &str,
+        agent_card: &serde_json::Value,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut conns = self.connections.lock().await;
+        conns.entry(identity.to_string()).or_default().push(tx);
+        let mut cards = self.agent_cards.lock().await;
+        cards.insert(identity.to_string(), agent_card.clone());
+        rx
+    }
+
+    /// Remove closed senders for an agent identity.
+    pub async fn cleanup(&self, identity: &str) {
+        let mut conns = self.connections.lock().await;
+        if let Some(senders) = conns.get_mut(identity) {
+            senders.retain(|tx| !tx.is_closed());
+            if senders.is_empty() {
+                conns.remove(identity);
+                // Also remove the card when no connections remain
+                let mut cards = self.agent_cards.lock().await;
+                cards.remove(identity);
+            }
+        }
+    }
+
+    /// Get the cached agent card for a given identity.
+    pub async fn get_agent_card(&self, identity: &str) -> Option<serde_json::Value> {
+        let cards = self.agent_cards.lock().await;
+        cards.get(identity).cloned()
+    }
+
+    /// List all currently connected agent identities.
+    #[allow(dead_code)]
+    pub async fn list_agents(&self) -> Vec<String> {
+        let conns = self.connections.lock().await;
+        conns.keys().cloned().collect()
+    }
+
+    /// Send a message to a specific agent.
+    #[allow(dead_code)]
+    pub async fn send_to_agent(&self, identity: &str, msg: &str) {
+        let conns = self.connections.lock().await;
+        if let Some(senders) = conns.get(identity) {
+            for tx in senders {
+                let _ = tx.send(msg.to_string());
+            }
+        }
+    }
+
+    /// Broadcast a message to all connected agents.
+    #[allow(dead_code)]
+    pub async fn send_to_all_agents(&self, msg: &str) {
+        let conns = self.connections.lock().await;
+        for senders in conns.values() {
+            for tx in senders {
+                let _ = tx.send(msg.to_string());
+            }
+        }
+    }
+}
+
 /// Shared server state accessible by all handlers.
 #[derive(Clone)]
 pub struct ServerState {
@@ -129,6 +210,8 @@ pub struct ServerState {
     pub to_agent_tx: broadcast::Sender<String>,
     /// Registry of connected human sessions for scoped message delivery.
     pub human_registry: HumanRegistry,
+    /// Registry of connected agent sessions with their agent card metadata.
+    pub agent_registry: AgentRegistry,
     /// Active threads (thread_id list).
     pub threads: Arc<Mutex<Vec<String>>>,
     /// In-memory archival fact store keyed by fact key (fallback when no DB).
@@ -156,6 +239,7 @@ pub async fn start(
         agent_card,
         to_agent_tx,
         human_registry: HumanRegistry::new(),
+        agent_registry: AgentRegistry::new(),
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
@@ -167,7 +251,6 @@ pub async fn start(
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
-            // Demo: single agent -- production would look up by agent_name
             "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
@@ -201,6 +284,7 @@ pub async fn start_federation(
         agent_card,
         to_agent_tx,
         human_registry: HumanRegistry::new(),
+        agent_registry: AgentRegistry::new(),
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,
@@ -231,11 +315,19 @@ pub async fn start_federation(
 }
 
 /// Agent Card HTTP endpoint with ETag caching (per DISC-05).
+/// Checks the AgentRegistry for a live agent first, falls back to the static card.
 async fn agent_card_handler(
+    Path(agent_name): Path<String>,
     headers: HeaderMap,
     State(state): State<ServerState>,
 ) -> Response {
-    let body = serde_json::to_vec(&state.agent_card).unwrap();
+    // Check if a live agent is registered with this name
+    let card = if let Some(live_card) = state.agent_registry.get_agent_card(&agent_name).await {
+        live_card
+    } else {
+        state.agent_card.clone()
+    };
+    let body = serde_json::to_vec(&card).unwrap();
     let hash = ring::digest::digest(&ring::digest::SHA256, &body);
     let etag_value = format!(
         "\"{}\"",
@@ -364,11 +456,17 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
         }
     }
 
-    // Determine if this is the agent or the human based on address
-    let is_agent = from_addr.starts_with("helper");
+    // Determine if this is an agent or human based on participant_type in capabilities.
+    // Defaults to "human" for backward compatibility when the field is absent.
+    let is_agent = init_req
+        .get("params")
+        .and_then(|p| p.get("capabilities"))
+        .and_then(|c| c.get("participant_type"))
+        .and_then(|t| t.as_str())
+        == Some("agent");
 
     if is_agent {
-        handle_agent_connection(ws_sender, ws_receiver, state, from_addr).await;
+        handle_agent_connection(ws_sender, ws_receiver, state, from_addr, &init_req).await;
     } else {
         handle_human_connection(ws_sender, ws_receiver, state, from_addr).await;
     }
@@ -820,7 +918,24 @@ async fn handle_agent_connection(
     mut ws_receiver: futures_util::stream::SplitStream<WebSocket>,
     state: ServerState,
     from_addr: String,
+    init_req: &serde_json::Value,
 ) {
+    // Build a minimal agent card from the init request capabilities
+    let capabilities = init_req
+        .get("params")
+        .and_then(|p| p.get("capabilities"))
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+    let agent_card = serde_json::json!({
+        "identity": from_addr,
+        "capabilities": capabilities,
+        "connected_at": protocol::now_rfc3339(),
+    });
+
+    // Register this agent in the AgentRegistry
+    let _from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
+    tracing::info!("Agent registered: {}", from_addr);
+
     let mut from_human_rx = state.to_agent_tx.subscribe();
     let human_registry = state.human_registry.clone();
     let identity_store = state.identity_store.clone();
@@ -1367,6 +1482,10 @@ async fn handle_agent_connection(
     }
 
     forward_handle.abort();
+
+    // Deregister this agent from the AgentRegistry
+    state.agent_registry.cleanup(&from_addr).await;
+    tracing::info!("Agent deregistered: {}", from_addr);
 }
 
 /// Handle the human's WebSocket connection.
