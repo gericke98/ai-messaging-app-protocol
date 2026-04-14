@@ -68,8 +68,7 @@ export class AINMAgent {
       this.keypair = await generateKeypair();
     }
 
-    // Wire up message handling before connecting
-    this.transport.onMessage((data: string) => this.handleRawMessage(data));
+    // Wire up close/error before connecting
     this.transport.onClose((_code: number, _reason: string) => {
       this.cleanupPendingRpcs();
     });
@@ -80,7 +79,7 @@ export class AINMAgent {
     // Connect transport
     await this.transport.connect(this.config.server);
 
-    // Perform handshake
+    // Perform handshake (sets its own onMessage handler temporarily)
     this.handshakeResult = await performHandshake(this.transport, {
       identity: this.config.identity,
       name: this.config.name,
@@ -88,6 +87,9 @@ export class AINMAgent {
       skills: this.config.skills,
       keypair: this.keypair,
     });
+
+    // Set the permanent message handler AFTER handshake completes
+    this.transport.onMessage((data: string) => this.handleRawMessage(data));
   }
 
   /**
@@ -190,6 +192,7 @@ export class AINMAgent {
 
     const threadId = incoming.threadId;
     const fromIdentity = incoming.from;
+    const agentIdentity = this.config.identity;
     const keypair = this.keypair;
     const sendFn = (data: string) => this.transport.send(data);
     const sendRpcFn = (method: string, p: Record<string, unknown>) => this.sendRpc(method, p);
@@ -201,7 +204,7 @@ export class AINMAgent {
       parentThreadId: params.parent_thread_id as string | undefined,
 
       stream(): StreamHelper {
-        const helper = createStreamHelper(sendFn, keypair.publicKey.toString(), threadId);
+        const helper = createStreamHelper(sendFn, agentIdentity, threadId);
         // Auto-start the stream and return the bridge interface
         helper.start().catch(() => {});
         return {
@@ -275,8 +278,8 @@ export class AINMAgent {
         ],
       };
       const signed = await signEnvelope(keypair, envelope);
-      const notification = buildNotification("ainm.message.send", { message: signed });
-      await this.transport.send(JSON.stringify(notification));
+      const request = buildRequest("ainm.message.send", signed as Record<string, unknown>);
+      await this.transport.send(JSON.stringify(request));
     }
   }
 
@@ -323,6 +326,7 @@ export class AINMAgent {
    */
   private buildMinimalContext(threadId: string): MessageContext {
     const keypair = this.keypair!;
+    const agentIdentity = this.config.identity;
     const sendFn = (data: string) => this.transport.send(data);
     const sendRpcFn = (method: string, p: Record<string, unknown>) => this.sendRpc(method, p);
 
@@ -331,7 +335,7 @@ export class AINMAgent {
       from: this.config.identity,
       participants: [this.config.identity],
       stream(): StreamHelper {
-        const helper = createStreamHelper(sendFn, keypair.publicKey.toString(), threadId);
+        const helper = createStreamHelper(sendFn, agentIdentity, threadId);
         helper.start().catch(() => {});
         return {
           delta: (text: string) => { helper.delta(text).catch(() => {}); },
