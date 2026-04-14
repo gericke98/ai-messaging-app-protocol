@@ -1,0 +1,35 @@
+{
+  "name": "@ainm/connector",
+  "version": "0.1.0",
+  "description": "AINM Protocol Connector SDK — connect any AI agent to the AINM messaging network",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "@noble/ed25519": "^2.2.0",
+    "canonicalize": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@types/ws": "^8.5.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}
