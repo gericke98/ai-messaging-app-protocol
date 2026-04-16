@@ -1,7 +1,17 @@
 import { AINMAgent } from "@ainm/connector";
 import type { IncomingMessage, MessageContext } from "@ainm/connector";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
+import { checkClaudeAvailable } from "./check-cli.js";
+import { buildClaudeArgs } from "./build-args.js";
+import {
+  parseClaudeEvent,
+  extractTextContent,
+  extractToolUses,
+  type ClaudeAssistantEvent,
+  type ClaudeResultEvent,
+  type ClaudeSystemEvent,
+} from "./parse-event.js";
 
 export interface ClaudeCodeConnectorConfig {
   serverUrl: string;
@@ -10,26 +20,20 @@ export interface ClaudeCodeConnectorConfig {
   workingDir?: string;
   claudeBinary?: string;
   sessionId?: string;
-}
-
-/**
- * Parsed event from Claude Code's NDJSON stream output.
- */
-interface ClaudeCodeEvent {
-  type: string;
-  subtype?: string;
-  content?: string;
-  result?: string;
-  session_id?: string;
-  tool_name?: string;
-  input?: Record<string, unknown>;
+  permissionMode?: string;  // default: "auto"
+  maxBudgetUsd?: number;
+  bare?: boolean;
 }
 
 export async function startClaudeCodeConnector(
   config: ClaudeCodeConnectorConfig
-): Promise<void> {
+): Promise<{ stop: () => void }> {
   const claudeBin = config.claudeBinary ?? "claude";
   let currentSessionId = config.sessionId;
+
+  // Verify that the claude CLI is available before connecting
+  const version = await checkClaudeAvailable(claudeBin);
+  console.log(`Claude Code CLI version: ${version}`);
 
   const agent = new AINMAgent({
     server: config.serverUrl,
@@ -37,6 +41,9 @@ export async function startClaudeCodeConnector(
     name: config.name,
     capabilities: ["text", "code", "tool"],
   });
+
+  // Track running child process for graceful shutdown
+  let currentProc: ChildProcess | null = null;
 
   agent.onMessage(
     async (
@@ -57,14 +64,20 @@ export async function startClaudeCodeConnector(
 
         const prompt = briefingContext + message.text;
 
-        // Build claude CLI args
-        const args = ["-p", prompt, "--output-format", "stream-json"];
-        if (currentSessionId) {
-          args.push("--resume", currentSessionId);
-        }
+        const args = buildClaudeArgs({
+          prompt,
+          sessionId: currentSessionId,
+          permissionMode: config.permissionMode,
+          maxBudgetUsd: config.maxBudgetUsd,
+          bare: config.bare,
+        });
 
         const stream = ctx.stream();
         let fullText = "";
+        // Track how much text we have already sent so we can compute deltas.
+        // With --include-partial-messages each assistant event carries the FULL
+        // accumulated text so far, not just the new tokens.
+        let lastTextLength = 0;
 
         await new Promise<void>((resolve, reject) => {
           const proc = spawn(claudeBin, args, {
@@ -73,43 +86,59 @@ export async function startClaudeCodeConnector(
             env: { ...process.env },
           });
 
+          currentProc = proc;
+
           const rl = createInterface({ input: proc.stdout });
 
           rl.on("line", (line: string) => {
-            try {
-              const event = JSON.parse(line) as ClaudeCodeEvent;
+            const event = parseClaudeEvent(line);
+            if (event === null) return;
 
-              // Stream text deltas from assistant responses
-              if (event.type === "assistant" && event.subtype === "text") {
-                const content = event.content ?? "";
-                stream.delta(content);
-                fullText += content;
+            if (event.type === "system") {
+              const sysEv = event as ClaudeSystemEvent;
+              currentSessionId = sysEv.session_id;
+              console.log(
+                `Claude session started — id: ${sysEv.session_id}, model: ${sysEv.model}, tools: ${sysEv.tools.join(", ")}`
+              );
+              return;
+            }
+
+            if (event.type === "assistant") {
+              const assistantEv = event as ClaudeAssistantEvent;
+
+              // Stream text deltas (handling accumulated text from --include-partial-messages)
+              const currentText = extractTextContent(assistantEv);
+              if (currentText.length > lastTextLength) {
+                const delta = currentText.slice(lastTextLength);
+                stream.delta(delta);
+                fullText = currentText;
+                lastTextLength = currentText.length;
               }
 
-              // Capture session ID for conversation continuity
-              if (event.type === "result" && event.session_id) {
-                currentSessionId = event.session_id;
+              // Emit tool started events for each tool_use block
+              const toolUses = extractToolUses(assistantEv);
+              for (const tool of toolUses) {
+                ctx.emitToolStarted(tool.name, tool.input);
               }
 
-              // Forward tool use events so the iOS app can show what Claude Code is doing
-              if (event.type === "assistant" && event.subtype === "tool_use") {
-                ctx.emitToolStarted(
-                  event.tool_name ?? "unknown",
-                  event.input ?? {}
-                );
+              return;
+            }
+
+            if (event.type === "result") {
+              const resultEv = event as ClaudeResultEvent;
+              currentSessionId = resultEv.session_id;
+
+              if (resultEv.is_error) {
+                // Error result — end stream and reject with the error message
+                stream.end();
+                reject(new Error(resultEv.result));
+                return;
               }
 
-              if (
-                event.type === "assistant" &&
-                event.subtype === "tool_result"
-              ) {
-                ctx.emitToolCompleted(
-                  event.tool_name ?? "unknown",
-                  event.content ?? ""
-                );
-              }
-            } catch {
-              // Skip non-JSON lines (e.g. stderr bleed, blank lines)
+              // Successful result — end the stream
+              stream.end();
+              resolve();
+              return;
             }
           });
 
@@ -119,19 +148,25 @@ export async function startClaudeCodeConnector(
           });
 
           proc.on("close", (code: number | null) => {
-            stream.end();
+            currentProc = null;
+            // If the promise was already settled by a result event, this is a no-op.
+            // Otherwise treat a non-zero exit as an error.
             if (code !== 0 && !fullText) {
+              stream.end();
               reject(
                 new Error(
                   `Claude Code exited with code ${code}: ${stderr.slice(0, 500)}`
                 )
               );
             } else {
+              // Ensure stream ends if process closes without a result event
+              stream.end();
               resolve();
             }
           });
 
           proc.on("error", (err: Error) => {
+            currentProc = null;
             stream.end();
             reject(err);
           });
@@ -142,18 +177,33 @@ export async function startClaudeCodeConnector(
     }
   );
 
-  console.log(
-    `Connecting Claude Code connector to ${config.serverUrl}...`
-  );
+  console.log(`Connecting Claude Code connector to ${config.serverUrl}...`);
   if (config.workingDir) {
     console.log(`Working directory: ${config.workingDir}`);
   }
   if (currentSessionId) {
     console.log(`Resuming session: ${currentSessionId}`);
   }
+
   await agent.connect();
   console.log(`Claude Code connector ready. Identity: ${config.identity}`);
 
-  // Keep process alive until terminated
-  await new Promise<void>(() => {});
+  // Graceful shutdown: kill any running child process and disconnect the agent
+  const stop = (): void => {
+    if (currentProc) {
+      currentProc.kill();
+      currentProc = null;
+    }
+    agent.disconnect();
+  };
+
+  // Register OS signal handlers for clean shutdown
+  const handleSignal = (): void => {
+    stop();
+    process.exit(0);
+  };
+  process.once("SIGTERM", handleSignal);
+  process.once("SIGINT", handleSignal);
+
+  return { stop };
 }
