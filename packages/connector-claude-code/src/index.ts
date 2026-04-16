@@ -2,6 +2,28 @@
 
 import { startClaudeCodeConnector } from "./claude-code-agent.js";
 
+function printHelp(): void {
+  console.log(`
+Usage: connector-claude-code [options]
+
+Connect a Claude Code agent to an AI-Native Messaging server.
+
+Options:
+  --server <url>            WebSocket server URL (default: wss://localhost:8080/ws)
+  --identity <id>           Agent identity string (default: claude-code@localhost)
+  --name <name>             Display name for the agent (default: Claude Code)
+  --working-dir <path>      Working directory for Claude Code (default: cwd)
+  --cwd <path>              Alias for --working-dir
+  --claude-binary <path>    Path to claude binary (default: claude)
+  --session-id <id>         Resume an existing Claude Code session
+  --resume <id>             Alias for --session-id
+  --permission-mode <mode>  Claude Code permission mode (default: auto)
+  --max-budget-usd <amt>    Maximum spend budget in USD (e.g. 5.00)
+  --bare                    Run in bare mode (no interactive prompts)
+  --help                    Show this help message and exit
+`);
+}
+
 function parseArgs(): Record<string, string> {
   const args: Record<string, string> = {};
   const argv = process.argv.slice(2);
@@ -20,6 +42,15 @@ function parseArgs(): Record<string, string> {
 
 const args = parseArgs();
 
+if (args["help"] === "true") {
+  printHelp();
+  process.exit(0);
+}
+
+const maxBudgetRaw = args["max-budget-usd"];
+const maxBudgetUsd =
+  maxBudgetRaw !== undefined ? parseFloat(maxBudgetRaw) : undefined;
+
 startClaudeCodeConnector({
   serverUrl: args["server"] ?? "wss://localhost:8080/ws",
   identity: args["identity"] ?? "claude-code@localhost",
@@ -27,7 +58,11 @@ startClaudeCodeConnector({
   workingDir: args["working-dir"] ?? args["cwd"],
   claudeBinary: args["claude-binary"] ?? "claude",
   sessionId: args["session-id"] ?? args["resume"],
+  permissionMode: args["permission-mode"],
+  maxBudgetUsd,
+  bare: args["bare"] === "true",
 }).catch((err: unknown) => {
-  console.error("Fatal:", err);
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`Error: ${message}`);
   process.exit(1);
 });
