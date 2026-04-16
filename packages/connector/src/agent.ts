@@ -155,8 +155,8 @@ export class AINMAgent {
 
     // Notification
     if (parsed.method === "ainm.message.deliver") {
-      this.handleMessageDelivery(parsed.params).catch(() => {
-        // Handler errors are silently dropped for now
+      this.handleMessageDelivery(parsed.params).catch((err) => {
+        console.error("[AINMAgent] handleMessageDelivery error:", err);
       });
     }
 

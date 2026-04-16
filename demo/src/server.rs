@@ -1679,7 +1679,10 @@ async fn handle_human_connection(
                                     );
                                     let deliver_text = serde_json::to_string(&deliver).unwrap();
                                     // Deliver locally (to agent if connected via WS)
-                                    let _ = to_agent_tx.send(deliver_text.clone());
+                                    match to_agent_tx.send(deliver_text.clone()) {
+                                        Ok(n) => tracing::info!("[routing] Delivered to {n} agent subscriber(s) (federated)"),
+                                        Err(e) => tracing::warn!("[routing] No agent subscribers (federated): {e}"),
+                                    }
                                     // Also deliver via federation local_delivery_tx
                                     let _ = fed.local_delivery_tx.send(deliver_text);
 
@@ -1721,7 +1724,10 @@ async fn handle_human_connection(
                                     }),
                                 );
                                 let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                let _ = to_agent_tx.send(deliver_text);
+                                match to_agent_tx.send(deliver_text) {
+                                    Ok(n) => tracing::info!("[routing] Delivered to {n} agent subscriber(s)"),
+                                    Err(e) => tracing::warn!("[routing] No agent subscribers: {e}"),
+                                }
                             }
 
                             let resp = protocol::new_response(
