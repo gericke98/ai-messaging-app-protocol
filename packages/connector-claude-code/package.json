@@ -19,9 +19,11 @@
     "@ainm/connector": "file:../connector"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
     "@types/node": "^22.0.0",
-    "vitest": "^3.0.0"
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "ws": "^8.20.0"
   },
   "engines": {
     "node": ">=20.0.0"
