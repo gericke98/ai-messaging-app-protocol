@@ -24,6 +24,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C1000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -35,6 +42,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C2000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2000003 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -58,10 +72,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C3000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
 		A1000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A0000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A2000001;
+			remoteInfo = AINMMessenger;
+		};
+		A1000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A0000001 /* Project object */;
 			proxyType = 1;
@@ -83,6 +111,12 @@
 			);
 			target = A2000002 /* AINMMessengerTests */;
 		};
+		A8000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+			);
+			target = A2000003 /* AINMMessengerUITests */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -96,6 +130,14 @@
 			path = AINMMessengerTests;
 			sourceTree = "<group>";
 		};
+		A3000003 /* AINMMessengerUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A8000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			path = AINMMessengerUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXGroup section */
@@ -104,6 +146,7 @@
 			children = (
 				A3000001 /* AINMMessenger */,
 				A3000002 /* AINMMessengerTests */,
+				A3000003 /* AINMMessengerUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -112,6 +155,7 @@
 			children = (
 				A5000001 /* AINMMessenger.app */,
 				A5000002 /* AINMMessengerTests.xctest */,
+				A5000003 /* AINMMessengerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -166,6 +210,29 @@
 			productReference = A5000002 /* AINMMessengerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		A2000003 /* AINMMessengerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7000004 /* Build configuration list for PBXNativeTarget "AINMMessengerUITests" */;
+			buildPhases = (
+				C3000003 /* Sources */,
+				C1000003 /* Frameworks */,
+				C2000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000004 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3000003 /* AINMMessengerUITests */,
+			);
+			name = AINMMessengerUITests;
+			packageProductDependencies = (
+			);
+			productName = AINMMessengerUITests;
+			productReference = A5000003 /* AINMMessengerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -180,6 +247,10 @@
 						CreatedOnToolsVersion = 16.2;
 					};
 					A2000002 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = A2000001;
+					};
+					A2000003 = {
 						CreatedOnToolsVersion = 16.2;
 						TestTargetID = A2000001;
 					};
@@ -205,6 +276,7 @@
 			targets = (
 				A2000001 /* AINMMessenger */,
 				A2000002 /* AINMMessengerTests */,
+				A2000003 /* AINMMessengerUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -224,6 +296,13 @@
 			path = AINMMessengerTests.xctest;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
+		A5000003 /* AINMMessengerUITests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.cfbundle;
+			includeInIndex = 0;
+			path = AINMMessengerUITests.xctest;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 /* End PBXFileReference section */
 
 /* Begin PBXTargetDependency section */
@@ -231,6 +310,11 @@
 			isa = PBXTargetDependency;
 			target = A2000001 /* AINMMessenger */;
 			targetProxy = A1000001 /* PBXContainerItemProxy */;
+		};
+		A1000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A2000001 /* AINMMessenger */;
+			targetProxy = A1000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -448,6 +532,52 @@
 			};
 			name = Release;
 		};
+		B4000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ainm.AINMMessengerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AINMMessenger;
+			};
+			name = Debug;
+		};
+		B4000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ainm.AINMMessengerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AINMMessenger;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -474,6 +604,15 @@
 			buildConfigurations = (
 				B1000001 /* Debug */,
 				B1000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7000004 /* Build configuration list for PBXNativeTarget "AINMMessengerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B4000001 /* Debug */,
+				B4000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
