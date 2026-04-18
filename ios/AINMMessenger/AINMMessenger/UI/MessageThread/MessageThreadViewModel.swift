@@ -32,6 +32,28 @@ final class MessageThreadViewModel {
     private let threadRepository: ThreadRepository
     private let database: AppDatabase
     private var participants: [String: ParticipantRecord] = [:]  // identity -> record
+
+    /// Participants exposed as MentionCandidate array for ComposerView's @-autocomplete
+    /// (Plan 14-06 deviation Rule 2 — previously not wired, autocomplete rendered empty).
+    /// Excludes the current user so self-mentions don't appear in the picker.
+    /// ParticipantRecord has no displayName column (Phase 13 simplification), so we
+    /// derive display name from the identity local-part — capitalizing to match common
+    /// UX (e.g. `remy@localhost` → `Remy`). This mirrors the fixture displayName where
+    /// identity `remy@localhost` had displayName `Remy`.
+    var mentionCandidates: [MentionCandidate] {
+        participants.values
+            .filter { $0.identity != currentUserIdentity }
+            .map { p in
+                let localPart = p.identity.components(separatedBy: "@").first ?? p.identity
+                let displayName = localPart.prefix(1).uppercased() + localPart.dropFirst()
+                return MentionCandidate(
+                    id: p.identity,
+                    displayName: displayName,
+                    type: p.type
+                )
+            }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
     private var allMessages: [MessageRecord] = []
     private var oldestTimestamp: String?
     private var newestTimestamp: String?

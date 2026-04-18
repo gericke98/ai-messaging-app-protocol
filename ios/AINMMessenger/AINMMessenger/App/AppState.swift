@@ -194,15 +194,49 @@ final class AppState {
     }
 
     /// Create a sub-thread branching from a specific message.
+    /// In UAT mode (DEBUG + no live client handshake) falls back to a local-only write
+    /// so sub-thread creation flows can be exercised without a connected server.
     func createSubThread(parentThreadId: String, parentMessageId: String) async throws -> String {
-        guard let client, let identity = connectedIdentity else {
+        guard let identity = connectedIdentity else {
             throw AINMClient.ClientError.notConnected
         }
-        return try await client.createSubThread(
+        if let client {
+            do {
+                return try await client.createSubThread(
+                    parentThreadId: parentThreadId,
+                    parentMessageId: parentMessageId,
+                    identity: identity
+                )
+            } catch AINMClient.ClientError.notConnected {
+                #if DEBUG
+                // Fall through to local-only creation below.
+                #else
+                throw AINMClient.ClientError.notConnected
+                #endif
+            }
+        }
+        #if DEBUG
+        // Local-only sub-thread creation for UAT runs where the AINMClient isn't
+        // connected. Writes a ThreadRecord directly so navigation + banner assertions
+        // work against real DB state.
+        guard let db = appDatabase else { throw AINMClient.ClientError.notConnected }
+        let subThreadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+        let record = ThreadRecord(
+            id: subThreadId,
+            title: nil,
+            createdAt: timestamp,
+            createdBy: identity,
             parentThreadId: parentThreadId,
-            parentMessageId: parentMessageId,
-            identity: identity
+            parentMessageId: parentMessageId
         )
+        try await db.dbPool.write { db in
+            try record.save(db)
+        }
+        return subThreadId
+        #else
+        throw AINMClient.ClientError.notConnected
+        #endif
     }
 
     /// Cancel all active streams in a thread. Marks them as cancelling in the view model

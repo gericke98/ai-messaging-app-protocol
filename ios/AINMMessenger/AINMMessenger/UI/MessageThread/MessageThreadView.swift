@@ -108,6 +108,7 @@ struct MessageThreadView: View {
 
             ComposerView(
                 isOffline: appState.connectionState != .connected,
+                participants: viewModel?.mentionCandidates ?? [],
                 onSend: { text in
                     Task { await sendMessage(text: text) }
                 }
