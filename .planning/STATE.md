@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: verifying
-stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-03-30T15:24:24.077Z"
+stopped_at: Phase 14 context gathered
+last_updated: "2026-04-18T20:02:03.513Z"
 last_activity: 2026-03-30
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
   total_plans: 9
   completed_plans: 9
@@ -53,6 +53,10 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 13]: Info.plist placed at project root to avoid Xcode auto-resource-copy conflict
 - [Phase 13]: Sub-thread cache loaded eagerly in MessageThreadViewModel for O(1) indicator lookups
 
+### Roadmap Evolution
+
+- Phase 14 added (2026-04-18): UAT automation harness — XCUITest coverage for 6 Phase 13 acceptance tests with hermetic seed bootstrap so HUMAN-UAT can run via `xcodebuild test`
+
 ### Pending Todos
 
 None.
@@ -63,6 +67,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-30T15:17:41.254Z
-Stopped at: Completed 13-05-PLAN.md
-Resume file: None
+Last session: 2026-04-18T20:02:03.511Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-uat-automation-harness/14-CONTEXT.md
