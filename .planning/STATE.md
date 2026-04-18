@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 14-02-PLAN.md
-last_updated: "2026-04-18T21:19:55.435Z"
-last_activity: 2026-04-18 -- Phase 14 Wave 1 complete (14-01 + 14-02 merged)
+stopped_at: Completed 14-04-PLAN.md
+last_updated: "2026-04-18T22:01:17.571Z"
+last_activity: 2026-04-18
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 73
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (uat-automation-harness) — EXECUTING
-Plan: 3 of 6
-Status: Wave 1 complete; Wave 2 pending
-Last activity: 2026-04-18 -- 14-01 + 14-02 merged to main
+Plan: 4 of 6
+Status: Ready to execute
+Last activity: 2026-04-18
 
 Progress: [########--] 73%
 
@@ -60,6 +60,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14-uat-automation-harness]: Binary name authoritative: ainm-demo (CONTEXT.md D-05 incorrectly said ainm-server; every artifact uses ainm-demo)
 - [Phase 14-uat-automation-harness]: tempfile = 3 added to demo dependencies for ephemeral UAT tempdir (guard lifetime tied to tokio::signal::ctrl_c await)
 - [Phase 14-uat-automation-harness]: Makefile trap 'kill $PID' EXIT INT TERM covers normal exit + Ctrl-C + xcodebuild SIGTERM
+- [Phase 14-uat-automation-harness]: Strong self + static activeInjectors pin keeps TestEventInjector alive across the launch-time async boundary (weak self would drop before events fire)
+- [Phase 14-uat-automation-harness]: Codable ScriptEntry as flat field-union (all optional, selected by type) — JSON ergonomics; unknown types decode + skip at fire time
+- [Phase 14-uat-automation-harness]: Injector translates flat ScriptFramePayload into nested ContextFrame.Frame at dispatch time (not in JSON) — reduces authoring friction while still exercising the real wire-shape code path
 
 ### Roadmap Evolution
 
@@ -75,6 +78,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T21:19:55.433Z
-Stopped at: Completed 14-02-PLAN.md
+Last session: 2026-04-18T22:01:07.727Z
+Stopped at: Completed 14-04-PLAN.md
 Resume file: None
