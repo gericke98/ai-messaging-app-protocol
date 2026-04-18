@@ -35,6 +35,7 @@ struct ToolCallIndicatorView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Color(.tertiaryLabel))
                         .rotationEffect(.degrees(state.isExpanded ? 90 : 0))
+                        .accessibilityIdentifier(UITestID.ToolCall.expandButton)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -53,6 +54,7 @@ struct ToolCallIndicatorView: View {
             .accessibilityLabel("\(state.name), \(accessibilityStatus)")
             .accessibilityValue(accessibilityValue)
             .accessibilityHint("Double tap to view details")
+            .accessibilityIdentifier(UITestID.ToolCall.indicatorRow(callId: state.id))
 
             // Expanded detail area
             if state.isExpanded {
@@ -78,18 +80,22 @@ struct ToolCallIndicatorView: View {
             ProgressView()
                 .frame(width: 14, height: 14)
                 .tint(Color(.systemOrange))
+                .accessibilityIdentifier(UITestID.ToolCall.statusRunning)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 16))
                 .foregroundStyle(Color(.systemGreen))
+                .accessibilityIdentifier(UITestID.ToolCall.statusCompleted)
         case .error:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 16))
                 .foregroundStyle(Color.red)
+                .accessibilityIdentifier(UITestID.ToolCall.statusError)
         case .timedOut:
             Image(systemName: "clock.badge.questionmark")
                 .font(.system(size: 16))
                 .foregroundStyle(Color(.secondaryLabel))
+                .accessibilityIdentifier(UITestID.ToolCall.statusTimedOut)
         }
     }
 

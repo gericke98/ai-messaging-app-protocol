@@ -146,6 +146,7 @@ struct MessageThreadView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .accessibilityLabel("View memory context")
+                        .accessibilityIdentifier(UITestID.Memory.toolbarPill)
                     }
                 }
             }

@@ -28,6 +28,7 @@ struct ArchivalMemoryView: View {
         }
         .navigationTitle("Archival Memory")
         .searchable(text: $searchText, prompt: "Search facts...")
+        .accessibilityIdentifier(UITestID.Memory.archivalSearch)
         .onSubmit(of: .search) {
             Task { await searchFacts() }
         }
@@ -40,6 +41,7 @@ struct ArchivalMemoryView: View {
             Button("Delete", role: .destructive) {
                 Task { await deleteFact(fact) }
             }
+            .accessibilityIdentifier(UITestID.Memory.archivalDeleteConfirm)
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("This will permanently remove this fact from the agent's memory.")
@@ -58,6 +60,7 @@ struct ArchivalMemoryView: View {
                 Section {
                     ForEach(group.facts) { fact in
                         factRow(fact)
+                            .accessibilityIdentifier(UITestID.Memory.archivalRow(factId: fact.factId))
                             .swipeActions(edge: .trailing) {
                                 Button("Delete", role: .destructive) {
                                     factToDelete = fact

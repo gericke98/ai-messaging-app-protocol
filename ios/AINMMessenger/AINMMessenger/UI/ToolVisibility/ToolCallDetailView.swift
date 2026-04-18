@@ -23,6 +23,7 @@ struct ToolCallDetailView: View {
                     .frame(maxHeight: 200)
                     .background(Color(.tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .accessibilityIdentifier(UITestID.ToolCall.detailInputJson)
                 }
             }
 
@@ -56,6 +57,7 @@ struct ToolCallDetailView: View {
                     Text(resultSummary)
                         .font(.caption)
                         .foregroundStyle(Color(.label))
+                        .accessibilityIdentifier(UITestID.ToolCall.detailResult)
                 }
             }
 

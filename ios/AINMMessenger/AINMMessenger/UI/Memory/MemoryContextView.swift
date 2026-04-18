@@ -87,6 +87,7 @@ struct MemoryContextView: View {
                     .foregroundStyle(Color(.secondaryLabel))
             }
         }
+        .accessibilityIdentifier(UITestID.Memory.sheetSummary)
     }
 
     // MARK: - Active Context Section
@@ -119,6 +120,7 @@ struct MemoryContextView: View {
                 }
             }
         }
+        .accessibilityIdentifier(UITestID.Memory.sheetActiveContext)
     }
 
     // MARK: - Archival Facts Preview
@@ -137,6 +139,7 @@ struct MemoryContextView: View {
                         .font(.caption.bold())
                         .foregroundStyle(Color.accentColor)
                 }
+                .accessibilityIdentifier(UITestID.Memory.sheetViewAllButton)
             }
 
             if let facts = frame?.frame.archivalFacts, !facts.isEmpty {
@@ -155,6 +158,7 @@ struct MemoryContextView: View {
                     .foregroundStyle(Color(.secondaryLabel))
             }
         }
+        .accessibilityIdentifier(UITestID.Memory.sheetArchivalPreview)
     }
 
     // MARK: - Participants Section
