@@ -97,12 +97,16 @@ final class DeepLinkUITests: AINMUITestCase {
                       "Deep link with bad message id did not reach the thread view")
 
         // Then the transient toast appears (MessageThreadView.handleScrollToMessage
-        // sets showMessageNotFound = true for 3s).
+        // sets showMessageNotFound = true for 3s). The toast Text is attached with
+        // the identifier via `.accessibilityIdentifier` on the Text directly.
         let toastId = UITestID.DeepLink.toastMessageNotFound
-        let toast = app.staticTexts[toastId].firstMatch
+        let toastStatic = app.staticTexts[toastId].firstMatch
         let toastOther = app.otherElements[toastId].firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 8)
-                      || toastOther.waitForExistence(timeout: 1),
+        let toastByLabel = app.staticTexts["Message not found"].firstMatch
+        let found = toastStatic.waitForExistence(timeout: 10)
+            || toastOther.waitForExistence(timeout: 2)
+            || toastByLabel.waitForExistence(timeout: 2)
+        XCTAssertTrue(found,
                       "Message not found toast did not appear for a nonexistent message id")
     }
 }

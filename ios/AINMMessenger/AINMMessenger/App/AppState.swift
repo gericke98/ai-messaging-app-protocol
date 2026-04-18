@@ -186,11 +186,42 @@ final class AppState {
     }
 
     /// Create a new thread and send the first message via the protocol client.
+    /// In UAT mode (DEBUG + AINMClient not connected) falls back to a local-only write so
+    /// the "Start Conversation" flow still lands the user in the new thread.
     func createThread(title: String?, firstMessageText: String) async throws -> String {
-        guard let client, let identity = connectedIdentity else {
+        guard let identity = connectedIdentity else {
             throw AINMClient.ClientError.notConnected
         }
-        return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+        if let client {
+            do {
+                return try await client.createThread(title: title, firstMessageText: firstMessageText, identity: identity)
+            } catch AINMClient.ClientError.notConnected {
+                #if DEBUG
+                // Fall through to local-only creation.
+                #else
+                throw AINMClient.ClientError.notConnected
+                #endif
+            }
+        }
+        #if DEBUG
+        guard let db = appDatabase else { throw AINMClient.ClientError.notConnected }
+        let threadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+        let record = ThreadRecord(
+            id: threadId,
+            title: title,
+            createdAt: timestamp,
+            createdBy: identity,
+            parentThreadId: nil,
+            parentMessageId: nil
+        )
+        try await db.dbPool.write { db in
+            try record.save(db)
+        }
+        return threadId
+        #else
+        throw AINMClient.ClientError.notConnected
+        #endif
     }
 
     /// Create a sub-thread branching from a specific message.

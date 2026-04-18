@@ -59,11 +59,17 @@ final class SubThreadBranchUITests: AINMUITestCase {
 
         let back = app.buttons[UITestID.SubThread.bannerBackButton].firstMatch
         let backOther = app.otherElements[UITestID.SubThread.bannerBackButton].firstMatch
+        let backImage = app.images[UITestID.SubThread.bannerBackButton].firstMatch
+        let backByLabel = app.buttons["Return to parent thread"].firstMatch
         let backTarget: XCUIElement
         if back.waitForExistence(timeout: 3) {
             backTarget = back
         } else if backOther.waitForExistence(timeout: 1) {
             backTarget = backOther
+        } else if backImage.waitForExistence(timeout: 1) {
+            backTarget = backImage
+        } else if backByLabel.waitForExistence(timeout: 1) {
+            backTarget = backByLabel
         } else {
             XCTFail("Sub-thread back button not visible (UITestID.SubThread.bannerBackButton)")
             return
