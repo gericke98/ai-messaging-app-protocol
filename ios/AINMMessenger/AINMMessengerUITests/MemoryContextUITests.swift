@@ -54,28 +54,35 @@ final class MemoryContextUITests: AINMUITestCase {
                       || archivalPreviewStatic.waitForExistence(timeout: 1),
                       "Memory sheet Archival Preview section not present")
 
-        // View All navigates to archival view. The memory sheet is a ScrollView, and
-        // the View All button may be below the fold on small phones — swipe up to
-        // bring it into view before asserting.
+        // View All navigates to archival view. The memory sheet is presented at .medium
+        // detent by default — the View All button is below the fold. Drag the sheet's
+        // handle up to .large OR scroll within the sheet's ScrollView to reveal it.
         let viewAll = app.buttons[UITestID.Memory.sheetViewAllButton].firstMatch
         let viewAllOther = app.otherElements[UITestID.Memory.sheetViewAllButton].firstMatch
-        // First try without scroll — button may already be visible on larger screens.
         var viewAllTarget: XCUIElement? = nil
-        if viewAll.waitForExistence(timeout: 3) {
-            viewAllTarget = viewAll
-        } else if viewAllOther.waitForExistence(timeout: 1) {
-            viewAllTarget = viewAllOther
-        } else {
-            // Swipe up inside the sheet to reveal the Archival Facts section.
-            app.swipeUp()
-            if viewAll.waitForExistence(timeout: 3) {
+
+        // Try a few scroll attempts to reveal the button.
+        for _ in 0..<3 {
+            if viewAll.waitForExistence(timeout: 2) {
                 viewAllTarget = viewAll
-            } else if viewAllOther.waitForExistence(timeout: 1) {
+                break
+            }
+            if viewAllOther.waitForExistence(timeout: 1) {
                 viewAllTarget = viewAllOther
+                break
+            }
+            // Scroll inside the sheet's ScrollView. Use scrollViews.firstMatch as a coarse
+            // target; swipe a meaningful distance (not a tiny flick) to push past .medium.
+            let sheetScroll = app.scrollViews.firstMatch
+            if sheetScroll.exists {
+                sheetScroll.swipeUp(velocity: .fast)
+            } else {
+                app.swipeUp(velocity: .fast)
             }
         }
+
         guard let target = viewAllTarget else {
-            XCTFail("View All button not found on memory sheet (even after swipe-up)")
+            XCTFail("View All button not found on memory sheet (after multi-scroll)")
             return
         }
         target.tap()

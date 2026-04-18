@@ -23,13 +23,18 @@ final class ToolCallIndicatorUITests: AINMUITestCase {
 
         openThread(threadId: "thread-01")
 
-        // 0ms: tool.call.started → running spinner appears.
-        let running = app.images[UITestID.ToolCall.statusRunning].firstMatch
+        // t=100ms: tool.call.started → running spinner (ProgressView) appears.
+        // ProgressView resolves as `otherElements` in XCUITest (not `images`).
         let runningOther = app.otherElements[UITestID.ToolCall.statusRunning].firstMatch
-        let runningAppeared = running.waitForExistence(timeout: 5)
-            || runningOther.waitForExistence(timeout: 1)
+        let runningImage = app.images[UITestID.ToolCall.statusRunning].firstMatch
+        let runningProgress = app.progressIndicators[UITestID.ToolCall.statusRunning].firstMatch
+        let runningAppeared = runningOther.waitForExistence(timeout: 5)
+            || runningImage.waitForExistence(timeout: 1)
+            || runningProgress.waitForExistence(timeout: 1)
         XCTAssertTrue(runningAppeared,
                       "Running spinner did not appear after tool.call.started (UITestID.ToolCall.statusRunning)")
+        // Use the element that found it for subsequent assertions.
+        let running = runningOther.exists ? runningOther : (runningImage.exists ? runningImage : runningProgress)
 
         // t=10s: tool.call.completed → green checkmark replaces spinner.
         let completed = app.images[UITestID.ToolCall.statusCompleted].firstMatch

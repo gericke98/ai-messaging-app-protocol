@@ -170,8 +170,11 @@ struct MessageThreadView: View {
             }
         }
         .sheet(isPresented: $showMemoryContext) {
+            // Plan 14-06 iter-5: offer [.large, .medium] instead of [.medium, .large] so
+            // the sheet opens at .large by default — View All button + archival preview
+            // are visible without scrolling. Keeps .medium as a user-draggable option.
             MemoryContextView(threadId: threadId, appState: appState)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large, .medium])
         }
         .sheet(isPresented: $showMemoryGraph) {
             MemoryGraphView(appState: appState)
@@ -235,6 +238,11 @@ struct MessageThreadView: View {
                 parentThreadId: threadId,
                 parentMessageId: messageId
             )
+            // Plan 14-06 iter-5 fix: .navigationDestination(item:) treats A→B as a single
+            // push; pop (nil) then push (subThreadId) forces a real navigation transition
+            // so the sub-thread's MessageThreadView actually appears.
+            appState.selectedThreadId = nil
+            try? await Task.sleep(for: .milliseconds(100))
             appState.selectedThreadId = subThreadId
         } catch {
             // Silently fail -- user will see no navigation
