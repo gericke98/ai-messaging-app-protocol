@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: verifying
-stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-03-30T15:24:24.077Z"
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-04-18T21:19:55.435Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 2
@@ -52,6 +52,10 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 13]: Context frames stored as dictionary keyed by threadId in AppState for O(1) lookup
 - [Phase 13]: Info.plist placed at project root to avoid Xcode auto-resource-copy conflict
 - [Phase 13]: Sub-thread cache loaded eagerly in MessageThreadViewModel for O(1) indicator lookups
+- [Phase 14-uat-automation-harness]: UAT: ainm-demo --uat uses plain /health on legacy (non-federation) path; start_with_port registers both /health and /health/live for symmetry
+- [Phase 14-uat-automation-harness]: Binary name authoritative: ainm-demo (CONTEXT.md D-05 incorrectly said ainm-server; every artifact uses ainm-demo)
+- [Phase 14-uat-automation-harness]: tempfile = 3 added to demo dependencies for ephemeral UAT tempdir (guard lifetime tied to tokio::signal::ctrl_c await)
+- [Phase 14-uat-automation-harness]: Makefile trap 'kill $PID' EXIT INT TERM covers normal exit + Ctrl-C + xcodebuild SIGTERM
 
 ### Pending Todos
 
@@ -63,6 +67,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-30T15:17:41.254Z
-Stopped at: Completed 13-05-PLAN.md
+Last session: 2026-04-18T21:19:55.433Z
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
