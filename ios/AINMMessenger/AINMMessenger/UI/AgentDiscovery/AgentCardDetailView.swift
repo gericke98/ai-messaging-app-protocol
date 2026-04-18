@@ -20,6 +20,7 @@ struct AgentCardDetailView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 80) // Space for pinned button
         }
+        .accessibilityIdentifier(UITestID.AgentDiscovery.detail)
         .safeAreaInset(edge: .bottom) {
             startConversationButton
         }
@@ -56,6 +57,7 @@ struct AgentCardDetailView: View {
             HStack(spacing: 8) {
                 if card.capabilities.streaming {
                     capabilityBadge("Streaming", color: .green)
+                        .accessibilityIdentifier(UITestID.AgentDiscovery.detailBadgeStreaming)
                 }
                 if card.ainm?.memory.archivalSupported == true {
                     capabilityBadge("Memory", color: .purple)
@@ -93,6 +95,7 @@ struct AgentCardDetailView: View {
             Text("Skills")
                 .font(.subheadline.bold())
                 .foregroundStyle(Color(.secondaryLabel))
+                .accessibilityIdentifier(UITestID.AgentDiscovery.detailSkillsHeader)
 
             ForEach(card.skills) { skill in
                 VStack(alignment: .leading, spacing: 4) {
@@ -175,5 +178,6 @@ struct AgentCardDetailView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
         .accessibilityLabel("Start conversation with \(card.name)")
+        .accessibilityIdentifier(UITestID.AgentDiscovery.detailStartConversation)
     }
 }

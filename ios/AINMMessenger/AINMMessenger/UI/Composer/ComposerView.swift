@@ -31,6 +31,7 @@ struct ComposerView: View {
             .onChange(of: text) { _, newValue in
                 detectMentionTrigger(in: newValue)
             }
+            .accessibilityIdentifier(UITestID.Mention.composerField)
 
             Button {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,6 +51,7 @@ struct ComposerView: View {
             }
             .disabled(!canSend)
             .accessibilityLabel("Send message")
+            .accessibilityIdentifier(UITestID.Mention.sendButton)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

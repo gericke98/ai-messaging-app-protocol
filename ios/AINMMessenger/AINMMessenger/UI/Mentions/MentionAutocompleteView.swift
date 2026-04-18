@@ -29,6 +29,7 @@ struct MentionAutocompleteView: View {
                     .foregroundStyle(Color(.secondaryLabel))
                     .frame(height: 48)
                     .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier(UITestID.Mention.autocompleteEmpty)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -37,6 +38,7 @@ struct MentionAutocompleteView: View {
                                 autocompleteRow(candidate)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier(UITestID.Mention.autocompleteRow(identity: candidate.id))
                             if candidate.id != filtered.last?.id {
                                 Divider()
                                     .foregroundStyle(Color(.separator))
@@ -45,6 +47,7 @@ struct MentionAutocompleteView: View {
                     }
                 }
                 .frame(maxHeight: 200)
+                .accessibilityIdentifier(UITestID.Mention.autocompleteList)
             }
         }
         .background(Color(.systemBackground))

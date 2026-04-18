@@ -34,6 +34,7 @@ struct AgentDiscoveryView: View {
         }
         .navigationTitle("Discover Agents")
         .searchable(text: $searchText, prompt: "Search agents...")
+        .accessibilityIdentifier(UITestID.AgentDiscovery.search)
         .refreshable { await loadAgents() }
         .task { await loadAgents() }
     }
@@ -64,6 +65,7 @@ struct AgentDiscoveryView: View {
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.emailAddress)
+                .accessibilityIdentifier(UITestID.AgentDiscovery.addByAddressField)
             if let error = addAgentError {
                 Text(error)
                     .font(.caption)
@@ -74,6 +76,7 @@ struct AgentDiscoveryView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(addAgentAddress.isEmpty || isAddingAgent)
+            .accessibilityIdentifier(UITestID.AgentDiscovery.addByAddressButton)
         }
     }
 
@@ -91,6 +94,7 @@ struct AgentDiscoveryView: View {
                 } label: {
                     agentRow(item.card)
                 }
+                .accessibilityIdentifier(UITestID.AgentDiscovery.listCell(agentId: item.identity))
             }
 
             Section {

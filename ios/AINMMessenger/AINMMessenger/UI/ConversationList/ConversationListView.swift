@@ -79,6 +79,7 @@ struct ConversationListView: View {
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.visible)
+                    .accessibilityIdentifier(UITestID.ConversationList.cell(threadId: conversation.id))
                 }
             }
             .listStyle(.plain)
