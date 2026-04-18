@@ -54,3 +54,26 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
 | 11. Core Messaging UI | v3.3 | 4/4 | Complete    | 2026-03-30 |
 | 12. Streaming & Interactive Blocks | v3.3 | 4/4 | Complete    | 2026-03-30 |
 | 13. AI-Native Features & Platform | v3.3 | 5/5 | Complete    | 2026-03-30 |
+
+### Phase 14: UAT automation harness
+
+**Goal:** Automated XCUITest coverage for the 6 Phase 13 acceptance scenarios so UAT runs hermetically from `xcodebuild test` — no human taps required. Ships an `AINMMessengerUITests` target, a launch-argument-driven seed bootstrap that provisions threads/agents/context frames against a local AINM server, and CI-runnable green runs that flip `13-HUMAN-UAT.md` from `partial` → `complete`.
+**Requirements**: TBD
+**Depends on:** Phase 13
+**Success Criteria** (what must be TRUE):
+  1. `AINMMessengerUITests` target exists in `AINMMessenger.xcodeproj` with a test scheme runnable via `xcodebuild test -scheme AINMMessengerUITests`
+  2. A seed bootstrap (launch argument e.g. `-UITestSeed <fixture>`) can provision the backend state each test needs (active thread, agent participant, mid-stream tool call, context frames, sub-thread parent message) without the test having to click through login/setup
+  3. One XCUITest per Phase 13 scenario: tool call indicator visual states, @-mention autocomplete, agent discovery flow, memory context sheet, sub-thread branch/navigate, `ainm://` deep links — each asserting the user-observable behavior from `13-HUMAN-UAT.md`
+  4. All 6 tests pass green locally against a booted iOS 18+ simulator with the AINM server running
+  5. `13-HUMAN-UAT.md` status updates to `complete` with passing results for tests 1–6
+  6. CI-runnable command documented (script or Makefile target) so the harness can be wired into the GitHub Actions matrix later
+**Plans:** 6 plans
+**UI hint**: no
+
+Plans:
+- [ ] 14-01-PLAN.md -- Xcode scaffold: AINMMessengerUITests target + shared scheme + UITestIdentifiers.swift + launch-arg skeleton with named TODO blocks
+- [ ] 14-02-PLAN.md -- Rust --uat flag (ephemeral DB, port 8080, /health) + Makefile orchestrator + placeholder CI workflow + docs
+- [ ] 14-03-PLAN.md -- SeedLoader + UITestIdentityBootstrap (deterministic Ed25519) + 6 scenario fixture JSONs; replaces TODO(14-03) blocks
+- [ ] 14-04-PLAN.md -- TestEventInjector + scenario-01/04 event scripts + replaces TODO(14-04) block
+- [ ] 14-05-PLAN.md -- Accessibility identifier retrofit across ~13 Phase 13 UI files (~34 identifiers)
+- [ ] 14-06-PLAN.md -- 6 XCUITest scenario classes + AINMUITestCase base + green run + flip 13-HUMAN-UAT.md to complete
