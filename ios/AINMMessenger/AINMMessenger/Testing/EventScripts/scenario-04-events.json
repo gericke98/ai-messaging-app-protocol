@@ -9,7 +9,7 @@
       "frame": {
         "summary": "User discussed coffee preferences and scheduled a meeting with the helper agent.",
         "activeMessages": ["msg-01"],
-        "archivalFactIds": ["fact-coffee", "fact-meetings"],
+        "archivalFactIds": ["fact-coffee-01", "fact-meetings-01"],
         "participantIdentities": ["uat-user@localhost", "helper@localhost"]
       }
     }
