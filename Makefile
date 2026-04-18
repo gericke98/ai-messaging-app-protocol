@@ -33,6 +33,8 @@ uat: ## Run hermetic UAT suite (boot server, poll health, run xcodebuild test, t
 	   fi ; \
 	   sleep 1 ; \
 	 done ; \
+	 echo "[uat] pre-delivering deep link via simctl openurl (scenario 6 belt-and-suspenders)" ; \
+	 xcrun simctl openurl booted "ainm://thread/thread-deeplink-01" 2>/dev/null || true ; \
 	 echo "[uat] running xcodebuild test -scheme $(UAT_SCHEME)..." ; \
 	 ( cd ios/AINMMessenger && xcodebuild test \
 	     -project AINMMessenger.xcodeproj \
