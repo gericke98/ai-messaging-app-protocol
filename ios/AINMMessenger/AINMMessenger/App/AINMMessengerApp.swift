@@ -5,6 +5,7 @@ import GRDB
 struct AINMMessengerApp: App {
     @State private var appState = AppState()
     @State private var showThreadNotFound = false
+    @State private var bootstrapComplete = false
 
     var body: some Scene {
         WindowGroup {
@@ -18,8 +19,61 @@ struct AINMMessengerApp: App {
                     }
                 }
             }
-            .onAppear {
+            .overlay(alignment: .topLeading) {
+                // Invisible 0-size readiness marker (RESEARCH.md "App readiness signal").
+                // XCUITest waits for `UITestID.App.ready` before asserting.
+                // `accessibilityHidden(true)` keeps VoiceOver quiet while XCUITest queries
+                // on otherElements[...] still see the element.
+                if bootstrapComplete {
+                    Color.clear
+                        .frame(width: 0, height: 0)
+                        .accessibilityElement()
+                        .accessibilityIdentifier(UITestID.App.ready)
+                        .accessibilityHidden(true)
+                }
+            }
+            .task {
+                #if DEBUG
+                // ---- Phase 14 UAT bootstrap: launch-arg parsing ----
+                let args = ProcessInfo.processInfo.arguments
+                let seedFixture: String? = {
+                    guard let idx = args.firstIndex(of: "-UITestSeed"),
+                          idx + 1 < args.count else { return nil }
+                    return args[idx + 1]
+                }()
+                let eventScript: String? = {
+                    guard let idx = args.firstIndex(of: "-UITestEvents"),
+                          idx + 1 < args.count else { return nil }
+                    return args[idx + 1]
+                }()
+
+                // Step 1 + 2: Filled by 14-03 (SeedLoader + UITestIdentityBootstrap).
+                // Must run BEFORE appState.setup() so the DB file is wiped and the Keychain
+                // identity is deterministic before AppDatabase.makeDefault() opens the pool
+                // and AINMClient reads the keypair.
+                // TODO(14-03): if let seedFixture {
+                //     try? SeedLoader.preparePristineDatabase()
+                //     try? await UITestIdentityBootstrap.resetIdentity()
+                // }
+                _ = seedFixture // silence unused warning until 14-03 fills this
+                #endif
+
                 try? appState.setup()
+
+                #if DEBUG
+                // Step 3: Filled by 14-03 (load fixture rows into GRDB after pool is open).
+                // TODO(14-03): if let seedFixture {
+                //     try? await SeedLoader.loadFixtureIfRequested(fixture: seedFixture, into: appState)
+                // }
+
+                // Step 4: Filled by 14-04 (start TestEventInjector for scripted ms-offset events).
+                // TODO(14-04): if let eventScript {
+                //     await TestEventInjector.scheduleIfRequested(script: eventScript, for: appState)
+                // }
+                _ = eventScript // silence unused warning until 14-04 fills this
+                #endif
+
+                bootstrapComplete = true
             }
             .onOpenURL { url in
                 handleDeepLink(url)

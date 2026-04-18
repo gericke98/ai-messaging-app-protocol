@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Phase 14 context gathered
-last_updated: "2026-04-18T21:03:35.313Z"
-last_activity: 2026-04-18 -- Phase 14 execution started
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-04-18T21:16:43.914Z"
+last_activity: 2026-04-18 -- Phase 14 Wave 1 (14-01) complete
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 9
-  percent: 56
+  completed_plans: 10
+  percent: 67
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (uat-automation-harness) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 14
-Last activity: 2026-04-18 -- Phase 14 execution started
+Plan: 2 of 6
+Status: Executing Phase 14 (Wave 1 of 4 complete)
+Last activity: 2026-04-18 -- 14-01 merged, 14-02 pending merge
 
-Progress: [#####-----] 56%
+Progress: [#######---] 67%
 
 ## Accumulated Context
 
@@ -52,6 +52,10 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 13]: Context frames stored as dictionary keyed by threadId in AppState for O(1) lookup
 - [Phase 13]: Info.plist placed at project root to avoid Xcode auto-resource-copy conflict
 - [Phase 13]: Sub-thread cache loaded eagerly in MessageThreadViewModel for O(1) indicator lookups
+- [Phase 14-uat-automation-harness]: Programmatic pbxproj editing for new UI test target scaffold (UUIDs A2000003/A3000003/A8000003)
+- [Phase 14-uat-automation-harness]: UITestIdentifiers.swift cross-target membership via explicit PBXFileReference+PBXBuildFile (SOURCE_ROOT path) rather than membershipExceptions — file lives outside UI test sync group
+- [Phase 14-uat-automation-harness]: parallelizable=NO on UI test scheme TestableReference (shared simulator+server port 8080)
+- [Phase 14-uat-automation-harness]: Named TODO(14-03)/TODO(14-04) anchor comments in AINMMessengerApp.swift for Wave 2 parallel editing without merge conflicts
 
 ### Roadmap Evolution
 
@@ -67,6 +71,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T20:02:03.511Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-uat-automation-harness/14-CONTEXT.md
+Last session: 2026-04-18T21:16:43.912Z
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
