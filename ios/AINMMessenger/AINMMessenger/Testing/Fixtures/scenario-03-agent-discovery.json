@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "scenario": "scenario-03-agent-discovery",
+  "identity": "uat-user@localhost",
+  "threads": [],
+  "participants": [],
+  "messages": [],
+  "toolCalls": [],
+  "archivalFacts": [],
+  "agentCards": [
+    {
+      "url": "https://localhost/.well-known/ainm/agent-card/helper",
+      "identity": "helper@localhost",
+      "cardJson": "{\"version\":\"1.0\",\"identity\":\"helper@localhost\",\"name\":\"Helper\",\"description\":\"General-purpose assistant agent with streaming, memory, and sub-thread support.\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\",\"description\":\"Summarize long-form content into concise highlights.\"},{\"id\":\"draft-email\",\"name\":\"Draft Email\",\"description\":\"Compose professional email drafts from bullet-point intent.\"}],\"tools\":[{\"id\":\"weather-lookup\",\"name\":\"Weather Lookup\",\"description\":\"Fetch current conditions for a location.\"}],\"capabilities\":[\"streaming\",\"memory\",\"sub-threads\"]}",
+      "etag": "W/\"test-etag-helper-01\"",
+      "fetchedAt": "2026-04-18T10:00:00.000Z"
+    },
+    {
+      "url": "https://localhost/.well-known/ainm/agent-card/assistant",
+      "identity": "assistant@localhost",
+      "cardJson": "{\"version\":\"1.0\",\"identity\":\"assistant@localhost\",\"name\":\"Assistant\",\"description\":\"Focused coding-support agent. Answers technical questions and reviews diffs.\",\"skills\":[{\"id\":\"code-review\",\"name\":\"Code Review\",\"description\":\"Review code changes for style and correctness.\"},{\"id\":\"explain-code\",\"name\":\"Explain Code\",\"description\":\"Explain unfamiliar source code in plain language.\"}],\"tools\":[],\"capabilities\":[\"streaming\"]}",
+      "etag": "W/\"test-etag-assistant-01\"",
+      "fetchedAt": "2026-04-18T10:00:00.000Z"
+    }
+  ]
+}
