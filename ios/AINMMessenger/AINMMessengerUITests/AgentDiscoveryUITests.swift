@@ -17,20 +17,17 @@ final class AgentDiscoveryUITests: AINMUITestCase {
     func test_agentDiscovery_listTapDetailStartConversation() {
         launchWith(seedFixture: "scenario-03-agent-discovery")
 
-        // Entry point: the conversation list toolbar exposes a "Discover Agents" button.
-        // We try a few possible query paths because the toolbar button may be backed by
-        // either an accessibility label, an image+label, or an accessibility identifier.
-        let discoverByLabel = app.buttons["Discover Agents"].firstMatch
-        let discoverByImage = app.buttons["person.crop.circle.badge.plus"].firstMatch
-        let discoverAny = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'discover' OR identifier CONTAINS[c] 'discover'")).firstMatch
+        // Entry point: the conversation list toolbar exposes a "Discover agents" button
+        // (accessibilityLabel lowercase 'a' per ConversationListView).
+        let discoverPredicate = NSPredicate(format: "label CONTAINS[c] 'discover'")
+        let discoverAny = app.buttons.matching(discoverPredicate).firstMatch
+        let discoverByImage = app.buttons["person.2.badge.gearshape"].firstMatch
 
         let discoverTarget: XCUIElement
-        if discoverByLabel.waitForExistence(timeout: 10) {
-            discoverTarget = discoverByLabel
+        if discoverAny.waitForExistence(timeout: 15) {
+            discoverTarget = discoverAny
         } else if discoverByImage.waitForExistence(timeout: 2) {
             discoverTarget = discoverByImage
-        } else if discoverAny.waitForExistence(timeout: 2) {
-            discoverTarget = discoverAny
         } else {
             XCTFail("No Discover Agents entry point located in conversation list toolbar")
             return

@@ -54,19 +54,31 @@ final class MemoryContextUITests: AINMUITestCase {
                       || archivalPreviewStatic.waitForExistence(timeout: 1),
                       "Memory sheet Archival Preview section not present")
 
-        // View All navigates to archival view.
+        // View All navigates to archival view. The memory sheet is a ScrollView, and
+        // the View All button may be below the fold on small phones — swipe up to
+        // bring it into view before asserting.
         let viewAll = app.buttons[UITestID.Memory.sheetViewAllButton].firstMatch
         let viewAllOther = app.otherElements[UITestID.Memory.sheetViewAllButton].firstMatch
-        let viewAllTarget: XCUIElement
+        // First try without scroll — button may already be visible on larger screens.
+        var viewAllTarget: XCUIElement? = nil
         if viewAll.waitForExistence(timeout: 3) {
             viewAllTarget = viewAll
         } else if viewAllOther.waitForExistence(timeout: 1) {
             viewAllTarget = viewAllOther
         } else {
-            XCTFail("View All button not found on memory sheet")
+            // Swipe up inside the sheet to reveal the Archival Facts section.
+            app.swipeUp()
+            if viewAll.waitForExistence(timeout: 3) {
+                viewAllTarget = viewAll
+            } else if viewAllOther.waitForExistence(timeout: 1) {
+                viewAllTarget = viewAllOther
+            }
+        }
+        guard let target = viewAllTarget else {
+            XCTFail("View All button not found on memory sheet (even after swipe-up)")
             return
         }
-        viewAllTarget.tap()
+        target.tap()
 
         // Archival search field visible.
         let search = app.searchFields[UITestID.Memory.archivalSearch].firstMatch

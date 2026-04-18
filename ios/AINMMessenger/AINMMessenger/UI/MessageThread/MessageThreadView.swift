@@ -59,10 +59,15 @@ struct MessageThreadView: View {
                             )
                         }
 
-                        // Tool call indicators (below permanent messages, above streams)
+                        // Tool call indicators (below permanent messages, above streams).
+                        // Plan 14-06 iter-2 fix (deviation Rule 1 — bug):
+                        // Previously filtered by `.running` only, which hid completed/error/
+                        // timedOut states from the user. Per 13-HUMAN-UAT #1: "green checkmark
+                        // for completed, red X for error, clock for timed out" — these MUST
+                        // remain visible after lifecycle transitions. The UITestID.ToolCall
+                        // indicator views correctly render each state per spec/tool-visibility.md.
                         ToolCallGroupView(
                             toolCalls: appState.toolCalls(forThread: threadId)
-                                .filter { $0.status == .running }
                         )
 
                         // Streaming messages (ephemeral, below permanent messages)
@@ -108,7 +113,18 @@ struct MessageThreadView: View {
                 }
             )
         }
-        .accessibilityIdentifier(UITestID.DeepLink.threadView(threadId: threadId))
+        // Plan 14-06 iter-2 fix (deviation Rule 1 — bug in 14-05 attachment):
+        // Attaching `DeepLink.threadView` on the body VStack caused SwiftUI accessibility
+        // inheritance to overwrite every descendant identifier (composer.textField,
+        // composer.sendButton, thread.message.row.*). Moved the identifier to a zero-size
+        // invisible overlay marker, matching the App.ready pattern in AINMMessengerApp.
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .accessibilityElement()
+                .accessibilityIdentifier(UITestID.DeepLink.threadView(threadId: threadId))
+                .accessibilityHidden(true)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {

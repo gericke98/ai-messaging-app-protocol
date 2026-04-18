@@ -73,14 +73,21 @@ struct AINMMessengerApp: App {
                     try? await SeedLoader.loadFixtureIfRequested(fixture: seedFixture, into: appState)
 
                     // Plan 14-06 (deviation Rule 2 — missing critical functionality):
-                    // Force-transition AppState to `.connected` so ConversationListView renders
-                    // the seeded threads. Without this, UAT tests see OnboardingView and every
-                    // `openThread` call fails with "conversation list cell not found". The
-                    // fixture already provides the identity — extract from UITestIdentityBootstrap
-                    // fallback to a predictable UAT identity matching the fixture `identity` field.
+                    // Connect to the running --uat server so ConversationListView renders and
+                    // interactive flows that depend on AINMClient (createSubThread, sendMessage)
+                    // function. Without this, OnboardingView is shown and every server-backed
+                    // action throws `.notConnected`. The --uat server accepts any identity.
                     appState.displayName = "UAT User"
-                    appState.connectedIdentity = "uat-user@localhost"
-                    appState.connectionState = .connected
+                    appState.serverURL = "ws://127.0.0.1:8080/ws"
+                    await appState.connect()
+
+                    // Fallback: if the live connect didn't transition state (server unreachable,
+                    // WebSocket handshake failed), still show ConversationListView with a
+                    // local-only identity so DB-backed assertions can proceed.
+                    if appState.connectionState != .connected {
+                        appState.connectedIdentity = "uat-user@localhost"
+                        appState.connectionState = .connected
+                    }
                 }
 
                 // Step 4: TestEventInjector fires scripted ms-offset events (tool-call
