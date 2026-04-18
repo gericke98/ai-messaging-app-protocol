@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 14-02-PLAN.md
-last_updated: "2026-04-18T21:19:55.435Z"
-last_activity: 2026-04-18 -- Phase 14 Wave 1 complete (14-01 + 14-02 merged)
+stopped_at: Completed 14-03-PLAN.md
+last_updated: "2026-04-18T22:19:38.377Z"
+last_activity: 2026-04-18
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 73
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (uat-automation-harness) — EXECUTING
-Plan: 3 of 6
-Status: Wave 1 complete; Wave 2 pending
-Last activity: 2026-04-18 -- 14-01 + 14-02 merged to main
+Plan: 4 of 6
+Status: Ready to execute
+Last activity: 2026-04-18
 
 Progress: [########--] 73%
 
@@ -60,6 +60,11 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14-uat-automation-harness]: Binary name authoritative: ainm-demo (CONTEXT.md D-05 incorrectly said ainm-server; every artifact uses ainm-demo)
 - [Phase 14-uat-automation-harness]: tempfile = 3 added to demo dependencies for ephemeral UAT tempdir (guard lifetime tied to tokio::signal::ctrl_c await)
 - [Phase 14-uat-automation-harness]: Makefile trap 'kill $PID' EXIT INT TERM covers normal exit + Ctrl-C + xcodebuild SIGTERM
+- [Phase 14-uat-automation-harness]: Phase 14-uat-automation-harness: Storage-parameterized UITestIdentityBootstrap.resetIdentity(storage:) + KeyManager.InMemoryStorage injection in SeedLoaderIntegrationTests — works around iOS Simulator errSecMissingEntitlement (-34018) on SecItemDelete from unit-test hosts
+- [Phase 14-uat-automation-harness]: Phase 14-uat-automation-harness: ScenarioFixture schema is flat-per-record (one JSON field per GRDB column) — zero impedance mismatch between fixtures and ThreadRecord/ParticipantRecord/MessageRecord/ToolCallRecord/MemoryFactRecord/AgentCardRecord
+- [Phase 14-uat-automation-harness]: Phase 14-uat-automation-harness: Deterministic public key for uat-user@localhost is tFIlTgLccxHnpbEMNTDC39a8iCzbP1+kJW2Ii5WJWQI= (base64); downstream tests assert signatures against this constant without recomputing
+- [Phase 14-uat-automation-harness]: Phase 14-uat-automation-harness: CryptoKit Curve25519 signatures use randomized nonces (not RFC 8032 deterministic) — integration tests assert sign+verify round-trip instead of signature-byte equality
+- [Phase 14-uat-automation-harness]: Phase 14-uat-automation-harness: Fixtures live in app target at AINMMessenger/Testing/Fixtures/ and auto-bundle into .app root via synchronized root group — no pbxproj changes needed; Bundle.main.url(forResource:withExtension:) resolves them
 
 ### Roadmap Evolution
 
@@ -75,6 +80,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T21:19:55.433Z
-Stopped at: Completed 14-02-PLAN.md
+Last session: 2026-04-18T22:19:24.479Z
+Stopped at: Completed 14-03-PLAN.md
 Resume file: None
