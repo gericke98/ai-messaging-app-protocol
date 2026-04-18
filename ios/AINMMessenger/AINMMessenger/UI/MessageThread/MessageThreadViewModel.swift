@@ -197,6 +197,14 @@ final class MessageThreadViewModel {
         subThreadCache[messageId]
     }
 
+    /// Public refresh to reload the sub-thread cache — called on view re-appear after
+    /// a branch + back navigation so the reply-count badge on the parent message
+    /// reflects newly-created sub-threads without re-creating the viewModel.
+    /// (Plan 14-06 deviation Rule 1 — reply badge stale after branch+back.)
+    func refreshSubThreadCache() async {
+        await loadSubThreadCache()
+    }
+
     /// Load sub-thread data for all messages in the current thread.
     private func loadSubThreadCache() async {
         do {

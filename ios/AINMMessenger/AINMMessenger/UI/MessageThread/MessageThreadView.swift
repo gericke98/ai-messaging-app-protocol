@@ -207,6 +207,11 @@ struct MessageThreadView: View {
                     await loadParentThreadInfo(database: db)
                     handleScrollToMessage()
                 }
+            } else if let vm = viewModel {
+                // View re-appeared (e.g. after branch→subThread→back). Refresh sub-thread
+                // cache so reply-count badges on parent messages reflect newly-created
+                // sub-threads. (Plan 14-06 deviation Rule 1 — reply badge stale.)
+                Task { await vm.refreshSubThreadCache() }
             }
         }
         .onDisappear {

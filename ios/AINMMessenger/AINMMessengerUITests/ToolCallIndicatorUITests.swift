@@ -23,8 +23,18 @@ final class ToolCallIndicatorUITests: AINMUITestCase {
 
         openThread(threadId: "thread-01")
 
-        // t=100ms: tool.call.started → running spinner (ProgressView) appears.
-        // ProgressView resolves as `otherElements` in XCUITest (not `images`).
+        // First wait for the indicator ROW to appear — guarantees the tool call state
+        // was handed off to the view. Only THEN check the specific lifecycle icon.
+        let indicatorRow = app.buttons[UITestID.ToolCall.indicatorRow(callId: "call-01")].firstMatch
+        let indicatorRowOther = app.otherElements[UITestID.ToolCall.indicatorRow(callId: "call-01")].firstMatch
+        let rowAppeared = indicatorRow.waitForExistence(timeout: 10)
+            || indicatorRowOther.waitForExistence(timeout: 2)
+        XCTAssertTrue(rowAppeared,
+                      "Tool call indicator row did not appear (UITestID.ToolCall.indicatorRow.call-01). " +
+                      "Check scenario-01-events.json timing and ToolCallGroupView render path.")
+
+        // t=100ms from bootstrap: tool.call.started → running spinner (ProgressView) appears.
+        // ProgressView resolves as `otherElements` or `progressIndicators` in XCUITest.
         let runningOther = app.otherElements[UITestID.ToolCall.statusRunning].firstMatch
         let runningImage = app.images[UITestID.ToolCall.statusRunning].firstMatch
         let runningProgress = app.progressIndicators[UITestID.ToolCall.statusRunning].firstMatch
