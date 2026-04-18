@@ -53,6 +53,9 @@ figment = { version = "0.10", features = ["toml", "env"] }
 # Typed errors at layer boundaries
 thiserror = "2"
 
+# Ephemeral tempdir for --uat mode (Phase 14-02)
+tempfile = "3"
+
 # Async trait support for LLM client abstraction
 async-trait = "0.1"
 

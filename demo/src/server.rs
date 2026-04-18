@@ -266,6 +266,56 @@ pub async fn start(
     Ok((addr, handle))
 }
 
+/// Start the Axum WebSocket server on a specific port with `/health` + `/health/live`
+/// routes registered (Phase 14-02 UAT automation harness).
+///
+/// Mirrors the legacy `start()` path (no federation, no DB, no compilation worker) but:
+/// - Binds `127.0.0.1:{port}` instead of a random port.
+/// - Registers `/health` and `/health/live` so `make uat` can poll for readiness.
+///
+/// Used exclusively by `main::run_uat` behind the `--uat` CLI flag; production code
+/// paths are unaffected.
+pub async fn start_with_port(
+    identity_store: IdentityStore,
+    agent_card: serde_json::Value,
+    port: u16,
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let (to_agent_tx, _) = broadcast::channel::<String>(256);
+
+    let state = ServerState {
+        identity_store,
+        agent_card,
+        to_agent_tx,
+        human_registry: HumanRegistry::new(),
+        agent_registry: AgentRegistry::new(),
+        threads: Arc::new(Mutex::new(Vec::new())),
+        archival_store: Arc::new(Mutex::new(HashMap::new())),
+        federation: None,
+        db: None,
+        compile_tx: None,
+        compile_notify_tx: None,
+    };
+
+    let app = Router::new()
+        .route("/ws", get(ws_upgrade_handler))
+        .route(
+            "/.well-known/ainm/{agent_name}/agent-card.json",
+            get(agent_card_handler),
+        )
+        .route("/health", get(|| async { StatusCode::OK }))
+        .route("/health/live", get(|| async { StatusCode::OK }))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    let addr = listener.local_addr()?;
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.ok();
+    });
+
+    Ok((addr, handle))
+}
+
 /// Start the Axum WebSocket server with federation support on a specified port.
 /// Returns the bound address and the server task handle.
 pub async fn start_federation(
