@@ -47,25 +47,29 @@ enum UITestIdentityBootstrap {
     /// Must run BEFORE `AppState.setup()` / `AINMClient.connect()` because the client
     /// reads the Keychain identity during setup.
     static func resetIdentity() async throws {
+        try await resetIdentity(storage: KeyManager.KeychainStorage())
+    }
+
+    /// Storage-parameterized variant used by SeedLoaderIntegrationTests to bypass
+    /// the system Keychain (which returns `errSecMissingEntitlement` / -34018 inside
+    /// iOS Simulator unit-test hosts). Production callers use the no-arg entry point
+    /// above and always hit the real Keychain.
+    static func resetIdentity(storage: any KeyManager.KeyStorage) async throws {
         guard uatSeedBytes.count == 32 else {
             throw BootstrapError.seedSizeInvalid(uatSeedBytes.count)
         }
 
-        // Step 1: remove any existing keypair. KeyManager.deleteKeypair() handles
-        // errSecItemNotFound as a no-op, so this is safe on a fresh simulator.
-        let manager = KeyManager()
-        try await manager.deleteKeypair()
+        // Step 1: remove any existing stored key. Both KeychainStorage and
+        // InMemoryStorage handle "not found" silently.
+        try storage.delete()
 
         // Step 2: construct the deterministic private key from the fixed seed.
         let seed = Data(uatSeedBytes)
         let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
 
-        // Step 3: persist via the same Keychain service/account KeyManager uses for
-        // load. KeychainStorage is a non-isolated Sendable struct nested inside the
-        // KeyManager actor — its `save(_:)` method is safely callable from any
-        // context. This guarantees `KeyManager().getOrCreateKeypair()` loads this
-        // keypair on the next call instead of generating a fresh random one.
-        let storage = KeyManager.KeychainStorage()
+        // Step 3: persist. Callers that pass KeychainStorage() guarantee the next
+        // `KeyManager().getOrCreateKeypair()` loads this keypair rather than
+        // generating a fresh random one.
         try storage.save(privateKey.rawRepresentation)
     }
 
