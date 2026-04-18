@@ -31,13 +31,13 @@ final class ToolCallIndicatorUITests: AINMUITestCase {
         XCTAssertTrue(runningAppeared,
                       "Running spinner did not appear after tool.call.started (UITestID.ToolCall.statusRunning)")
 
-        // 2000ms: tool.call.completed → green checkmark replaces spinner.
+        // t=10s: tool.call.completed → green checkmark replaces spinner.
         let completed = app.images[UITestID.ToolCall.statusCompleted].firstMatch
         let completedOther = app.otherElements[UITestID.ToolCall.statusCompleted].firstMatch
-        let completedAppeared = completed.waitForExistence(timeout: 8)
-            || completedOther.waitForExistence(timeout: 1)
+        let completedAppeared = completed.waitForExistence(timeout: 15)
+            || completedOther.waitForExistence(timeout: 2)
         XCTAssertTrue(completedAppeared,
-                      "Completed checkmark did not appear after tool.call.completed (2s+margin)")
+                      "Completed checkmark did not appear after tool.call.completed (10s+margin)")
 
         // After the transition, the running spinner MUST be gone — per spec/tool-visibility.md
         // only one lifecycle state is visible at a time (D-12 invariant).

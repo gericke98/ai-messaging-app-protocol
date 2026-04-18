@@ -3,7 +3,7 @@
   "scenario": "scenario-01-tool-call",
   "events": [
     {
-      "atMs": 3000,
+      "atMs": 100,
       "type": "tool.call.started",
       "threadId": "thread-01",
       "callId": "call-01",
@@ -11,20 +11,20 @@
       "input": {"city": "San Francisco"}
     },
     {
-      "atMs": 5000,
+      "atMs": 3000,
       "type": "tool.call.progress",
       "threadId": "thread-01",
       "callId": "call-01",
       "progress": {"current": 1, "total": 2, "detail": "Querying weather service..."}
     },
     {
-      "atMs": 8000,
+      "atMs": 10000,
       "type": "tool.call.completed",
       "threadId": "thread-01",
       "callId": "call-01",
       "status": "success",
       "resultSummary": "San Francisco: 18C, partly cloudy",
-      "durationMs": 5000
+      "durationMs": 10000
     }
   ]
 }
