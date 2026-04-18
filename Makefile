@@ -9,7 +9,7 @@ UAT_PORT             := 8080
 UAT_HEALTH_URL       := http://localhost:$(UAT_PORT)/health
 UAT_HEALTH_TIMEOUT_S := 30
 UAT_SCHEME           := AINMMessengerUITests
-UAT_DESTINATION      := 'platform=iOS Simulator,name=iPhone 16,OS=18.0'
+UAT_DESTINATION      := 'platform=iOS Simulator,name=iPhone 17,OS=26.2'
 UAT_RESULT_BUNDLE    := tmp/UAT-Results
 
 uat: ## Run hermetic UAT suite (boot server, poll health, run xcodebuild test, teardown)

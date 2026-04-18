@@ -46,6 +46,14 @@ struct AINMMessengerApp: App {
                           idx + 1 < args.count else { return nil }
                     return args[idx + 1]
                 }()
+                // Plan 14-06: UITest deep-link delivery via launch arg is more reliable
+                // than simctl openurl on iOS 18+/26 simulators (research Pitfall 2).
+                // The URL replays through DeepLinkHandler.parse — same code path as .onOpenURL.
+                let deepLinkArg: String? = {
+                    guard let idx = args.firstIndex(of: "-UITestDeepLink"),
+                          idx + 1 < args.count else { return nil }
+                    return args[idx + 1]
+                }()
 
                 // Step 1 + 2: SeedLoader + UITestIdentityBootstrap (Plan 14-03).
                 // Must run BEFORE appState.setup() so the DB file is wiped and the Keychain
@@ -70,6 +78,13 @@ struct AINMMessengerApp: App {
                 // AINMClient.onToolEvent / onContextFrame invoke in production.
                 if let eventScript {
                     await TestEventInjector.scheduleIfRequested(script: eventScript, for: appState)
+                }
+
+                // Step 5 (Plan 14-06): replay a UITest-provided deep link URL through the
+                // same handleDeepLink path as .onOpenURL. Runs AFTER event injection so
+                // that any seeded state is ready before the link resolves.
+                if let deepLinkArg, let url = URL(string: deepLinkArg) {
+                    handleDeepLink(url)
                 }
                 #endif
 
