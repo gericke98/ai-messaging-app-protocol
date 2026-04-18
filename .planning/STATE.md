@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 14-03-PLAN.md + 14-04-PLAN.md
-last_updated: "2026-04-18T22:19:38.377Z"
-last_activity: 2026-04-18 -- Wave 2 complete (14-03 + 14-04 merged)
+stopped_at: Completed 14-05-PLAN.md
+last_updated: "2026-04-18T22:33:45.236Z"
+last_activity: 2026-04-18
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (uat-automation-harness) — EXECUTING
-Plan: 5 of 6
-Status: Wave 2 complete; Wave 3 pending
-Last activity: 2026-04-18 -- 14-03 + 14-04 merged to main
+Plan: 6 of 6
+Status: 14-05 complete (Wave 3); 14-06 remaining
+Last activity: 2026-04-18 -- 14-05 a11y identifier retrofit merged
 
-Progress: [#########-] 87%
+Progress: [█████████░] 93%
 
 ## Accumulated Context
 
@@ -68,6 +68,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14-uat-automation-harness]: Deterministic public key for uat-user@localhost is tFIlTgLccxHnpbEMNTDC39a8iCzbP1+kJW2Ii5WJWQI= (base64); downstream tests assert signatures against this constant without recomputing
 - [Phase 14-uat-automation-harness]: CryptoKit Curve25519 signatures use randomized nonces (not RFC 8032 deterministic) — integration tests assert sign+verify round-trip instead of signature-byte equality
 - [Phase 14-uat-automation-harness]: Fixtures live in app target at AINMMessenger/Testing/Fixtures/ and auto-bundle into .app root via synchronized root group — no pbxproj changes needed; Bundle.main.url(forResource:withExtension:) resolves them
+- [Phase 14]: 14-05: MessageBubbleView gained optional messageId prop for UI test targeting; dual-attached SubThread.messageRow on bubble and on MessageGroupView per-message VStack (context menu host)
+- [Phase 14]: 14-05: SubThreadIndicatorView gained parentMessageId prop so replyBadge identifier is per-message-specific
+- [Phase 14]: 14-05: Alert OK buttons accept .accessibilityIdentifier directly in SwiftUI — no fallback path needed
 
 ### Roadmap Evolution
 
@@ -83,6 +86,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T22:19:24.479Z
-Stopped at: Completed 14-03-PLAN.md + 14-04-PLAN.md
+Last session: 2026-04-18T22:33:33.373Z
+Stopped at: Completed 14-05-PLAN.md
 Resume file: None
