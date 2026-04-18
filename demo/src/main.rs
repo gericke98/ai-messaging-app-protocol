@@ -69,11 +69,22 @@ struct Cli {
     /// so that tls_fingerprints serves [new, old] enabling TOFU auto-update.
     #[arg(long)]
     additional_fingerprint: Option<String>,
+
+    /// Run in UAT automation mode: ephemeral SQLite, fixed port 8080, INFO logs to tmp/uat-server.log.
+    /// Used by `make uat` and the AINMMessengerUITests scheme; not for production (Phase 14-02).
+    #[arg(long)]
+    uat: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Phase 14-02: --uat overrides all other mode selection. Hermetic automation harness
+    // expects a deterministic boot path regardless of any other flags set on the command line.
+    if cli.uat {
+        return run_uat(cli).await;
+    }
 
     let mode = cli.mode.clone();
     match mode.as_deref() {
@@ -84,6 +95,115 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+/// Phase 14-02 UAT automation harness entry point.
+///
+/// Boots an AINM server on `127.0.0.1:8080` (legacy WebSocket path, no federation), registers
+/// a `/health` endpoint for `make uat` readiness polling, writes INFO-level logs to
+/// `tmp/uat-server.log` relative to the repo root, uses a fresh system tempdir for ephemeral
+/// storage, and provisions the deterministic `uat-user@localhost` + `helper@localhost` identities
+/// that iOS test fixtures expect. Blocks on Ctrl-C; Makefile sends SIGTERM via `trap EXIT INT TERM`.
+async fn run_uat(_cli: Cli) -> Result<()> {
+    use tracing::Level;
+
+    // 1. Logging: INFO level, file writer at tmp/uat-server.log.
+    //    CARGO_MANIFEST_DIR = demo/; parent = repo root; log path = tmp/uat-server.log.
+    //    Resolving relative to CARGO_MANIFEST_DIR normalizes both `cd demo && cargo run` and
+    //    `cargo run --manifest-path demo/Cargo.toml` invocation shapes.
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has parent");
+    let log_dir = repo_root.join("tmp");
+    std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.join("uat-server.log");
+    let log_file = std::fs::File::create(&log_path)?;
+    let _ = tracing_subscriber::fmt()
+        .with_target(false)
+        .with_max_level(Level::INFO)
+        .with_writer(std::sync::Mutex::new(log_file))
+        .try_init();
+
+    // 2. Ephemeral tempdir — automatic teardown when the guard drops at process exit.
+    //    legacy/start_with_port path uses in-memory ServerState; no DB wiring needed today,
+    //    but surfacing the tempdir lets 14-03+ layer in GRDB-backed archival seed data cheaply.
+    let tmp_dir = tempfile::tempdir()?;
+    tracing::info!("[uat] ephemeral db dir: {}", tmp_dir.path().display());
+
+    // 3. Provision deterministic identities that match the iOS UAT fixtures (D-04).
+    let human = identity::generate_keypair("uat-user@localhost")?;
+    let agent = identity::generate_keypair("helper@localhost")?;
+    let identity_store = identity::IdentityStore::new();
+    identity_store.register(
+        &human.address,
+        &human.public_key_b64(),
+        "human",
+        "localhost",
+        None,
+    );
+    identity_store.register(
+        &agent.address,
+        &agent.public_key_b64(),
+        "agent",
+        "localhost",
+        Some("http://localhost:8080/.well-known/ainm/helper/agent-card.json".to_string()),
+    );
+
+    // 4. Build the minimal agent card the AINMClient handshake expects.
+    let agent_card = build_uat_agent_card();
+
+    // 5. Boot server on fixed port 8080 with /health registered.
+    let (addr, handle) =
+        server::start_with_port(identity_store.clone(), agent_card, 8080).await?;
+    tracing::info!(
+        "[uat] server ready on ws://{}/ws, GET /health returns 200",
+        addr
+    );
+    println!("[uat] server ready on ws://{}/ws", addr);
+
+    // 6. Block on Ctrl-C. Makefile teardown fires SIGTERM/SIGINT via trap EXIT INT TERM.
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("[uat] received ctrl-c; shutting down");
+    handle.abort();
+
+    Ok(())
+}
+
+/// Minimal agent card for UAT mode — sufficient for AINMClient handshake and scenario fixtures.
+fn build_uat_agent_card() -> serde_json::Value {
+    serde_json::json!({
+        "name": "helper",
+        "address": "helper@localhost",
+        "description": "UAT helper agent (Phase 14-02)",
+        "url": "http://localhost:8080",
+        "version": "0.1.0",
+        "protocolVersion": "0.1.0",
+        "capabilities": {
+            "streaming": true,
+            "pushNotifications": false
+        },
+        "skills": [],
+        "ainm": {
+            "protocolVersion": "0.1.0",
+            "address": "helper@localhost",
+            "type": "agent",
+            "contentTypes": ["text", "code", "button", "form", "approval"],
+            "streaming": {
+                "supported": true,
+                "parallelBlocks": false,
+                "preferredChunkSize": "token"
+            },
+            "threading": {
+                "subThreads": true,
+                "maxConcurrentThreads": 1
+            },
+            "memory": {
+                "archivalSupported": true,
+                "contextFramePreferred": true
+            },
+            "tools": []
+        }
+    })
 }
 
 /// Run the federation mode with two-listener architecture.

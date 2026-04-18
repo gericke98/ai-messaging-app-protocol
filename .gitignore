@@ -26,3 +26,6 @@ xcuserdata/
 .env
 .env.local
 .claude/worktrees/
+
+# Phase 14 UAT automation harness runtime output (server log, PID, xcresult bundle)
+tmp/

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
 status: executing
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-04-18T21:16:43.914Z"
-last_activity: 2026-04-18 -- Phase 14 Wave 1 (14-01) complete
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-04-18T21:19:55.435Z"
+last_activity: 2026-04-18 -- Phase 14 Wave 1 complete (14-01 + 14-02 merged)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 10
-  percent: 67
+  completed_plans: 11
+  percent: 73
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 14 (uat-automation-harness) — EXECUTING
-Plan: 2 of 6
-Status: Executing Phase 14 (Wave 1 of 4 complete)
-Last activity: 2026-04-18 -- 14-01 merged, 14-02 pending merge
+Plan: 3 of 6
+Status: Wave 1 complete; Wave 2 pending
+Last activity: 2026-04-18 -- 14-01 + 14-02 merged to main
 
-Progress: [#######---] 67%
+Progress: [########--] 73%
 
 ## Accumulated Context
 
@@ -56,6 +56,10 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14-uat-automation-harness]: UITestIdentifiers.swift cross-target membership via explicit PBXFileReference+PBXBuildFile (SOURCE_ROOT path) rather than membershipExceptions — file lives outside UI test sync group
 - [Phase 14-uat-automation-harness]: parallelizable=NO on UI test scheme TestableReference (shared simulator+server port 8080)
 - [Phase 14-uat-automation-harness]: Named TODO(14-03)/TODO(14-04) anchor comments in AINMMessengerApp.swift for Wave 2 parallel editing without merge conflicts
+- [Phase 14-uat-automation-harness]: UAT: ainm-demo --uat uses plain /health on legacy (non-federation) path; start_with_port registers both /health and /health/live for symmetry
+- [Phase 14-uat-automation-harness]: Binary name authoritative: ainm-demo (CONTEXT.md D-05 incorrectly said ainm-server; every artifact uses ainm-demo)
+- [Phase 14-uat-automation-harness]: tempfile = 3 added to demo dependencies for ephemeral UAT tempdir (guard lifetime tied to tokio::signal::ctrl_c await)
+- [Phase 14-uat-automation-harness]: Makefile trap 'kill $PID' EXIT INT TERM covers normal exit + Ctrl-C + xcodebuild SIGTERM
 
 ### Roadmap Evolution
 
@@ -71,6 +75,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T21:16:43.912Z
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-04-18T21:19:55.433Z
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
