@@ -1,0 +1,45 @@
+name: iOS UAT (manual only)
+
+# Phase 14 ships this as workflow_dispatch-only. Flipping to push/PR triggers is
+# tracked as a deferred item in ROADMAP (see 14-CONTEXT.md "Deferred Ideas").
+on:
+  workflow_dispatch:
+
+jobs:
+  uat:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+
+      - name: Cache cargo registry + demo target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            demo/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('demo/Cargo.lock') }}
+
+      - name: Resolve SPM dependencies
+        working-directory: ios/AINMMessenger
+        run: xcodebuild -resolvePackageDependencies -project AINMMessenger.xcodeproj -scheme AINMMessenger
+
+      - name: Run UAT via Makefile
+        run: make uat
+
+      - name: Upload xcresult bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UAT-Results
+          path: tmp/UAT-Results.xcresult
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-server-log
+          path: tmp/uat-server.log
