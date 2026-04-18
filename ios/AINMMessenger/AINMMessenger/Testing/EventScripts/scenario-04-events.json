@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "scenario": "scenario-04-memory",
+  "events": [
+    {
+      "atMs": 500,
+      "type": "context.frame",
+      "threadId": "thread-01",
+      "frame": {
+        "summary": "User discussed coffee preferences and scheduled a meeting with the helper agent.",
+        "activeMessages": ["msg-01"],
+        "archivalFactIds": ["fact-coffee", "fact-meetings"],
+        "participantIdentities": ["uat-user@localhost", "helper@localhost"]
+      }
+    }
+  ]
+}

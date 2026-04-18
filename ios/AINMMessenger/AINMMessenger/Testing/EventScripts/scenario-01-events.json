@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "scenario": "scenario-01-tool-call",
+  "events": [
+    {
+      "atMs": 0,
+      "type": "tool.call.started",
+      "threadId": "thread-01",
+      "callId": "call-01",
+      "toolName": "weather_lookup",
+      "input": {"city": "San Francisco"}
+    },
+    {
+      "atMs": 800,
+      "type": "tool.call.progress",
+      "threadId": "thread-01",
+      "callId": "call-01",
+      "progress": {"current": 1, "total": 2, "detail": "Querying weather service..."}
+    },
+    {
+      "atMs": 2000,
+      "type": "tool.call.completed",
+      "threadId": "thread-01",
+      "callId": "call-01",
+      "status": "success",
+      "resultSummary": "San Francisco: 18C, partly cloudy",
+      "durationMs": 2000
+    }
+  ]
+}
