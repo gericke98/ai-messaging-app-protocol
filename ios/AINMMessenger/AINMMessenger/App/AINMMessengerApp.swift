@@ -80,6 +80,7 @@ struct AINMMessengerApp: App {
             }
             .alert("Thread Not Found", isPresented: $showThreadNotFound) {
                 Button("OK", role: .cancel) { }
+                    .accessibilityIdentifier(UITestID.DeepLink.threadNotFoundAlert)
             } message: {
                 Text("This thread is not available on your device.")
             }

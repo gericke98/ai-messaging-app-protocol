@@ -14,6 +14,7 @@ struct SubThreadBannerView: View {
                     .foregroundStyle(Color.accentColor)
             }
             .accessibilityLabel("Return to parent thread")
+            .accessibilityIdentifier(UITestID.SubThread.bannerBackButton)
 
             Spacer()
 
@@ -28,6 +29,7 @@ struct SubThreadBannerView: View {
                     .font(.caption.bold())
                     .foregroundStyle(Color.accentColor)
             }
+            .accessibilityIdentifier(UITestID.SubThread.bannerViewParent)
         }
         .padding(.horizontal, 16)
         .frame(height: 44)
@@ -37,5 +39,6 @@ struct SubThreadBannerView: View {
                 .fill(Color(.separator))
                 .frame(height: 0.5)
         }
+        .accessibilityIdentifier(UITestID.SubThread.banner)
     }
 }

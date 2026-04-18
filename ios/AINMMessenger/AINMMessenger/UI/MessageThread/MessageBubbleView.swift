@@ -7,6 +7,9 @@ struct MessageBubbleView: View {
     let senderName: String
     var showHeader: Bool = false
     var timestamp: String?
+    /// Stable message id for UI test targeting (scenarios 5 + 6).
+    /// Default empty for preview/placeholder use; real call sites pass message.id.
+    var messageId: String = ""
 
     var body: some View {
         HStack {
@@ -31,6 +34,7 @@ struct MessageBubbleView: View {
             .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: .trailing)
             .background(Color.accentColor)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12, bottomTrailingRadius: 4, topTrailingRadius: 12))
+            .accessibilityIdentifier(UITestID.SubThread.messageRow(messageId: messageId))
         }
     }
 }

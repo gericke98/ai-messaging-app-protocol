@@ -29,7 +29,8 @@ struct MessageGroupView: View {
                             blocks: blocks,
                             senderName: group.senderName,
                             showHeader: isFirst,
-                            timestamp: isLast ? timestampFormatter(message.timestamp) : nil
+                            timestamp: isLast ? timestampFormatter(message.timestamp) : nil,
+                            messageId: message.id
                         )
                     } else {
                         AgentMessageView(
@@ -46,11 +47,15 @@ struct MessageGroupView: View {
 
                     // Sub-thread indicator badge below messages that have sub-threads
                     if let info = subThreadInfo?(message.id) {
-                        SubThreadIndicatorView(replyCount: info.replyCount) {
+                        SubThreadIndicatorView(
+                            replyCount: info.replyCount,
+                            parentMessageId: message.id
+                        ) {
                             onNavigateToSubThread?(info.threadId)
                         }
                     }
                 }
+                .accessibilityIdentifier(UITestID.SubThread.messageRow(messageId: message.id))
                 .contextMenu {
                     if !isInSubThread {
                         Button {

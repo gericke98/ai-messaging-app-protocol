@@ -108,6 +108,7 @@ struct MessageThreadView: View {
                 }
             )
         }
+        .accessibilityIdentifier(UITestID.DeepLink.threadView(threadId: threadId))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -168,6 +169,7 @@ struct MessageThreadView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(.bottom, 80)
                     .transition(.opacity)
+                    .accessibilityIdentifier(UITestID.DeepLink.toastMessageNotFound)
             }
         }
         .onAppear {

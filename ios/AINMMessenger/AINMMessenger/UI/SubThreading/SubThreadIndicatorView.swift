@@ -4,6 +4,9 @@ import SwiftUI
 /// Tapping navigates to the sub-thread. Per UI-SPEC Component 8.
 struct SubThreadIndicatorView: View {
     let replyCount: Int
+    /// Id of the parent message this indicator is attached to.
+    /// Used for UI-test targeting (scenario 5 reply-badge query).
+    let parentMessageId: String
     var onTap: () -> Void
 
     var body: some View {
@@ -25,5 +28,6 @@ struct SubThreadIndicatorView: View {
         .padding(.leading, 12)
         .accessibilityLabel("\(replyCount) replies in sub-thread")
         .accessibilityHint("Double tap to open sub-thread")
+        .accessibilityIdentifier(UITestID.SubThread.replyBadge(messageId: parentMessageId))
     }
 }
