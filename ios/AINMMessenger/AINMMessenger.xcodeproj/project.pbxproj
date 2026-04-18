@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D1000001 /* UITestIdentifiers.swift in Sources (UITests shared) */ = {
+			isa = PBXBuildFile;
+			fileRef = D0000001 /* UITestIdentifiers.swift */;
+		};
 /* End PBXBuildFile section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,6 +80,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D1000001 /* UITestIdentifiers.swift in Sources (UITests shared) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -282,6 +287,13 @@
 /* End PBXProject section */
 
 /* Begin PBXFileReference section */
+		D0000001 /* UITestIdentifiers.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			name = UITestIdentifiers.swift;
+			path = AINMMessenger/App/UITestIdentifiers.swift;
+			sourceTree = SOURCE_ROOT;
+		};
 		A5000001 /* AINMMessenger.app */ = {
 			isa = PBXFileReference;
 			explicitFileType = wrapper.application;
