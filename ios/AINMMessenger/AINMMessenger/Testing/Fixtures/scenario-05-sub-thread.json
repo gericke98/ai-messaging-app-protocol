@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "scenario": "scenario-05-sub-thread",
+  "identity": "uat-user@localhost",
+  "threads": [
+    {
+      "id": "thread-parent-01",
+      "title": "Parent Thread for Sub-Thread Test",
+      "createdAt": "2026-04-18T10:00:00.000Z",
+      "createdBy": "uat-user@localhost",
+      "parentThreadId": null,
+      "parentMessageId": null,
+      "hasUnread": false
+    }
+  ],
+  "participants": [
+    {
+      "threadId": "thread-parent-01",
+      "identity": "uat-user@localhost",
+      "type": "human",
+      "joinedAt": "2026-04-18T10:00:00.000Z",
+      "role": "creator",
+      "displayName": "UAT User"
+    },
+    {
+      "threadId": "thread-parent-01",
+      "identity": "helper@localhost",
+      "type": "agent",
+      "joinedAt": "2026-04-18T10:00:00.000Z",
+      "role": "member",
+      "displayName": "Helper"
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-parent-01",
+      "threadId": "thread-parent-01",
+      "fromAddress": "helper@localhost",
+      "timestamp": "2026-04-18T10:00:01.000Z",
+      "type": "message",
+      "contentJson": "[{\"type\":\"text\",\"version\":\"1.0\",\"source\":\"agent\",\"text\":\"Here are three candidate approaches: A, B, and C. Each has tradeoffs.\",\"fallback\":\"Here are three candidate approaches: A, B, and C. Each has tradeoffs.\"}]",
+      "signature": "CCCC",
+      "serverTimestamp": "2026-04-18T10:00:01.100Z"
+    }
+  ],
+  "toolCalls": [],
+  "archivalFacts": [],
+  "agentCards": []
+}

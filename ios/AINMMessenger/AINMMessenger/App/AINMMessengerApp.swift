@@ -47,24 +47,23 @@ struct AINMMessengerApp: App {
                     return args[idx + 1]
                 }()
 
-                // Step 1 + 2: Filled by 14-03 (SeedLoader + UITestIdentityBootstrap).
+                // Step 1 + 2: SeedLoader + UITestIdentityBootstrap (Plan 14-03).
                 // Must run BEFORE appState.setup() so the DB file is wiped and the Keychain
                 // identity is deterministic before AppDatabase.makeDefault() opens the pool
                 // and AINMClient reads the keypair.
-                // TODO(14-03): if let seedFixture {
-                //     try? SeedLoader.preparePristineDatabase()
-                //     try? await UITestIdentityBootstrap.resetIdentity()
-                // }
-                _ = seedFixture // silence unused warning until 14-03 fills this
+                if seedFixture != nil {
+                    try? SeedLoader.preparePristineDatabase()
+                    try? await UITestIdentityBootstrap.resetIdentity()
+                }
                 #endif
 
                 try? appState.setup()
 
                 #if DEBUG
-                // Step 3: Filled by 14-03 (load fixture rows into GRDB after pool is open).
-                // TODO(14-03): if let seedFixture {
-                //     try? await SeedLoader.loadFixtureIfRequested(fixture: seedFixture, into: appState)
-                // }
+                // Step 3: Load fixture rows into GRDB after pool is open (Plan 14-03).
+                if let seedFixture {
+                    try? await SeedLoader.loadFixtureIfRequested(fixture: seedFixture, into: appState)
+                }
 
                 // Step 4: TestEventInjector fires scripted ms-offset events (tool-call
                 // lifecycle + context-frame push) through the same @MainActor handlers

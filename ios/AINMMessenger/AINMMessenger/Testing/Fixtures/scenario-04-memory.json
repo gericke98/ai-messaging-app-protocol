@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "scenario": "scenario-04-memory",
+  "identity": "uat-user@localhost",
+  "threads": [
+    {
+      "id": "thread-01",
+      "title": "Memory Test Thread",
+      "createdAt": "2026-04-18T10:00:00.000Z",
+      "createdBy": "uat-user@localhost",
+      "parentThreadId": null,
+      "parentMessageId": null,
+      "hasUnread": false
+    }
+  ],
+  "participants": [
+    {
+      "threadId": "thread-01",
+      "identity": "uat-user@localhost",
+      "type": "human",
+      "joinedAt": "2026-04-18T10:00:00.000Z",
+      "role": "creator",
+      "displayName": "UAT User"
+    },
+    {
+      "threadId": "thread-01",
+      "identity": "helper@localhost",
+      "type": "agent",
+      "joinedAt": "2026-04-18T10:00:00.000Z",
+      "role": "member",
+      "displayName": "Helper"
+    }
+  ],
+  "messages": [],
+  "toolCalls": [],
+  "archivalFacts": [
+    {
+      "factId": "fact-coffee-01",
+      "key": "user.preference.coffee",
+      "value": "\"prefers oat-milk lattes, double shot, extra hot\"",
+      "tags": "[\"preference\",\"food-and-drink\"]",
+      "storedBy": "helper@localhost",
+      "storedAt": "2026-04-10T09:00:00.000Z"
+    },
+    {
+      "factId": "fact-meetings-01",
+      "key": "user.schedule.meetings",
+      "value": "\"blocks 09:00-11:00 for focus time; prefers afternoon meetings\"",
+      "tags": "[\"schedule\",\"preference\"]",
+      "storedBy": "helper@localhost",
+      "storedAt": "2026-04-11T14:30:00.000Z"
+    },
+    {
+      "factId": "fact-project-01",
+      "key": "user.project.ainm",
+      "value": "\"lead engineer on AI-native messaging protocol; targeting v1 spec Q3 2026\"",
+      "tags": "[\"work\",\"project\"]",
+      "storedBy": "helper@localhost",
+      "storedAt": "2026-04-12T11:15:00.000Z"
+    },
+    {
+      "factId": "fact-timezone-01",
+      "key": "user.timezone",
+      "value": "\"America/Chicago (CDT, UTC-5)\"",
+      "tags": "[\"profile\"]",
+      "storedBy": "helper@localhost",
+      "storedAt": "2026-04-13T08:00:00.000Z"
+    }
+  ],
+  "agentCards": []
+}
