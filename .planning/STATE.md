@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
-status: verifying
-stopped_at: Completed 13-05-PLAN.md
-last_updated: "2026-03-30T15:24:24.077Z"
-last_activity: 2026-03-30
+status: executing
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-04-18T21:16:43.914Z"
+last_activity: 2026-04-18
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 15
+  completed_plans: 10
   percent: 56
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Phase 13 — ai-native-features-platform
+**Current focus:** Phase 14 — uat-automation-harness
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Phase: 14 (uat-automation-harness) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-04-18
 
 Progress: [#####-----] 56%
 
@@ -52,6 +52,14 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 13]: Context frames stored as dictionary keyed by threadId in AppState for O(1) lookup
 - [Phase 13]: Info.plist placed at project root to avoid Xcode auto-resource-copy conflict
 - [Phase 13]: Sub-thread cache loaded eagerly in MessageThreadViewModel for O(1) indicator lookups
+- [Phase 14-uat-automation-harness]: Programmatic pbxproj editing for new UI test target scaffold (UUIDs A2000003/A3000003/A8000003)
+- [Phase 14-uat-automation-harness]: UITestIdentifiers.swift cross-target membership via explicit PBXFileReference+PBXBuildFile (SOURCE_ROOT path) rather than membershipExceptions — file lives outside UI test sync group
+- [Phase 14-uat-automation-harness]: parallelizable=NO on UI test scheme TestableReference (shared simulator+server port 8080)
+- [Phase 14-uat-automation-harness]: Named TODO(14-03)/TODO(14-04) anchor comments in AINMMessengerApp.swift for Wave 2 parallel editing without merge conflicts
+
+### Roadmap Evolution
+
+- Phase 14 added (2026-04-18): UAT automation harness — XCUITest coverage for 6 Phase 13 acceptance tests with hermetic seed bootstrap so HUMAN-UAT can run via `xcodebuild test`
 
 ### Pending Todos
 
@@ -63,6 +71,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-30T15:17:41.254Z
-Stopped at: Completed 13-05-PLAN.md
+Last session: 2026-04-18T21:16:43.912Z
+Stopped at: Completed 14-01-PLAN.md
 Resume file: None
