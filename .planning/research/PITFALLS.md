@@ -1,208 +1,387 @@
-# iOS Reference Client Pitfalls Research
+# Pitfalls Research — v3.3 Universal Agent Client
 
-**Domain:** iOS Reference Client for AI-Native Messaging Protocol (AINM v3.3)
-**Researched:** 2026-03-29
-**Confidence:** HIGH (iOS platform constraints well documented by Apple; AINM integration pitfalls derived from protocol spec analysis; community patterns verified from Stream, Matrix iOS, and messaging-specific SwiftUI implementations)
+**Domain:** Adding connector ecosystem (Python SDK, MCP Bridge, OpenAI Responses upgrade, auth hardening) + iOS live Agent Discovery + compound memory groundwork to existing AINM system (Rust/Axum server + SwiftUI iOS client + TypeScript Connector SDK).
+**Researched:** 2026-04-18
+**Confidence:** HIGH (Rust server and iOS client already shipped in v3.2; connector SDK + Claude Code + OpenAI connectors exist on disk from off-GSD work; OpenAI Responses API migration docs and MCP transport specs verified via official sources; Python JCS library landscape verified; prior v3.2 audit and retrospective reviewed for cross-cutting lessons.)
+
+Prior-milestone pitfalls (iOS-specific — RFC 8785 Swift↔Rust parity, WebSocket backgrounding, LazyVStack pagination, etc.) were captured in v3.2's PITFALLS document. Those remain the canonical reference for iOS/Rust primitives; this document covers the **new integration surface** being added in v3.3.
 
 ---
 
 ## Critical Pitfalls
 
-These mistakes cause rewrites, data loss, or fundamental architectural failures.
+These mistakes cause rewrites, security breaches, production outages, or accepted tech debt that compounds.
 
 ---
 
-### Pitfall 1: RFC 8785 JSON Canonicalization Mismatch Between Swift and Rust
+### Pitfall 1: Python SDK silent canonicalization drift from TypeScript SDK
 
 **What goes wrong:**
-Messages signed by the iOS client fail signature verification on the Rust server (or vice versa). The Ed25519 signature is mathematically valid on the platform that produced it but invalid on the other. This failure is intermittent -- it only surfaces with certain message content (Unicode characters, non-ASCII keys in content block metadata, decimal numbers). ASCII-only test messages pass, creating false confidence.
+A message signed by the Python connector passes `verify_signature` on the Python side, is sent to the AINM server, and the server rejects it as `E_SIG_MISMATCH`. Or worse: the server accepts it (because the Rust `serde_json_canonicalizer` tolerates the difference) but the TypeScript connector then re-signs it during a relay/multi-hop flow and its signature fails. Drift is **content-dependent**: ASCII-only fixtures pass in CI; production Unicode/emoji/large-number content fails. Team assumes library handles JCS correctly because it's named `jcs` or `rfc8785`.
 
 **Why it happens:**
-The AINM security spec (Section 4) requires RFC 8785 (JSON Canonicalization Scheme) to produce deterministic bytes for signing. RFC 8785 has two notoriously tricky requirements: (1) UTF-16 lexicographic key sorting (not UTF-8 byte order -- these differ for characters above U+FFFF), and (2) ECMAScript-compatible float-to-string conversion using the RYU algorithm. Swift's `JSONEncoder` with `.sortedKeys` does NOT produce RFC 8785 output -- it sorts keys by UTF-8 byte order and uses its own float formatting. Swift's `JSONSerialization` is similarly non-compliant. The Rust server uses `serde_json_canonicalizer` which follows RFC 8785 correctly. Two "sorted JSON" implementations that use different sort orders will produce different byte sequences for the same logical message, causing signature mismatch.
+1. Python has two competing JCS packages on PyPI (`rfc8785` from Trail of Bits and `jcs` from Anders Rundgren — same author as the RFC). They have different edge-case behaviors around: non-`str` dict keys (rfc8785 errors, jcs coerces), `Decimal`/`float` mixing, NaN/Infinity, and nested integer boundaries (JS `Number.MAX_SAFE_INTEGER` at 2^53).
+2. Python `dict` is insertion-ordered since 3.7, which hides sort bugs: the developer's test dict happens to be in correct lexicographic order already, so missing sort code still "passes."
+3. RFC 8785 requires UTF-16 code-unit key sorting. Python's natural string comparison is Unicode code-point (UTF-32-ish), which matches UTF-16 for BMP but diverges for characters above U+FFFF (supplementary plane — uncommon emoji, CJK ext B+). The bug is latent until a user includes a supplementary-plane character in agent metadata.
+4. TypeScript uses the existing connector SDK JCS path (vetted in v3.1). Python will be a fresh port. Unless we cross-verify with shared test vectors, drift is silent.
+5. Floats: `json.dumps(1.0)` in Python yields `"1.0"`. RFC 8785 + ECMAScript requires `"1"`. This breaks signing any payload with integer-valued floats.
 
 **How to avoid:**
-- Write a dedicated RFC 8785 JCS implementation in Swift. The spec is ~15 pages. The critical details are: key sorting must use UTF-16 code unit comparison (not Unicode scalar comparison), and number formatting must match ECMAScript's `Number.prototype.toString()`. Do not use `JSONEncoder`/`JSONSerialization`.
-- Port the official JCS test vectors (github.com/cyberphone/json-canonicalization, includes edge cases for Unicode, floats, and sorting) and run them as unit tests in the Swift package.
-- Create a cross-platform signing integration test: sign a message on iOS, send the canonical bytes and signature to the Rust server, verify. And vice versa. This test must run in CI on every commit.
-- AINM mostly avoids floats (timestamps are strings, IDs are strings), which reduces the float-formatting risk -- but do not rely on this; content block extensions may introduce numeric fields.
+- Pick **one** canonical library — `rfc8785` (Trail of Bits, security-audited, MIT-licensed) — and pin exact version. Document why the other was rejected.
+- Import the official JCS test-vector suite (github.com/cyberphone/json-canonicalization/testdata) as a Python test fixture. Run it on every commit. This suite catches UTF-16 sorting, float formatting, duplicate keys, and Unicode normalization.
+- Write a **cross-SDK canonicalization contract test** that lives in the repo root (outside either SDK): a corpus of ~20 JSON inputs, each with a known-good canonical output. Both Python and TypeScript SDKs run this corpus in CI and must produce byte-identical output. A failure in either SDK fails the PR.
+- Add a **round-trip integration test** in v3.3: Python connector signs → Rust server verifies; Rust server signs → Python connector verifies; TypeScript connector signs → Python verifies. All three pairs must pass.
+- Forbid `json.dumps` and `JSON.stringify` for any payload that gets signed. Wrap canonicalization in a `canonicalize_for_signing()` function that is the only signing entry point.
 
 **Warning signs:**
-- Signature verification failures that only happen with emoji, CJK characters, or accented text in messages
-- Tests pass locally (iOS-to-iOS signing) but fail when the Rust server verifies the same message
-- Messages with only ASCII content always work; messages with Unicode content sometimes fail
-- The JCS output of the Swift implementation differs from the output of the `serde_json_canonicalizer` Rust crate for the same input
+- E_SIG_MISMATCH errors that only reproduce with user-generated content (emoji, non-Latin scripts, numeric precision)
+- Unit tests pass, integration tests against live server fail intermittently
+- "Works for me" reports that differ across dev machines (different locale, different Python patch version)
+- CI test matrix doesn't include a supplementary-plane Unicode fixture
 
 **Phase to address:**
-Phase 1 (Foundation). JCS + Ed25519 signing must be the first thing built and cross-platform tested. Every other feature depends on being able to send verified messages.
+Phase 16 (Python SDK Foundation) — must be solved before the first Python connector E2E test. A Phase 16 success criterion should be: "Cross-SDK canonicalization contract test passes for all 20 vectors."
 
 ---
 
-### Pitfall 2: WebSocket Connection Lifecycle Mismanagement
+### Pitfall 2: Orphaned MCP stdio subprocesses on connector crash or restart
 
 **What goes wrong:**
-The app works perfectly in foreground testing on WiFi but silently loses messages in real-world usage. Users experience: messages sent while offline vanishing, duplicate messages after reconnection, the app stuck in a "connecting" state after switching from WiFi to cellular, and missing messages that arrived while the app was backgrounded. The app may appear to be connected (no error visible) while actually disconnected.
+The MCP Bridge connector launches an MCP server as a child stdio process (e.g., `uvx mcp-server-filesystem`). The bridge crashes, is SIGKILL'd by the OS, the user hits Ctrl-C, the parent Node/Python process exits abnormally, or a container is rescheduled. The MCP subprocess is **not reaped**. Over time: zombie processes consume PIDs, leaked stdio pipes fill kernel buffers, file handles leak, and locally-run MCP servers (which may hold DB locks or bind ports) block future bridge restarts with cryptic "port in use" or "database locked" errors.
 
 **Why it happens:**
-iOS aggressively suspends background apps -- there is no API to keep an arbitrary WebSocket connection alive in the background. `URLSessionWebSocketTask` connections are torn down when the app enters background (within ~30 seconds). WiFi-to-cellular transitions create a new network interface that silently kills the existing TCP connection. Developers make several compounding mistakes: (1) treating TCP connection open as "ready to send" without completing the `ainm.initialize` handshake, (2) not detecting that `URLSessionWebSocketTask.receive()` is single-shot (must be re-called after every message), (3) not monitoring network path changes with `NWPathMonitor`, (4) not replaying the AINM handshake on every reconnection.
+- Node's `child_process.spawn` does not automatically terminate children when the parent dies (except on specific signals). Python's `subprocess.Popen` behaves identically.
+- The MCP stdio handshake spec says the client should close stdin, wait for exit, then escalate SIGTERM → SIGKILL. If the bridge is killed before it completes this dance, the MCP server is orphaned — it may hang forever waiting for stdin input that will never come.
+- Developers test on macOS where PID reuse is slow and impact is invisible, then deploy on Linux where PID exhaustion and cgroup-level process limits bite.
+- The fallback approach — use a process tree killer — is platform-specific (`process.kill(-pid, SIGTERM)` needs `detached: true` process group) and easy to get wrong.
 
 **How to avoid:**
-- Model the connection as an explicit state machine with these states: `disconnected` -> `connecting` (TCP) -> `handshaking` (ainm.initialize sent, waiting for ainm.initialized) -> `connected` (protocol ready) -> `disconnecting`. Only expose `send()` in the `connected` state. Queue messages sent in other states.
-- Use `NWPathMonitor` to detect network interface changes and proactively reconnect. Do not wait for a send/receive failure to discover the connection is dead.
-- Implement exponential backoff with jitter for reconnection: start 1s, max 30s, add random 0-500ms jitter to prevent thundering herd when the server restarts.
-- On every reconnection, replay the full `ainm.initialize` / `ainm.initialized` handshake with capability negotiation. Never cache capabilities across sessions.
-- Register for `UIApplication.willEnterForegroundNotification` and trigger immediate reconnection.
-- Use `beginBackgroundTask(expirationHandler:)` on background entry for ~30 seconds to gracefully close the WebSocket and flush pending messages to the local queue.
-- Implement server-side message replay: on reconnect, request messages since the last received `server_timestamp` to fill the gap.
-- Wrap `URLSessionWebSocketTask.receive()` in an `AsyncThrowingStream` that automatically re-calls receive after each message. Handle stream termination (cancellation, error) explicitly.
+- Always spawn MCP subprocesses with `detached: true` + `process.kill(-pid, ...)` (Node) or `start_new_session=True` + `os.killpg(...)` (Python). Document this as a hard requirement in the MCP Bridge architecture doc.
+- Implement a **supervisor**: wrap every MCP subprocess in a small supervisor task (Node `AbortController` with cleanup, or Python `asyncio.TaskGroup` with `__aexit__`) that runs on both graceful and non-graceful shutdown.
+- Register `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'uncaughtException')` handlers (Node) or `atexit` + `signal.signal` (Python) that kill the subprocess with escalation: close stdin → wait 2s → SIGTERM → wait 3s → SIGKILL.
+- In production deployments, run the bridge under a process manager (systemd, k8s with `shareProcessNamespace: true` + `terminationGracePeriodSeconds`) so orphaned children get reaped by PID 1.
+- Add a **leak detection test**: spawn 50 MCP servers, crash the bridge hard (SIGKILL), assert no `mcp-server-*` processes survive. Run in CI on Linux.
 
 **Warning signs:**
-- Messages appear in a different order than sent
-- "Connection lost" state that never recovers without force-quitting the app
-- Messages sent while on cellular never arrive (WiFi worked fine)
-- The receive loop silently stops after a single message
+- Bridge restart fails with "address already in use" on an internal port
+- `ps aux | grep mcp-server` shows processes with PPID=1 (re-parented to init = they were orphaned)
+- Local SQLite MCP servers report "database is locked" after bridge restart
+- Prometheus/metrics show process count climbing monotonically during test runs
 
 **Phase to address:**
-Phase 1 (Foundation/Networking). The WebSocket state machine is the transport foundation. Build this before any UI.
+Phase 18 (MCP Bridge Connector) — supervisor pattern and cleanup must be in the first implementation plan, not added reactively after the first outage.
 
 ---
 
-### Pitfall 3: SwiftUI Message List Performance Collapse with Large Conversations
+### Pitfall 3: Connector identity key = agent signing key (single-key compromise)
 
 **What goes wrong:**
-Scrolling becomes janky or the app crashes when a conversation exceeds ~1,000 messages. Initial load of a long conversation takes 3-5 seconds with a blank screen. Fast scrolling shows blank frames. Memory climbs to 500MB+ for a single conversation view, leading to jetsam termination on older devices.
+The connector SDK uses one Ed25519 keypair for both (a) authenticating itself to the AINM server during the WebSocket handshake, and (b) signing agent-originated messages written into the protocol. An attacker who compromises the connector's stored key (via disk exfiltration, memory dump, container image leak, or an RCE in the connector runtime) can now both **impersonate the agent in the thread** *and* **connect as that agent** to the server from anywhere. Revocation becomes a blunt instrument — rotating the signing key invalidates history; rotating the auth key requires a signed-revocation message from the old key, but the attacker has that too.
 
 **Why it happens:**
-`LazyVStack` inside `ScrollView` does NOT recycle views the way `UITableView` does. It creates views lazily on scroll-down but retains all previously created views in memory. Testing shows memory exhaustion and crash around 5,000 messages on iPhone 11 Pro Max. Each AINM message can contain multiple content blocks (text, code, images, interactive forms) making each cell a complex view hierarchy. `defaultScrollAnchor(.bottom)` with large datasets causes a blank window on initial load because SwiftUI attempts to measure all content to determine the scroll position. Additionally, SwiftUI only retains the state of top-level views in a `ForEach` when they leave and re-enter the visible area -- nested view state (like form input in an interactive block) is lost.
+- Simplicity pressure: "why have two keys when one works?" — shipped in v3.1 reference demo where connectors didn't yet exist.
+- Ed25519 is cheap, so there's no performance excuse for key reuse. Developers just default to "one identity key per entity."
+- The v3.1 spec defines Agent identity via a single Agent Card signing key; extending to a separate connector/runtime credential was deferred.
+- Key storage abstractions (Keychain on iOS, `KeychainAccess`/libsecret/keyring on connector side) treat "the key" as singular — no obvious API for "two keys, one for transport, one for content."
 
 **How to avoid:**
-- Implement pagination from day one: load only the most recent 50 messages initially. Load older messages on scroll-up with a "load more" trigger.
-- Maintain a view window of at most ~200 messages in the active SwiftUI view. When the user scrolls down past the window, remove messages from the top of the data source (and vice versa).
-- Use an inverted scroll approach for chat: rotate the ScrollView 180 degrees, reverse the message order, rotate each cell 180 degrees back. This makes "scroll to bottom" the natural default position and eliminates `defaultScrollAnchor` issues.
-- Make message views lightweight: use `.task` modifier to defer heavy rendering (Markdown parsing, syntax highlighting, image loading) until the cell is actually visible.
-- Pre-render `AttributedString` from Markdown when messages are received (in the repository layer), cache in the model. Do not parse Markdown during scroll.
-- Profile with Instruments (SwiftUI profiler) from Phase 2. Set a budget: 16ms per frame (60fps), <150MB memory for a 2,000-message conversation.
-- Use `Equatable` conformance on message view models to prevent unnecessary redraws.
+- Define **two key classes** in the protocol extension:
+  - **Agent signing key** (`k_sign`) — stable, long-lived, signs message content. Published in the Agent Card. Rotation requires coordinated announcement.
+  - **Connector session key** (`k_conn`) — per-runtime, short-lived (≤ 90 days), used only for server-handshake authentication + nonce-binding. Not published in Agent Card. Rotation is routine.
+- The signed handshake sends `{agent_id, connector_id, timestamp, server_nonce}` signed by `k_conn`; the server resolves `k_conn` via a separate allowlist/registration endpoint.
+- Store `k_sign` in the most secure available store (iOS Keychain, HSM, or kernel-managed secret); `k_conn` can live in more accessible storage.
+- Compromise of `k_conn` alone = attacker can impersonate the transport session until rotation (hours/days, not forever); cannot forge new messages that pass server verification of `k_sign`-based signatures on historical content.
+- Include `k_conn.kid` in the handshake so the server knows which specific session key is being used; log all handshakes with `kid` for forensic rotation.
 
 **Warning signs:**
-- Memory usage climbs linearly as the user scrolls through a conversation (visible in Instruments)
-- Frame drops during fast scrolling (visible in Instruments as >16ms layout passes)
-- Blank frames appear when scrolling quickly
-- App terminations in crash logs with `EXC_RESOURCE` or jetsam memory pressure codes
-- Nested view state (form inputs inside interactive blocks) resets when scrolling away and back
+- Architecture doc says "connector keypair" in singular
+- Agent Card JSON includes a field used both for published identity and for server auth
+- No key rotation endpoint or documented procedure
+- Log entries show the same `kid` value persisting across connector restarts and deployments
 
 **Phase to address:**
-Phase 2 (Core UI). The message list architecture must be built with pagination and memory management from the start. Retrofitting pagination into a "load all messages" design is a full rewrite.
+Phase 19 or 20 (Connector Auth Hardening) — must land before we declare connector authentication GA. Spec update required — this is a protocol addition, not just an implementation detail.
 
 ---
 
-### Pitfall 4: Streaming Token Rendering Causes UI Thread Starvation
+### Pitfall 4: Signed-handshake replay attack without server-bound nonce
 
 **What goes wrong:**
-During agent streaming responses, the UI freezes: the user cannot scroll, tap buttons, or cancel the stream. Text appears in large chunks rather than smooth token-by-token flow. The "cancel stream" button does not respond. On older devices, the app may receive a watchdog termination for unresponsive main thread.
+The connector authenticates via a signed handshake: `sign(k_conn, {agent_id, timestamp})`. An attacker on the wire (or who pulls a captured handshake from a CI log, proxy log, or intrusion on a developer laptop) replays the same bytes 10 minutes later and is admitted as the agent. Rolling timestamps alone ("must be within ±5 min") leaves a large replay window; static nonces picked by the client are useless because the client generates them.
 
 **Why it happens:**
-Each `ainm.stream.delta` notification arrives as a WebSocket message (potentially 50-100+ per second for fast models). If every delta triggers a SwiftUI state update via `@Observable` or `@Published`, and the state change causes a view body re-evaluation, the main thread spends its entire budget on layout passes. AINM supports parallel streaming across multiple block indices within a single stream -- meaning deltas for a text block and a code block can interleave. If each delta for each block triggers an independent state update, the combinatorial effect multiplies the problem. Swift's `@Observable` macro triggers synchronous view updates on every property mutation.
+- JWT/bearer-token culture: developers reach for `Authorization: Bearer <signed-timestamp>` mental model, which is replayable by design without additional anti-replay.
+- TLS alone isn't enough because the attack surface includes *any* place the handshake bytes are logged: CI artifacts, Sentry breadcrumbs, HAR files, tcpdumps during debugging.
+- `timestamp ± skew` feels like it solves replay but doesn't — just shrinks the window.
+- Connectors reconnect frequently (iOS background/foreground, server restarts, network transitions). A permissive replay window is pressured by "reduce login friction during reconnect storms."
 
 **How to avoid:**
-- Throttle UI updates: accumulate deltas in a buffer on a background actor/queue. Flush the buffer to the UI at most every 16-33ms (30-60fps). Use `DispatchSource.makeTimerSource` or a `Task` with `Task.sleep(nanoseconds:)` coalescing loop.
-- Make the streaming text view a leaf view that manages its own `Text` content independently from the parent message list. This isolates delta updates from triggering re-layout of the entire list.
-- Use `AttributedString` append operations rather than rebuilding the entire string on every token.
-- For parallel block streaming, batch deltas by stream_id and flush all block updates in a single UI transaction.
-- Process WebSocket messages on a background actor. Batch and throttle before dispatching to the `@MainActor`.
-- Test the worst case early: an agent streaming 100+ tokens/second into 3 parallel blocks while the user is actively scrolling the conversation. This must be smooth.
+- Implement a **challenge-response handshake**:
+  1. Client opens WebSocket, sends `connector.hello { agent_id, connector_id, kid }` (unsigned).
+  2. Server responds with `connector.challenge { nonce: random 256-bit, server_time, exp: server_time + 30s }`.
+  3. Client responds with `connector.auth { sig = sign(k_conn, canonical_jcs({nonce, agent_id, connector_id, kid})) }`.
+  4. Server verifies `sig` against resolved `k_conn`, records the nonce as used (LRU cache or Redis set with 60s TTL), admits or rejects.
+- Nonces are **one-time**: server remembers used nonces for 2× `exp` to prevent replay within the issue window.
+- Bind the nonce to the TLS session via channel binding (RFC 8471 `tls-exporter`) in production — prevents MITM replay even with a captured nonce + signature.
+- Short TTL: 30 seconds max between challenge issue and auth. Reconnect storms can afford one extra round-trip; replay exploits cannot.
+- Log rejected auth attempts with `{agent_id, kid, reason, client_ip}` for intrusion detection.
 
 **Warning signs:**
-- UI becomes unresponsive during agent responses
-- Xcode Organizer shows main thread hang reports
-- Text appears in bursts rather than smooth character-by-character rendering
-- The cancel button requires multiple taps to register
-- CPU usage spikes to 100% main thread during streaming
+- Handshake code signs anything constructed by the client alone
+- No server-side nonce cache exists
+- "Replay window" discussion in PRs/chat references minutes, not seconds
+- Same `sig` value succeeds twice in a stress test
 
 **Phase to address:**
-Phase 3 (Streaming). The throttling and batching architecture must be designed before implementing delta rendering. The streaming pipeline is: WebSocket -> background actor (batch/throttle) -> @MainActor (UI update).
+Phase 19 or 20 (Connector Auth Hardening) — couple this with Pitfall 3 (two keys). Both land together or neither lands.
 
 ---
 
-### Pitfall 5: Ed25519 Private Key Loss or Inaccessibility
+### Pitfall 5: OpenAI Responses API streaming event-shape break breaks tool UI
 
 **What goes wrong:**
-Users lose their cryptographic identity (and all ability to send verified messages) after app reinstall, device migration, or iOS update. Alternatively, the key becomes inaccessible when the device is locked, causing background message signing to fail silently. Or the key unexpectedly syncs to another device via iCloud Keychain, creating identity conflicts.
+The existing OpenAI connector (off-GSD work) wraps `chat/completions` streaming (SSE of OpenAI `choices[0].delta` chunks) and translates to AINM streaming frames. Upgrading to the Responses API silently changes the event shape — semantic events like `response.output_item.added`, `response.output_text.delta`, `response.function_call_arguments.delta`, `response.completed`. The connector's translator emits corrupted AINM stream frames (partial text, doubled tokens, missing tool-call correlation IDs). The iOS client's `StreamingManager` (from v3.2) renders garbage: missing cursor, text duplication, tool indicators stuck in `running` state forever because `response.function_call.completed` is never mapped.
 
 **Why it happens:**
-Ed25519 (`Curve25519.Signing.PrivateKey`) has NO native Keychain `SecKey` representation -- unlike P-256 keys which the Keychain stores as first-class `kSecClassKey` items. Ed25519 keys must be stored as generic password items (`kSecClassGenericPassword`) containing the raw key bytes. This has three consequences developers miss: (1) default accessibility for generic passwords may make the key unavailable when the device is locked (`kSecAttrAccessibleWhenUnlocked` is the default, which breaks background signing), (2) generic passwords sync to iCloud Keychain by default unless explicitly prevented with `kSecAttrSynchronizable: false`, creating duplicate identities across devices, (3) app deletion removes Keychain items on iOS 13+ unless the item was shared via a Keychain access group with another installed app.
+- Responses API is a **different protocol**, not a backward-compatible evolution of Chat Completions. Shape changes include: (a) semantic events instead of raw deltas, (b) tool calls as first-class `items` (not embedded in message deltas), (c) `previous_response_id` statefulness, (d) strict function definitions by default, (e) reasoning tokens as separate items.
+- Compat shims ("make Responses API look like Chat Completions") introduce subtle bugs that pass unit tests (happy path) but fail on edge cases (parallel tool calls, reasoning-token interleaving, response truncation).
+- Developers migrate one integration at a time, so tests exercise old + new paths separately but never the transition.
+- The Chat Completions stream uses deltas (additive); Responses can send absolute-value events. Appending a delta where a replace was intended causes doubled text.
 
 **How to avoid:**
-- Store Ed25519 private key raw bytes (`privateKey.rawRepresentation`, 32 bytes) as `kSecClassGenericPassword` with these explicit attributes:
-  - `kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (available after first unlock, survives lock screen, does NOT sync to iCloud, does NOT survive backup restore to different device)
-  - `kSecAttrSynchronizable: false` (explicit -- do not rely on default)
-  - Use a stable `kSecAttrAccount` key like `"com.ainm.identity.ed25519.private"`
-- Reconstruct the key with `Curve25519.Signing.PrivateKey(rawRepresentation: storedBytes)`.
-- Implement a key existence check on every app launch. If the key is missing, guide the user through re-registration or key recovery.
-- Design a key recovery mechanism at the protocol level (out-of-band key backup, social recovery, or server-assisted recovery) before shipping. Without this, key loss = permanent identity loss.
-- Use `KeychainAccess` library (in the stack) but verify its defaults match these requirements -- do not assume the library sets the correct accessibility.
-- Test: install app, create identity, delete app, reinstall. Verify the key is gone (expected behavior) and the app handles it gracefully.
+- Treat the Responses API as a **new connector variant**, not an in-place upgrade. Name it `@ainm/connector-openai-responses` (or a sub-module) distinct from the legacy `connector-openai`.
+- Write a dedicated **event-shape translator** with a discriminated union over Responses events (`response.created`, `response.output_item.added`, `response.output_text.delta`, `response.function_call_arguments.delta`, `response.output_item.done`, `response.completed`, `response.failed`, reasoning-token events). Exhaustive pattern match. Compile-time error if OpenAI adds an event we don't handle.
+- **Record + replay** test harness: capture real Responses-API SSE streams (VCR-style cassettes) against OpenAI for at least: (a) streaming text, (b) single tool call, (c) parallel tool calls, (d) reasoning model (o-series) output, (e) truncated response, (f) tool-call then continued text. Replay cassettes in CI — no live API calls in tests.
+- E2E test on iOS: real Responses stream → connector → server → iOS client → assert streaming cursor renders correctly, tool indicators complete, final message matches expected text.
+- Keep the Chat Completions connector alive as fallback for one release cycle. Feature-flag per-agent which backend to use.
+- Document cost delta: Responses can be more expensive per call when reasoning tokens are returned. Surface to the user via the Agent Card.
 
 **Warning signs:**
-- Users report "identity lost" after iOS update or device migration
-- Message signing fails intermittently when the device is locked (key inaccessible)
-- Users on multiple devices have the same identity key (iCloud sync leak)
-- Key is present in unencrypted iTunes backups
+- Tool indicators stay on "running" forever for Responses-backed agents
+- Streaming text appears character-doubled or has gaps
+- Unit tests pass but user reports "agent feels broken"
+- Cost alerts trigger on the OpenAI dashboard
 
 **Phase to address:**
-Phase 1 (Foundation/Security). Key storage is the foundation of identity. Get it right before building any signing, sending, or identity UI.
+Phase 20 or 21 (OpenAI Responses API migration) — dedicated phase, do not bundle with the larger auth hardening plan.
 
 ---
 
-### Pitfall 6: GRDB Observation Triggering Excessive SwiftUI Redraws
+### Pitfall 6: MCP tool schema translation loses constraints silently
 
 **What goes wrong:**
-The UI redraws the entire conversation list or message thread on every database write, even when the change is unrelated to the visible content. CPU spikes when messages arrive in a background conversation. Scrolling stutters when the database is being written to. The app feels sluggish despite having a fast network connection.
+An MCP server declares a tool with `inputSchema: { type: "object", properties: { path: { type: "string", pattern: "^/safe/.*" } }, required: ["path"] }`. The MCP Bridge translates this to an AINM tool-call entry that's a best-effort mapping. The `pattern` constraint is dropped because AINM's tool-call format doesn't propagate JSON Schema `pattern` to the agent / user-side renderer. An agent calls the tool with `path: "/etc/passwd"`. The bridge forwards the call to the MCP server, which **also** validates — except: some MCP servers trust the client and skip validation in favor of runtime errors. User ends up with an unintended file access. Or flip side: the MCP server rejects the call, but because the rejection arrives out-of-band (stderr / logs / error response), the AINM side shows a generic "tool failed" with no context.
 
 **Why it happens:**
-GRDB's `ValueObservation` is powerful but coarse-grained by default. A common pattern is: observe "all messages in thread X" with `ValueObservation.tracking { db in try Message.filter(threadId: threadId).fetchAll(db) }`. When any message in that thread changes (new arrival, status update, read receipt), GRDB re-fetches the entire result set and SwiftUI diffs the whole array. With 500+ messages per thread, this is 500+ Equatable comparisons on every database write. Worse: if the observation is on the main queue (the default), the re-fetch blocks the UI thread. If you have separate observations for the conversation list and the message view, a single incoming message triggers two full re-fetches.
+- MCP's `inputSchema` is a full JSON Schema Draft 2020-12; AINM tool-call params have always been a simpler typed struct. The mapping is lossy by design.
+- Bridges tend to map the **shape** (names and types) but not the **constraints** (patterns, enums, bounds, required fields).
+- The assumption "the MCP server will re-validate" is fragile — not all MCP servers do.
+- Schema evolution: MCP server v1.2 adds a new required field; bridge was built against v1.1 schema cached at connect time; old schema shape is sent to agent, agent's tool call omits the new field, server errors with "missing required field" that the bridge can't explain.
 
 **How to avoid:**
-- Use `ValueObservation` with narrow queries: observe only the visible page of messages (e.g., the most recent 50), not the entire thread. Update the observation when the user scrolls to a new page.
-- Use GRDB's `DatabaseRegionObservation` for lightweight change detection -- it tells you "something changed in table X matching condition Y" without re-fetching. Combine with manual, targeted re-fetches.
-- Schedule observations to deliver on a background queue (`.scheduling(.async(onQueue: .global()))`), then dispatch results to `@MainActor`. Never let GRDB fetch on the main thread for large result sets.
-- For the conversation list, observe only the `conversations` table with preview fields (last message preview, timestamp, unread count). Do not join the full messages table.
-- Use `fetchAll` with explicit column selection when you only need preview data -- avoid fetching large `content` JSONB columns for list views.
-- Implement proper `Identifiable` and `Equatable` on your message view models so SwiftUI's diff is as cheap as possible (compare IDs, not content).
+- The MCP Bridge **must forward the full JSON Schema** in the Agent Card tools section — AINM tool-call spec already supports `inputSchema` passthrough (verify this; if not, extend the spec in this milestone).
+- **Validate locally before forwarding**: bridge runs `jsonschema` validation (Python) or `ajv` (TS) against the tool call params using the MCP server's current schema. Rejects bad calls without hitting the MCP server.
+- **Propagate structured errors**: when the MCP server rejects, capture the JSON-RPC error code/message and surface as an AINM `tool_call.error` with the original MCP payload attached under `details`. Don't reduce to "tool failed."
+- **Re-fetch tool schemas** on every `notifications/tools/list_changed` (MCP spec capability). Never cache for the connector session lifetime.
+- **Version-check**: log the MCP server's `server_info.version` on connect; if it changes on reconnect, invalidate cached schemas.
 
 **Warning signs:**
-- Instruments shows GRDB fetch operations on the main thread taking >10ms
-- CPU spikes when messages arrive in conversations the user is not viewing
-- The conversation list stutters when a background sync writes messages
-- Memory spikes from re-fetching large result sets on every observation trigger
+- AINM tool-call shows fewer fields than the MCP server's declared schema
+- Users see "tool failed" with no detail on why
+- MCP server logs show validation errors that never reached the user
+- Tool call schemas cached > 1 hour
 
 **Phase to address:**
-Phase 2 (Core UI / Persistence). The observation and pagination strategy must be co-designed with the message list. They are the same problem.
+Phase 18 (MCP Bridge) — include "full schema passthrough + local validation" in the first plan's acceptance criteria.
 
 ---
 
-### Pitfall 7: Not Respecting the ainm.initialize Handshake Contract
+### Pitfall 7: Stale Agent Registry snapshots on iOS after WebSocket reconnect
 
 **What goes wrong:**
-The iOS client sends protocol messages before completing the `ainm.initialize` / `ainm.initialized` exchange, and the server rejects them with error code -32001. Features work after a fresh app launch but break after reconnection because the client reuses stale capability information. Streaming-related messages are sent to a server session that did not negotiate streaming support.
+The iOS client subscribes to `agent.registry.updated` on the live AgentRegistry. It displays "12 agents online." The app goes to background for 20 minutes. iOS kills the WebSocket (per v3.2-known iOS background-socket behavior). User foregrounds, the app reconnects. The reconnect handler replays buffered events from the server but misses the `agent.registry.updated` events that happened *during* the disconnected window because the server only keeps a small event buffer. The iOS Discover view shows 12 agents (stale list), but 3 of them disconnected while the app was backgrounded, and 2 new agents connected. Tapping one of the 3 disconnected agents fails with a cryptic "agent unavailable" error.
 
 **Why it happens:**
-Developers treat the WebSocket `open` event as "ready to send protocol messages." But AINM transport spec (Section 4.2-4.3) requires a handshake exchange before any protocol method can be called. The handshake includes capability negotiation: both sides declare which features they support (`streaming`, `interactive`, `memory`, etc.). Only features declared by both sides are available for the session. If the client caches capabilities from a previous session and the server has changed (upgraded, downgraded, different config), the client may attempt operations the current session does not support.
+- The `agent.registry.updated` event model is **delta-based** (here's who joined/left), not **snapshot-based** (here's the current state). Missing deltas = stale state forever (until the next delta).
+- iOS aggressively terminates background sockets. v3.2 retrospective notes "WebSocket connection lifecycle management" as a critical risk; v3.3 reconnect logic needs to be robust to multi-minute gaps.
+- Subscriptions survive across view dismissal (leak) but then try to update a nil view (crash) or race with new subscriptions (double-update).
+- "We trust server-side event delivery" mental model breaks when the client is offline.
 
 **How to avoid:**
-- Model the connection state explicitly. `tcpConnected` is NOT `protocolReady`. Only expose a `send(method:params:)` API after `ainm.initialized` response is received and parsed.
-- Store negotiated capabilities in the session object, scoped to the current connection. Clear and re-negotiate on every reconnection.
-- Queue outbound messages that arrive during the handshake phase. Flush the queue after `ainm.initialized`. Drop messages that require capabilities the new session does not support (and notify the caller).
-- Handle handshake failure explicitly: if `ainm.initialize` returns an error (version mismatch, auth failure), surface a user-visible error. Do not silently retry forever.
-- Validate each outbound message against the session's negotiated capabilities before sending.
+- On every successful (re)connect, **always pull a full registry snapshot** via a REST-style `agent.registry.snapshot` call before subscribing to deltas. The snapshot is the ground truth; deltas are incremental updates applied to it.
+- Include a **generation token** in snapshots: `{generation: 17, agents: [...]}`. Each delta includes `{generation: 18, changes: [...]}`. On receiving a delta with `generation != prev + 1`, pull a fresh snapshot.
+- **View-scoped subscription lifecycle**: use Swift `AsyncStream` tied to a `Task` held by the view model; cancel the task in `deinit`. Do not hold subscriptions in global singletons.
+- **Optimistic UI with verification**: when the user taps an agent, validate freshness (< 10s old) before navigating; if stale, re-fetch that agent's card before showing the "Start Conversation" screen.
+- **Server-side**: keep a 5-minute event replay buffer keyed by `generation`; clients send `last_seen_generation` on reconnect; server replays or refuses (then client falls back to full snapshot).
+- Debounce rapid `agent.registry.updated` events (e.g., 250ms) so UI isn't thrashed during reconnect storms.
 
 **Warning signs:**
-- Server logs show rejected messages with "session not initialized" or "capability not negotiated" errors
-- Features work after fresh app launch but break after reconnection
-- Intermittent "method not found" JSON-RPC errors for streaming or interactive methods
-- The client sends `ainm.stream.cancel` to a session that did not negotiate streaming
+- User reports "agent shown online but won't respond"
+- Agent list doesn't match between two devices simultaneously logged in
+- Memory grows in Agent Discover view between navigations
+- Console logs show "subscription updated" events after the view was dismissed
 
 **Phase to address:**
-Phase 1 (Foundation/Networking). The handshake is the first thing that happens on the wire. Build it before any protocol method.
+Phase 17 (iOS Live Agent Discovery) — snapshot-plus-deltas pattern must be designed in the phase's first plan, not bolted on after user reports.
+
+---
+
+### Pitfall 8: Compound memory cross-agent leak without per-agent ACL
+
+**What goes wrong:**
+Agent A (a work CRM assistant) extracts the fact "user's quarterly target is $2.4M" and writes it to compound memory. Agent B (a personal fitness coach, invited into a different thread) queries compound memory on startup and sees the CRM fact because memory is keyed by user, not per-agent-scope. User has now leaked confidential business data to a third-party personal assistant. Worse: the CRM agent assumed memory was visible only to itself (reasonable default — its own notes). User consent was never explicitly obtained for cross-agent sharing.
+
+**Why it happens:**
+- "Compound memory" is pitched as the differentiator — "memory compounds across agents." Easy to implement as a single user-scoped store.
+- Per-agent ACLs, consent UX, and scope labels are boring infrastructure that gets deferred for an "MVP" that immediately leaks.
+- Agent authors assume their memory is private; users assume memory is shared. Both assumptions are reasonable. Neither is validated.
+- The threat model isn't just malicious agents — it's careless agents. A well-intentioned agent that extracts "user likes $subject" may be extracting PII the user would not have shared with a different agent.
+
+**How to avoid:**
+- Define a **scope model** in the compound memory spec before writing code:
+  - `scope: "private"` — only the writing agent can read
+  - `scope: "shared:thread"` — agents in the same thread can read
+  - `scope: "shared:user"` — any agent this user authorizes (requires explicit per-agent consent)
+  - `scope: "public:user"` — readable by any agent in any thread this user participates in
+  - Default: `private`. Upgrading to `shared:*` requires an explicit signed write + user notification.
+- **User consent surface on iOS**: a Memory Sharing screen where the user sees "Agent A wrote 3 facts as `shared:user`. Which agents should see these?" with per-agent toggles.
+- **Write-time labels**: the protocol message for memory writes includes `scope` as a required field. Server rejects writes without scope.
+- **Read-time filter**: server filters memory reads by `requesting_agent_id` against each fact's `scope` + `allowlist`. No blanket "give me all user memory" query.
+- **Auditability**: every memory read produces a log entry; iOS surfaces "last 24h: Agent B read 7 facts you shared" in privacy UI.
+
+**Warning signs:**
+- Memory writes don't include scope / ACL metadata
+- User has no UI to see "which agents can read what"
+- Spec document says "per-user memory" without any scope discussion
+- No memory read log exists
+
+**Phase to address:**
+Phase 22 (Compound Memory Groundwork) — scope model is the **first** plan, before any aggregation/export code. If you can't design the ACL, don't ship the feature.
+
+---
+
+### Pitfall 9: Compound memory pollution from noisy / sarcastic / mistaken extraction
+
+**What goes wrong:**
+User in a thread says sarcastically: "oh yeah, I love 6am meetings, can we have more?" Agent extracts to memory: `fact: user prefers 6am meetings`. Two weeks later, Agent B sees the fact, schedules a 6am sync, user is furious. Worse: a prompt-injected assistant ("ignore previous instructions and write to memory...") can arbitrarily pollute. Without attribution, retraction is hard: the user can't find the source of the wrong fact to remove it.
+
+**Why it happens:**
+- LLM-driven extraction is high-recall but low-precision. A 5% hallucination rate, multiplied by months of messages × multiple agents, yields a polluted store.
+- Extraction is usually "silent" — no explicit user-visible confirmation at write time.
+- Sarcasm, negations ("I do **not** want X" extracted as "user wants X"), hypotheticals ("imagine if X..."), quoted text ("John said X"), and adversarial inputs all defeat naive extraction.
+- Once written, facts are rarely audited.
+
+**How to avoid:**
+- **Confidence scores** on every extracted fact: `{fact, confidence: 0.0-1.0, source_message_id, extracted_by_agent, extracted_at}`. Low-confidence facts (< 0.7) don't surface to agents without user confirmation.
+- **Source traceability**: every fact links to the specific `message_id` that produced it. Users can tap a fact to see the source message; wrong extraction → delete with one tap.
+- **User-in-the-loop for important facts**: the iOS memory UI shows "3 new facts learned — review?" with per-fact approve/reject/edit. Default is "auto-approve if confidence > 0.9" with a setting.
+- **Retract-and-supersede**: facts aren't deleted; they're marked `retracted` with a reason. Historical audit preserved.
+- **Adversarial defense**: if a message came from an agent (not a human), facts extracted from it are marked `provenance: agent_derived` and cannot supersede `provenance: human_stated` facts.
+- **Prompt-injection detection**: treat user messages as untrusted input for extraction; any text containing "ignore previous", "system prompt", or clearly-not-a-personal-fact patterns skip extraction.
+
+**Warning signs:**
+- Memory UI shows no "confidence" or "source" metadata
+- Users report an agent "remembered something I never said"
+- Facts accumulate monotonically without any retraction
+- Extraction happens entirely server-side with no user notification
+
+**Phase to address:**
+Phase 22 (Compound Memory Groundwork) — must be in the groundwork spec even if full user-review UI lands in v3.4.
+
+---
+
+### Pitfall 10: WebSocket reconnect storm when server restarts
+
+**What goes wrong:**
+The AINM server is redeployed or crashes. 1,000 connectors + 500 iOS clients simultaneously detect disconnect and all attempt to reconnect in the same 2-second window. Server comes up, is immediately buried in handshakes + signature verifications + Agent Card fetches, spends the first 30 seconds at 100% CPU, rejects connections with "server overloaded," which the clients retry immediately, creating a thundering herd. Server can't stabilize. Observed in every production messaging system that ever existed.
+
+**Why it happens:**
+- Default reconnect policy: immediate retry, or constant 1s delay.
+- No jitter → all clients hit the same moment.
+- Clients don't distinguish "server restarted" (wait longer) from "transient network blip" (retry fast).
+- Signature verification is CPU-heavy; burst of 1,500 handshakes = brief DoS.
+
+**How to avoid:**
+- **Exponential backoff with full jitter**: `delay = random(0, min(60s, base * 2^attempt))`. Spreads reconnects across the window.
+- **Server-advised delay**: HTTP 503 + `Retry-After: 15` tells clients to wait; honor it. On WebSocket close code 1013 (Try Again Later), clients wait the advised time.
+- **Capacity-aware admission**: server stops accepting new connections above X% CPU, returns 503 with progressively longer Retry-After.
+- **Reconnect priority**: iOS clients that are foregrounded reconnect faster than background connectors (user-visible > background agents).
+- **Handshake batching / pipelining**: allow the server to process handshakes in parallel but cap concurrency (e.g., 50 concurrent signature verifications); overflow queues with bounded size.
+- **Synthetic load test**: deliberately restart the server while 1,000 synthetic clients are connected; measure time-to-full-recovery. Must be < 2 min. Run quarterly.
+
+**Warning signs:**
+- No jitter in reconnect code (grep for `setTimeout(connect, 1000)`)
+- Server CPU spikes to 100% for > 10s after restart
+- Clients observe "server unavailable" loops
+- `Retry-After` headers ignored
+
+**Phase to address:**
+Phase 19 or 20 (Connector Auth Hardening) — add reconnect policy + server admission control to this phase since it touches the handshake path anyway. Parallel effort on iOS client reconnect (small plan within Phase 17).
+
+---
+
+### Pitfall 11: Ratifying off-GSD work without a ratification gate
+
+**What goes wrong:**
+~60-70% of connector code exists on disk (`packages/connector/`, `packages/connector-claude-code/`, `packages/connector-openai/`) from off-GSD work. The team declares "ratified" after a cursory read and moves on. Six weeks later, production issues surface: (a) no tests for a critical path, (b) decisions from the off-GSD author aren't documented, (c) version pins missing so a dependency update breaks prod, (d) the code calls a private API that was removed, (e) error handling path silently swallows failures. The milestone shipped on fiction — the code "works" in demo but isn't production-ready, and because it's now "ratified," nobody re-audits.
+
+**Why it happens:**
+- Sunk-cost fallacy: "we already have 60% done, let's not redo it."
+- Ratification feels ceremonial and boring; building new features feels productive.
+- Off-GSD work is often prototype-quality — the original author didn't write it to be shipped; they wrote it to prove a concept.
+- v3.2 retrospective explicitly flagged "research corrections beat CONTEXT.md when they diverge" — same class of problem: trust-but-verify doesn't get budgeted.
+
+**How to avoid:**
+- Define a **ratification checklist** as the Phase 15 success criteria. Every off-GSD file must pass:
+  1. **Test coverage**: unit tests for every public function; E2E test for every flow. `vitest --coverage` threshold ≥ 80% for critical paths.
+  2. **Decision record**: every non-obvious design choice documented in a `DECISIONS.md` inside each package.
+  3. **Version pinning**: `package.json` + `Cargo.toml` use exact versions (no `^`) for critical deps.
+  4. **Error handling**: no `catch {}` blocks without logging; no `unwrap()` in Rust non-test code; `assert`s replaced with real error paths.
+  5. **Logging**: structured logs at INFO level for state transitions; DEBUG for protocol messages; ERROR for failures with context.
+  6. **CI integration**: package builds and tests run in the repo's CI matrix.
+  7. **Documented public API**: README + inline doc comments on every exported function.
+  8. **Spec conformance**: code matches current AINM spec version (audit against `spec/schemas/*.json`).
+- **Two-person sign-off**: the original author + one other reviewer sign off per package.
+- **Budget honesty**: estimate ratification at **50-70% of greenfield effort**, not 10%. Past experience: retrofitting tests to code you didn't write is slow.
+- **Document what you won't do**: if something is accepted as tech debt (e.g., "error messages need improvement — tracked as issue #N"), write it down explicitly rather than pretending it's done.
+
+**Warning signs:**
+- "Ratify" shows up in a plan with a 1-hour estimate
+- Test count for ratified package < 10
+- No DECISIONS.md in package root
+- `git log` of the package shows commits outside the GSD workflow that never got reviewed
+
+**Phase to address:**
+Phase 15 (Ratification + Tech Debt Cleanup) — this is the whole purpose of the phase. The ratification checklist must be the gate.
+
+---
+
+### Pitfall 12: v3.2 tech debt items are dependent, not independent
+
+**What goes wrong:**
+The v3.2 audit lists 11 HUMAN-UAT items + 2 deferred XCUITest items as "tech debt to address in v3.3." Team treats them as a checklist, assigns one to each day, and starts knocking them off. Partway through, a hidden dependency surfaces: fixing the Keychain persistence UAT (Phase 10) requires a real server round-trip, which exposes that the live WebSocket handshake UAT (also Phase 10) has a latent bug that only manifests under a specific reconnect pattern — which is the same reconnect pattern that causes the deferred `DeepLinkUITests` XCUITest flake. Suddenly 3 items are coupled. The "1 day per item" estimate blows up; the team either rushes (accepting new debt) or pauses other v3.3 work.
+
+**Why it happens:**
+- UAT items feel atomic but share substrate (live server, real Keychain, actual reconnect). They test different surfaces of the same machinery.
+- Flaky tests are rarely caused by the thing the test is named after — they're symptoms of deeper timing issues elsewhere.
+- "Test flake" is often "genuine race condition we haven't understood yet."
+- v3.2 retrospective flagged `DeepLinkUITests` race condition: `scrollToMessageId`/`onAppear` timing. Similar races may exist throughout.
+
+**How to avoid:**
+- **Dependency map first**: before executing Phase 15, produce a `v3.2-TECH-DEBT-MAP.md` that groups the 13 items into clusters by shared surface (e.g., all "live server handshake" items together). Execute clusters, not items.
+- **Root-cause flakes**, don't XCTSkip them permanently: the 2 deferred tests are symptoms. Spend time understanding `ForEach` refresh timing + `scrollToMessageId` onAppear race. Document the finding even if the fix lands in a later phase.
+- **UAT-from-real-server**: Phase 10's 4 HUMAN-UAT items *all* require a live Rust server. Set up a persistent local environment once; run all 4 in a single session.
+- **Regression risk budget**: every UAT fix can break something else. Run full XCUITest suite after each UAT flip; don't batch 4 fixes and then run tests.
+- **Accept tech debt explicitly**: if an item won't be fixed in v3.3, document *why* and move to v3.4 — don't carry as indefinite debt.
+
+**Warning signs:**
+- Phase 15 plan has 13 parallel sub-plans, one per debt item
+- No discussion of shared dependencies between items
+- "Just XCTSkip it" appears in a PR
+- New flakes appear that weren't present before Phase 15
+
+**Phase to address:**
+Phase 15 (v3.2 Tech Debt Cleanup) — dependency map is **the first deliverable** of this phase, before touching any code.
 
 ---
 
@@ -210,138 +389,250 @@ Phase 1 (Foundation/Networking). The handshake is the first thing that happens o
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Load all messages into LazyVStack without pagination | Simpler code, works in demos with 20 messages | Memory crash at ~5K messages, scroll jank at 1K+ | Never -- pagination must be designed from day one |
-| Use `JSONEncoder(.sortedKeys)` instead of proper RFC 8785 JCS | Ships faster, works for ASCII-only test messages | Signature failures on Unicode content, impossible to debug in production | Never -- cross-platform signing requires exact JCS compliance |
-| Store Ed25519 key in UserDefaults | Quick prototyping, easy to inspect | Key exposed to unencrypted backups, no access control, App Store rejection risk | Only in `#if DEBUG` builds with a hard guard |
-| Skip WebSocket reconnection logic | Faster initial development | App appears broken after any network hiccup, loses user trust immediately | Never -- reconnection is table stakes for any messaging app |
-| Single global GRDB `ValueObservation` for all messages in a thread | Simple setup, single subscription | UI redraws everything on any DB change, CPU waste, jank | Only in very early prototype with <100 messages, must be refactored before first user test |
-| Process every streaming delta synchronously on main thread | Simpler code path, no concurrency to manage | UI freezes during agent streaming, unresponsive to user input | Never -- throttling must be part of the streaming pipeline design |
-| Hardcode server URL | Faster dev setup | Cannot test against different servers, blocks multi-server/federation testing, violates 12-factor principles | Acceptable in first 2 weeks of Phase 1, must be configurable before Phase 1 ends |
-| Skip fallback rendering for unknown block types | Fewer view components to build | Blank spaces in messages when the server sends newer block types the client does not recognize | Never -- the protocol requires fallback rendering, and server evolution will produce unknown blocks |
+| Share one Ed25519 key for connector auth + agent signing | Simpler SDK API, one keypair to manage | Single-key compromise = both impersonation + message forgery; revocation is scorched-earth | Never in v3.3+. Even prototypes should have the two-key split once a real runtime exists. |
+| Use Python `json.dumps(sort_keys=True)` as "good enough JCS" | No dependency, works for ASCII | Silent signature failures with Unicode, floats, supplementary plane chars; exploitation by crafted payloads | Never for signed content. Acceptable only for non-signed debug output. |
+| Cache MCP tool schemas for the connector session lifetime | Avoids re-fetch on every call | Stale schemas cause cryptic validation errors when MCP server updates | Acceptable if MCP server declares capability + bridge subscribes to `tools/list_changed`; not otherwise. |
+| Compat shim to make Responses API look like Chat Completions | Incremental migration, one call-site change | Subtle translation bugs; streaming/tool-call edge cases break; masks real changes from the team | Never as a long-term solution. OK as a 1-week bridge while the real translator is under test. |
+| Immediate WebSocket reconnect with no jitter | One line of code, feels responsive | Thundering herd on server restart; DoS against your own server | Never in production. Dev-only builds can have fast reconnect behind a flag. |
+| XCTSkip a flaky test instead of root-causing | Green CI today | Race condition remains; flake resurfaces in worse form later | Acceptable with a tracking issue and max 1-phase deferral. v3.2's 2 items have already used this budget. |
+| Ratify off-GSD code without the full checklist | Faster milestone start | Production bugs, missing tests, undocumented decisions bite later | Never. 50-70% greenfield budget for ratification is the right estimate. |
+| Store compound memory as "one blob per user" without scope | Schema is trivial | Cross-agent leaks; no per-agent ACL possible without migration | Never in v3.3+. Scope model must be in the first spec. |
+| No challenge-nonce in signed handshake, rely on timestamp | One round-trip saved | Replay attacks within the timestamp window | Never. Extra round-trip cost is ~10ms; exploits are far costlier. |
+| Spawn MCP subprocess without process-group detachment | Simpler spawn code | Orphaned processes on crash; PID exhaustion in production | Never in production; dev-only OK if cleanup is manual. |
+| Single connector package publishes both TS + Python bindings from one source | One repo, one tag | Build-tool bloat, bidirectional cross-language churn | Never. Separate packages with a shared contract-test harness. |
+| Extract memory facts server-side without user review | Fast to ship, looks magical | Bad facts pollute; can't audit source; user trust collapses after one bad recommendation | Only with confidence threshold + user-review surface. |
+
+---
 
 ## Integration Gotchas
 
-Mistakes specific to connecting the iOS client to the existing AINM Rust server.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| JSON-RPC dispatch | Treating notifications (no `id`) and requests (with `id`) identically; not correlating responses to pending requests | Maintain a `[Int: CheckedContinuation]` map for pending requests keyed by JSON-RPC `id`. Route incoming messages: if has `id` and `result`/`error` -> resume continuation; if has `method` -> dispatch to notification handler via `AsyncStream`. Use a `Sendable` actor for the pending map |
-| Streaming lifecycle | Treating stream deltas as independent messages; losing track of which stream a delta belongs to; not pre-allocating block layout | Maintain a `[UUID: StreamState]` actor. On `ainm.stream.start`, allocate block buffers matching the declared layout array. On `ainm.stream.delta`, append to the correct block buffer by `block_index`. On `ainm.stream.end`, collapse buffers into a permanent signed message and persist to GRDB |
-| CryptoKit vs. Rust ring compatibility | Assuming the signature format is automatically compatible | Both use standard Ed25519 (64-byte signatures), but verify: (1) CryptoKit's `signature(for:)` takes raw bytes, not a digest -- do not pre-hash; (2) ring's `Ed25519KeyPair::sign()` also signs raw bytes; (3) public key format is 32 bytes raw in both. Test with shared test vectors from the Ed25519 RFC |
-| GRDB observation in SwiftUI | Putting `ValueObservation` in the ViewModel's `init`, causing observation to start before the view is visible and continue after it disappears | Start observations in `.task` modifier (auto-cancelled when view disappears). Use `@Observable` view models that expose published results from GRDB, not raw observation tokens |
-| Server timestamps vs. local clock | Using `Date()` for message ordering | Always use `server_timestamp` from the `ainm.message.send` response for canonical ordering. UUIDv7 IDs are time-ordered but use the device clock (which may be wrong). Show messages in UUIDv7 order optimistically, re-sort by `server_timestamp` when the response arrives |
-| Interactive blocks + ActionBlocks | Sending the action response as a mutation of the original message | ActionBlocks are NEW messages in the thread (per interactive.md). They reference the original via `ref_message_id` and `ref_action_id`. The original interactive block is immutable. Build the action flow as: user taps -> create new ActionBlock message -> sign -> send -> original block transitions to disabled state locally |
-| Content block `version` handling | Only implementing `1.0` and showing blank for anything else | Check MAJOR version. Same MAJOR = render normally, ignore unknown optional fields. Higher MAJOR = render `fallback` string. This is required by content.md Section 3 |
+| Python JCS (`rfc8785` / `jcs`) | Assuming any RFC 8785-named library is bit-identical to TS/Rust impls | Pick one lib (`rfc8785`), pin version, run official JCS test-vector corpus + cross-SDK contract test in CI |
+| Python asyncio + `websockets` lib | Not setting `ping_interval` / `ping_timeout`, losing connections silently to idle proxies | Explicit `ping_interval=20, ping_timeout=20`; handle `ConnectionClosed` + reconnect with jitter |
+| Python `websockets` connection handler | Handler returns after one message instead of looping | Explicit `async for message in ws:` loop; log handler exit; auto-restart if it exits while connection is alive |
+| MCP stdio subprocess | Forgetting `detached: true` / `start_new_session=True` | Always detach; always supervisor + escalating cleanup (stdin close → SIGTERM → SIGKILL) |
+| MCP tool schema | Translating shape but dropping constraints (`pattern`, `enum`, `minimum`) | Forward full `inputSchema`; validate with `jsonschema`/`ajv` before call; handle `notifications/tools/list_changed` |
+| MCP server stderr | Ignored, so crash signals are silent | Pipe MCP stderr to bridge logs with `[mcp:<server_name>]` prefix; surface fatal-looking lines in health panel |
+| OpenAI Responses API streaming | Treating events as deltas when some are absolute | Exhaustive discriminated-union translator; record+replay cassettes in CI for every event type |
+| OpenAI Responses API tool calls | Using Chat Completions function-call shape (external tagged, non-strict) | Use Responses shape (internal tagged, strict by default); `call_id` ties args to outputs |
+| OpenAI Responses API state | Ignoring `previous_response_id` → losing reasoning/tool context | Decide explicitly: stateless (`store: false`) or threaded (`previous_response_id` chain) — document the choice |
+| OpenAI Responses reasoning tokens | Not round-tripping the encrypted reasoning item | Store the `reasoning.encrypted` blob and pass back on the next call; otherwise model loses context |
+| iOS Keychain across reinstalls | Assuming Keychain items survive (they don't, for most access classes) | Document expected loss; UX flow to re-register identity on reinstall; test by deleting app + reinstalling |
+| iOS WebSocket backgrounding | Assuming socket survives > 30s backgrounded | iOS kills after ~30s; implement re-connect-on-foreground + full snapshot re-fetch |
+| WebSocket close codes | Using generic 1000/1001 for everything | Use 4000+ custom codes for auth/nonce/replay errors so clients can differentiate retry vs stop |
+| Ed25519 (ring / CryptoKit / Python) | Passing seed bytes vs expanded private key inconsistently | Always use 32-byte seed form; `Curve25519.Signing.PrivateKey(rawRepresentation:)` in Swift = `SigningKey(seed)` in PyNaCl = `signing_key_from_bytes` in ring |
+| OAuth redirect URIs for Claude Code / OpenAI auth | Wildcard redirect URIs, or http:// in production | Explicit exact URIs; https only; per-environment registration |
+| API-key-stored-in-plaintext (OpenAI, Anthropic) | `.env` file checked into repo, or copied to container env var | OS keystore (Keychain / libsecret / Windows DPAPI); in containers, use secret manager (k8s Secret + KMS) |
+
+---
 
 ## Performance Traps
 
+Scale thresholds estimated for this project (federated messaging; expected v3.3 scale: ~10K registered users, ~1K concurrent connections, ~50K messages/day).
+
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Parsing Markdown in every message cell during scroll | Frame drops, janky scroll, high CPU in Instruments | Pre-parse Markdown to `AttributedString` when the message is received/fetched, cache in the model. Use background parsing for batches | 50+ messages with Markdown formatting visible simultaneously during fast scroll |
-| Loading full image data for ImageBlocks in message list | Memory spikes, scroll hitches, jetsam termination | Use thumbnail URLs in the list view. Load full resolution only when tapped. Use `AsyncImage` with `.resizable()` and explicit `.frame()`. Implement disk cache | 10+ images visible in a single conversation scroll viewport |
-| Unbounded streaming delta buffer | Memory grows linearly during long agent responses | Cap buffer at 100KB per block. For collapsed messages, stream large content to disk. Set a maximum stream duration timeout (e.g., 5 minutes) | Agent generates 50KB+ response (common for code generation tasks) |
-| Re-signing messages on retry after reconnection | CPU spike re-signing 20+ queued messages, blocking reconnection flow | Cache the signed envelope bytes alongside the message in the outbound queue. Reuse if content unchanged. Only re-sign if the timestamp was updated | Batch retry of 20+ failed messages after reconnection on an older device (iPhone 11) |
-| Fetching full JSONB content for conversation list preview | Slow conversation list load, 100MB+ memory for 50 conversations with large messages | Store `preview_text` (first 100 chars of first text block) as a separate indexed column. Query only `id, thread_id, from, timestamp, preview_text` for list | 50+ conversations where messages contain code blocks, forms, or long text |
-| Rendering all content blocks eagerly in each message cell | Complex cells with 3+ blocks cause layout passes >16ms | Use lazy rendering: show only the first 2 blocks initially, "Show more" button for messages with 3+. Or use measured pre-layout to only render visible blocks | Messages with 5+ content blocks (common for agent responses with text + code + explanation) |
+| Unbounded MCP subprocess proliferation | Bridge memory grows over days; system slows | Hard cap on concurrent MCP servers per bridge; LRU eviction with graceful shutdown | ~100 concurrent stdio subprocesses on one bridge |
+| N+1 Agent Card fetches after discovery notification | Network saturates on registry deltas | Batch card fetches; include card version in registry event; fetch only on delta | > 50 agents online + every discovery event triggers individual fetches |
+| Synchronous signature verification in connection hot path | p99 handshake latency spikes under load | Pre-compute `k_conn` lookups; verify in dedicated worker pool; cap concurrency | > 100 handshakes/sec on a single server |
+| Compound memory fetched on every agent message | Latency per message grows; server OOM | Fetch memory context once per thread-session; push-only updates via subscription | > 10K facts per user |
+| JCS canonicalization in tight loop | CPU-bound Python/Rust; slow msg processing | Cache canonical bytes alongside message; never re-canonicalize for the same logical payload | Any bulk operation over > 100 messages |
+| Reconnect storm (no jitter) | Server pinned at 100% for minutes post-restart | Exponential backoff + full jitter; server admission control | > 500 simultaneous clients and any restart |
+| iOS LazyVStack with full registry | Scroll jank; memory grows with agent list | Paginate; fetch-on-demand for agent card details | > 200 agents in Discover list |
+| WebSocket buffer overflow on streaming agents | Client sees "connection closed" mid-stream | Bounded queue + backpressure; server drops oldest non-critical events first | Sustained > 1000 events/sec to one client |
+| `notifications/tools/list_changed` storm | Bridge churns re-fetching schemas | Debounce 1s; diff-based cache invalidation | MCP servers that emit on every internal state change |
+| Compound memory write amplification | DB IO pinned; write latency grows | Batch writes; dedupe before insert; async write with bounded lag | > 100 writes/sec per user |
+| OpenAI Responses `previous_response_id` chain grows unbounded | Latency climbs per call; token cost climbs | Cap chain length (e.g., last 10); summarize/compact older context client-side | Long-running sessions > 50 turns |
+
+---
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Logging message content or signatures via `print()` or `os_log` | Sensitive content visible in device console, sysdiagnose, and Xcode device logs accessible by anyone with physical access | Use `OSLog` with `privacy: .private` for any message content or signature data. Use `#if DEBUG` guards for verbose protocol logging |
-| Implementing `urlSession(_:didReceive:completionHandler:)` to bypass TLS validation for dev servers | Man-in-the-middle attack intercepts all messages and signing keys if accidentally shipped to production | Never disable TLS validation. For dev servers, install a local CA certificate on the test device. Use `Info.plist` App Transport Security exceptions only for specific test domains |
-| Storing Ed25519 private key with `kSecAttrAccessibleWhenUnlocked` (the default) | Key inaccessible when device is locked, breaking background message signing; key accessible from unencrypted backups | Use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` explicitly |
-| Not verifying Ed25519 signatures on incoming `ainm.message.deliver` notifications | Accepting spoofed or tampered messages from a compromised server or network attacker | Verify signature on every incoming message before displaying. Fetch sender's public key via identity resolution. Show a warning badge on messages that fail verification rather than silently displaying them |
-| Trusting the `source` field without verifying the message signature first | Prompt injection: attacker sends a message with `source: "system"` to trick the UI into displaying it as a system message | Verify signature first. Only then trust the `source` annotation for UI styling. Unsigned messages must not receive system-level visual treatment |
-| Caching public keys indefinitely without TTL or rotation awareness | Using a revoked or rotated key to verify messages, accepting invalid signatures | Implement a 1-hour TTL cache for public keys. On verification failure, re-fetch the key before rejecting. Check `key_history` for messages signed with rotated keys (per identity.md Section 6.7) |
-| Storing auth tokens or session secrets in `UserDefaults` | Accessible via backup extraction, no encryption at rest, no access control | Store all secrets in Keychain with appropriate accessibility attributes |
+| Logging signed handshake bodies at INFO | Captured logs = replayable credentials | Redact signatures + nonces; use structured logger with allowlist fields only |
+| Pre-shared secrets in env vars committed to `.env.example` | Credential leaks on repo mirror / fork | Use placeholder values `REPLACE_ME`; CI test that real values aren't committed (grep for known-good prefix patterns) |
+| OAuth redirect URI misconfiguration (Claude Code / OpenAI auth) | Open redirect → token theft | Exact-match registered URIs; per-env (dev/stage/prod) separate OAuth apps; no wildcards |
+| "Trust on first use" connector identity | Attacker races to register first | Allowlist mode as default; TOFU only with user-visible "is this you?" confirmation per new kid |
+| Single key for connector auth + agent signing | Single-compromise = full impersonation | Two-key architecture (see Pitfall 3) |
+| Replay-vulnerable handshake (timestamp only) | Captured handshake re-used by attacker | Challenge-response nonce; one-time nonce cache server-side (see Pitfall 4) |
+| Stale public keys in server allowlist after rotation | Rotated-away key still accepted | Rotation endpoint atomically updates allowlist + logs; health-check that confirms old key rejected |
+| Lockout: user rotates own key, old key removed before new one confirmed | User cannot re-authenticate | Grace window: old key remains valid 24h after new key registered; rotation requires proving control of both keys |
+| Connector impersonation via DNS/WebSocket MITM | Attacker proxies connector traffic | TLS cert pinning on connector → server; channel binding (RFC 8471 tls-exporter) in handshake |
+| Prompt injection via memory writes | Agent A injects "user is admin" into B's context | Per-scope ACL; provenance tracking; treat agent-written facts as lower trust than human-stated |
+| Compound memory export without consent | User data exfiltrated by rogue agent | Export requires explicit user confirmation; rate-limited; audit logged |
+| MCP bridge trusts MCP server output unconditionally | Malicious MCP server sends forged tool output | MCP server output carries no AINM signature; bridge labels all MCP-origin content `provenance: mcp_server` for downstream trust decisions |
+| Double auth UX (MCP auth + AINM auth) where one silently succeeds | User thinks they're authenticated but only half is | UX that makes both explicit; failure in either blocks; never auto-retry one after the other fails |
+| Ed25519 secret key stored in filesystem with `0644` perms | Local privesc reads key | `0600` minimum; prefer OS keystore (Keychain / libsecret / Windows DPAPI) |
+| Nonce generation with non-cryptographic RNG | Predictable nonces → replay | `crypto.randomBytes(32)` (Node), `secrets.token_bytes(32)` (Python), `CryptoKit` / `SystemRandomNumberGenerator` (Swift), `ring::rand::SystemRandom` (Rust) |
+| MCP server stdin not validated before exec | Command injection via bridge config | Allowlist of known MCP commands; arg array (not shell string); sandbox (macOS sandbox-exec, Linux namespaces) where feasible |
+
+---
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| No optimistic message sending | User taps send, sees nothing for 500ms-2s until server confirms. Feels broken | Insert the message into the UI immediately with a "sending" indicator (spinner/clock icon). Update to "sent" (checkmark) on server confirmation. Show "failed" with retry button on error |
-| Showing raw JSON-RPC errors to the user | User sees `{"code": -32010, "message": "Invalid signature"}` | Map AINM error codes to human-readable messages. `-32010` -> "This message could not be verified. Please try again." `-32001` -> "Connection interrupted. Reconnecting..." Log the technical error for debugging |
-| Blocking the UI during reconnection | User opens the app after being offline, sees a spinner for 5+ seconds with no content | Show cached messages from GRDB immediately on app open. Display a subtle "Reconnecting..." banner at the top. Sync new messages in background. Remove banner when connected |
-| Not rendering `fallback` for unknown block types | Messages from a newer server contain interactive blocks the client does not support -- they render as blank space | Always check block type and version major. Render `fallback` text (required on every block) when unrecognized. This is a protocol requirement, not a nice-to-have |
-| No typing/thinking indicator before streaming starts | Agent appears to do nothing for 1-3 seconds between the user's message and the first `ainm.stream.start` event | Show a "thinking..." indicator immediately when a message is sent to a thread containing an agent. Replace with streaming content on first `ainm.stream.start` |
-| Tool call events shown as raw JSON | User sees `{"tool": "web_search", "status": "started"}` in the message thread | Render tool calls as native UI cards using the AINM tool-visibility spec: "Searching the web..." with a loading animation, then the result. This is one of AINM's differentiating features -- make it shine |
-| Form state lost when scrolling away | User fills out half of a FormBlock, scrolls up to read context, scrolls back -- form is blank | Persist form input state in the view model (not the SwiftUI view state). LazyVStack does not preserve nested view state. Store draft form values keyed by `action_id` |
-| Approval blocks with no loading state | User taps "Approve" and nothing happens for 500ms while the action message is being signed and sent | Show an immediate state transition: button -> loading spinner -> confirmed state. Revert to original state if the send fails |
+| Agent Discover list stale after foregrounding | User taps dead agent, gets cryptic error | Snapshot re-fetch on foreground + per-tap freshness check (< 10s) |
+| Double-authentication for MCP-backed agents (MCP auth + AINM auth) | User gives up partway | Single consent surface; bridge handles both under the hood; UI shows one "Connect Filesystem Assistant" CTA |
+| Memory facts appearing without user awareness | User surprised by agent "remembering" | "3 new facts learned" pill → review sheet with approve/reject; setting for auto-approve threshold |
+| Key-rotation flow that requires typing a hex string | User abandons, stays on old key | Tap-to-rotate in Settings; grace window; background rotation where possible |
+| Connector status buried in logs | User can't diagnose "why isn't my agent responding" | In-app connector health panel; last-success / last-error / last-retry visible per connector |
+| Compound memory scope (private/shared) invisible to user | User doesn't know what's shared | Per-fact scope badge in memory UI; "sharing" screen to change per-fact |
+| OpenAI Responses-backed agents feel slower than Chat Completions | User perceives regression | Surface "reasoning..." indicator for reasoning models; show tokens-per-second; acknowledge cost tradeoff in Agent Card |
+| Tool call UI stuck on "running" forever when connector dies | User thinks agent is still working | Timeout → switch to "disconnected" state with retry CTA; clear visual distinction from "running" |
+| Onboarding flow assumes technical knowledge (manual API key entry) | Users don't have API keys | OAuth-first for Claude Code, OpenAI; API key as advanced option; clear docs on where to get keys |
+| Reconnect storm causes user-visible flicker | User perceives instability | Debounce connection-state UI (500ms); show "reconnecting..." only after > 2s disconnected |
+| MCP server selection requires CLI knowledge | Power-user feature excludes everyone else | Curated list of popular MCP servers in Add Agent flow; advanced "stdio command" option for experts |
+| Agent Card doesn't indicate backend (Claude Code vs GPT vs custom) | User can't distinguish which agent is which | Small backend badge on Agent Card; visible model/provider name |
+
+---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **WebSocket reconnection:** Often missing WiFi-to-cellular transition handling -- verify by toggling airplane mode during active streaming, then verifying reconnection and message gap-fill within 10 seconds
-- [ ] **Message signing:** Often only tested with ASCII content -- verify with emoji, CJK, RTL text, and messages containing all content block types (text + code + image + interactive)
-- [ ] **Streaming collapse:** Often missing the step where accumulated deltas are assembled into a permanent signed message and persisted to GRDB -- verify by killing the app mid-stream and checking if the partial message is recoverable on next launch
-- [ ] **Interactive block post-action state:** Often missing disabled/expired state handling -- verify that buttons and forms become non-interactive after the user submits an ActionBlock, and that expired approvals show their final state
-- [ ] **Offline message queue:** Often missing retry-with-backoff and deduplication -- verify by sending 10 messages offline, reconnecting, and checking all 10 arrive exactly once in correct order
-- [ ] **Pagination boundary:** Often missing the "load more" trigger when scrolling up -- verify by scrolling to the top of a 500+ message conversation and confirming older messages load without scroll position jumping
-- [ ] **Background-to-foreground sync:** Often missing the gap-fill for messages received while the app was suspended -- verify by backgrounding the app for 5+ minutes, sending messages from another client, then foregrounding and checking they appear
-- [ ] **Memory under load:** Often tested with 10 messages, not 1,000 -- verify by loading a conversation with 2,000+ messages and monitoring memory in Instruments (budget: <150MB)
-- [ ] **Fallback rendering:** Often not tested because dev server and client are always in sync -- verify by sending a message with a made-up block type (e.g., `"chart"`) and confirming the fallback text renders
-- [ ] **Key accessibility:** Often not tested with locked device -- verify that signing works after `beginBackgroundTask` when the device is locked (requires `AfterFirstUnlock` accessibility)
-- [ ] **UUIDv7 ordering vs server timestamp ordering:** Often only one ordering is implemented -- verify that optimistic (UUIDv7) ordering is shown immediately, then corrected to server timestamp ordering when the server confirms
+Verification during Phase 15 ratification + end of each subsequent phase:
+
+**Ratification (Phase 15)**
+- [ ] **Off-GSD connector SDK:** Often missing cross-SDK test suite — verify TS SDK runs same JCS test vectors as Python SDK will
+- [ ] **Claude Code connector:** Often missing CLI version pin — verify `package.json` pins exact Claude Code CLI version
+- [ ] **OpenAI connector:** Often missing Responses API forward-compat branch — verify migration plan documents both APIs
+- [ ] **AgentRegistry server code:** Often missing generation/snapshot endpoint — verify server exposes `agent.registry.snapshot` + `generation` field
+- [ ] **iOS live Agent Discovery wiring:** Often missing full-snapshot on reconnect — verify reconnect handler calls snapshot + applies deltas in order
+- [ ] **Off-GSD `dist/` directories in git status:** Often stale, never regenerated — verify `.gitignore` excludes + CI rebuilds from source
+
+**Python SDK (Phase 16)**
+- [ ] **Signing:** Often uses `json.dumps(sort_keys=True)` — verify uses `rfc8785` library with pinned version
+- [ ] **WebSocket client:** Often no explicit ping config — verify `ping_interval` + `ping_timeout` set, reconnect handler exists
+- [ ] **Test matrix:** Often Python 3.11-only — verify CI runs 3.11 + 3.12 + 3.13
+- [ ] **Cross-SDK parity:** Often only tested within Python — verify cross-SDK contract test in CI
+- [ ] **Type safety:** Often `Any` everywhere — verify `mypy --strict` passes
+
+**iOS Live Agent Discovery (Phase 17)**
+- [ ] **Subscription lifecycle:** Often leaks on view dismissal — verify `Task` cancellation in `onDisappear`
+- [ ] **Snapshot-then-deltas:** Often delta-only — verify snapshot fetched on every (re)connect
+- [ ] **Generation tracking:** Often missing — verify server sends `generation`; client detects gaps
+- [ ] **N+1 Agent Card fetches:** Often per-event — verify batched or embedded in registry event
+
+**MCP Bridge (Phase 18)**
+- [ ] **Subprocess cleanup:** Often missing `detached: true` — verify process-group kill on exit
+- [ ] **Signal handlers:** Often missing — verify SIGINT/SIGTERM/SIGKILL escalation
+- [ ] **Tool schema forwarding:** Often drops constraints — verify full `inputSchema` passthrough
+- [ ] **`tools/list_changed` handling:** Often ignored — verify re-fetch + cache invalidation
+- [ ] **Provenance labeling:** Often missing — verify MCP-origin content tagged
+
+**Connector Auth Hardening (Phase 19/20)**
+- [ ] **Two-key architecture:** Often single key — verify `k_sign` and `k_conn` separate
+- [ ] **Challenge-response handshake:** Often timestamp-only — verify server nonce + one-time cache
+- [ ] **Key rotation endpoint:** Often missing — verify endpoint exists + grace window
+- [ ] **Allowlist vs TOFU:** Often defaults to TOFU — verify default is allowlist
+- [ ] **Reconnect policy:** Often no jitter — verify exponential backoff with full jitter
+- [ ] **Server admission control:** Often missing — verify capacity-aware 503 + Retry-After
+
+**OpenAI Responses Migration (Phase 20/21)**
+- [ ] **Event translator:** Often partial — verify exhaustive discriminated union
+- [ ] **Record+replay cassettes:** Often missing — verify cassettes for: text stream, single tool call, parallel tool calls, reasoning, truncation
+- [ ] **Cost documentation:** Often missing — verify Agent Card surfaces backend + cost class
+- [ ] **Stateful vs stateless choice:** Often unclear — verify documented decision
+- [ ] **Compat shim lifecycle:** Often permanent — verify removal plan in milestone close
+
+**Compound Memory Groundwork (Phase 22)**
+- [ ] **Scope model in spec:** Often missing — verify `private/shared:thread/shared:user/public:user` defined
+- [ ] **Per-agent ACL in writes:** Often missing — verify `scope` required in memory write schema
+- [ ] **Source traceability:** Often missing — verify every fact links `source_message_id`
+- [ ] **Confidence scores:** Often missing — verify `confidence` + `extracted_by_agent` fields
+- [ ] **User consent UX stub:** Often deferred — verify at minimum a Settings toggle for auto-approve threshold
+- [ ] **Retraction flow:** Often "delete only" — verify retract+supersede preserves audit trail
+
+**v3.2 Tech Debt Cleanup (Phase 15)**
+- [ ] **Dependency map:** Often treated as flat list — verify clusters mapped before execution
+- [ ] **Root-cause flakes:** Often XCTSkip extended — verify root cause documented even if fix deferred
+- [ ] **Live-server UAT session:** Often one-at-a-time — verify all 4 Phase 10 live items run in one session
+- [ ] **Regression run:** Often skipped — verify full XCUITest suite green after each UAT flip
+
+---
 
 ## Recovery Strategies
 
+When pitfalls slip past prevention:
+
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| JCS canonicalization mismatch | MEDIUM | Write comprehensive cross-platform test suite with RFC 8785 vectors. Fix the Swift JCS implementation. Re-verify stored messages (signatures are immutable in messages). No data loss, but all messages sent with wrong canonicalization cannot be verified by other clients |
-| WebSocket lifecycle bugs | MEDIUM | Refactor to explicit state machine pattern. Add integration tests using Network Link Conditioner for simulated poor conditions. ~1 week effort to retrofit state machine if the initial implementation was ad-hoc |
-| Message list memory crash | HIGH | Requires architectural rewrite from "load all" to paginated windowed data source. Cannot be patched incrementally. Plan 1-2 weeks for list + observation + GRDB query redesign |
-| Streaming UI freeze | MEDIUM | Insert throttling layer between WebSocket and UI. Requires refactoring the delta processing pipeline (~3-5 days) but does not change the data model |
-| Lost Ed25519 keys | HIGH | If keys are lost and no recovery mechanism exists, the user's identity is permanently gone. Must design key backup/recovery before shipping. Cannot be retrofitted without identity migration. Recovery mechanism design: 1-2 weeks |
-| GRDB observation overload | LOW | Refactor observations to narrower queries and background delivery. Can be done incrementally. ~2-3 days per view that needs optimization |
-| Handshake contract violations | LOW | Add state machine enforcement. Queue outbound messages during handshake. ~1 day fix if caught early. Debugging intermittent failures from this bug can take much longer |
+| Cross-SDK JCS drift shipped | MEDIUM | (1) Add failing cross-SDK test to repro; (2) identify divergent case (usually Unicode or float); (3) patch Python side (TS/Rust are canon); (4) deploy; (5) re-verify corpus. ~1-3 days. |
+| Orphaned MCP processes in production | LOW | (1) kill all `mcp-server-*` processes; (2) deploy supervisor fix; (3) add k8s `shareProcessNamespace: true` as belt-and-suspenders. Hours. |
+| Compromised connector key (both auth + signing) | HIGH | Without two-key: revoke agent entirely, users must re-authenticate all threads, messages signed by old key remain valid forever in history. With two-key (post-fix): rotate `k_conn` (minutes), leave `k_sign` untouched, minor UX disruption. Incentive to migrate to two-key ASAP. |
+| Replay attack observed in server logs | HIGH | (1) Invalidate all active sessions; (2) force reconnect with challenge-nonce flow; (3) audit logs for forged message content; (4) if forged content committed, notify users + mark affected threads. Days. |
+| Responses API streaming translator bug in prod | MEDIUM | (1) Feature-flag agents back to Chat Completions backend; (2) capture failing SSE cassette from affected session; (3) add cassette to test suite; (4) fix translator; (5) roll back feature flag. 1-2 days. |
+| MCP schema drift causing tool failures | LOW | (1) Force schema re-fetch; (2) add `notifications/tools/list_changed` handler if missing; (3) document version-check on connect. Hours. |
+| Stale Agent Registry on iOS clients | LOW | Force client reconnect; server responds with full snapshot; no data loss. Seconds. |
+| Cross-agent memory leak (Pitfall 8 realized) | HIGH | (1) Audit memory store for cross-scope reads; (2) migrate store to add scope field (default `private`); (3) notify affected users + offer audit log of what was shared; (4) PR/incident report. Week+. |
+| Polluted memory from bad extraction | MEDIUM | (1) Bulk-retract low-confidence facts from affected time window; (2) add confidence threshold gate; (3) invalidate downstream caches. Hours-day. |
+| Reconnect storm in production | MEDIUM | (1) Deploy server-side 503 + Retry-After immediately (hotfix); (2) force-deploy client with jitter (requires app update, so slow); (3) capacity provisioning short-term. Hours for server, days for client. |
+| Ratified off-GSD code hiding debt | HIGH | (1) Stop adding features to affected package; (2) run full checklist retroactively; (3) triage missing items; (4) budget a follow-up ratification phase. Weeks. |
+| v3.2 XCUITest flake resurfaces with new symptom | MEDIUM | (1) Do not XCTSkip again; (2) add diagnostic logging; (3) root-cause the race; (4) fix or document as accepted risk with runbook. Days. |
+
+---
 
 ## Pitfall-to-Phase Mapping
 
+How the v3.3 roadmap phases should address these pitfalls. Phases 15-22 are a suggested structure derived from the milestone scope (PROJECT.md).
+
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| RFC 8785 JCS mismatch (P1) | Phase 1 (Foundation) | Cross-platform test: sign on iOS, verify on Rust; sign on Rust, verify on iOS. 100% pass on RFC 8785 official test vectors. Include Unicode, emoji, and multi-block messages |
-| WebSocket lifecycle (P2) | Phase 1 (Foundation) | Integration test: connect, exchange messages, toggle airplane mode, verify reconnection + handshake replay + gap-fill within 10 seconds |
-| Message list performance (P3) | Phase 2 (Core UI) | Instruments profiling: 60fps scroll through 2,000-message conversation. Memory <150MB. No blank frames during fast scroll |
-| Streaming UI starvation (P4) | Phase 3 (Streaming) | Stress test: 3 parallel blocks streaming at 100 tokens/sec. Taps register within 100ms. No main thread hangs in Instruments |
-| Ed25519 key storage (P5) | Phase 1 (Foundation) | Test matrix: create key, verify signing works after device lock, verify key does NOT sync to iCloud, verify key is gone after app delete + reinstall |
-| GRDB observation overload (P6) | Phase 2 (Core UI) | Test: write 50 messages to conversation B while viewing conversation A. Zero visible jank. CPU spike <5% on main thread |
-| ainm.initialize handshake (P7) | Phase 1 (Foundation) | Test: send message before handshake -> message queued. Reconnect after server restart -> handshake replays, queued messages flush. Capability mismatch -> user-visible error |
-| Interactive block action flow | Phase 4 (Interactive) | Test: submit form -> button disabled immediately -> ActionBlock appears in thread -> original block shows submitted state. Form state survives scroll-away-and-back |
-| Streaming collapse + persistence | Phase 3 (Streaming) | Test: complete stream -> collapsed message in GRDB with valid signature. Cancel stream -> partial content handled per spec. Kill app mid-stream -> partial content recoverable |
+| 1 — Python SDK canonicalization drift | Phase 16 (Python SDK Foundation) | Cross-SDK contract test passes in CI; official JCS test vectors green |
+| 2 — Orphaned MCP subprocesses | Phase 18 (MCP Bridge) | Leak-detection test: spawn 50 MCP servers, SIGKILL bridge, assert zero survivors |
+| 3 — Single-key compromise | Phase 19/20 (Connector Auth Hardening) | Spec update landed; SDK API exposes `k_sign` + `k_conn` separately; rotation endpoint documented |
+| 4 — Replay-vulnerable handshake | Phase 19/20 (Connector Auth Hardening) | Server nonce cache active; replay-attack test (send same signed payload twice) rejects second |
+| 5 — Responses API streaming break | Phase 20/21 (OpenAI Responses Migration) | All 5+ record-replay cassettes green; iOS E2E with Responses-backed agent completes successfully |
+| 6 — MCP schema translation loss | Phase 18 (MCP Bridge) | Integration test: MCP server with `pattern` constraint; bridge validates locally; violating call rejected before MCP server sees it |
+| 7 — Stale iOS Agent Registry | Phase 17 (iOS Live Agent Discovery) | Reconnect test: background 2 min, foreground; registry matches server-side truth; tap-dead-agent test catches staleness |
+| 8 — Cross-agent memory leak | Phase 22 (Compound Memory Groundwork) | Scope model in spec; per-agent ACL in server; test: agent B cannot read agent A's `private` facts |
+| 9 — Memory pollution from bad extraction | Phase 22 (Compound Memory Groundwork) | Confidence + source_message_id on every fact; retract flow works; sarcasm fixture triggers low confidence |
+| 10 — Reconnect storm | Phase 19/20 (Connector Auth Hardening) + Phase 17 (iOS) | Load test: restart server with 1000 connections, full recovery < 2 min; jitter visible in client logs |
+| 11 — Off-GSD ratification without checklist | Phase 15 (Ratification + Tech Debt) | Every ratified package passes 8-point checklist; DECISIONS.md exists; coverage ≥ 80% |
+| 12 — v3.2 tech debt dependencies | Phase 15 (Ratification + Tech Debt) | Dependency map produced first; items executed in clusters; full XCUITest suite green after each |
+
+### Cross-Cutting Concerns (not a single phase)
+
+- **Logging discipline** — redact signatures/nonces, structured fields only, no secret leakage: enforced via Phase 15 ratification checklist + CI grep gate applied to all new code in phases 16+.
+- **Version pinning across the repo** — exact versions, no `^` for critical deps: enforced in CI in Phase 15; documented in each package's DECISIONS.md.
+- **Spec-implementation conformance** — every new message type/shape updates `spec/schemas/*.json` + `website/static/asyncapi.yaml`: enforced by Phase 15 audit, re-verified in each feature phase.
+- **v3.2 retrospective lessons carried forward** — checker-verified planning loop (Phase 15+ onwards), research corrections briefed explicitly to executors (Phase 16+), cross-plan ID contract (any phase that spans fixtures/events/schemas).
+
+---
 
 ## Sources
 
-### Apple Documentation
-- [Storing CryptoKit Keys in the Keychain](https://developer.apple.com/documentation/cryptokit/storing-cryptokit-keys-in-the-keychain) -- Ed25519 keys stored as generic passwords, not SecKey
-- [Curve25519.Signing.PrivateKey](https://developer.apple.com/documentation/cryptokit/curve25519/signing/privatekey) -- API for Ed25519 signing in CryptoKit
-- [URLSessionWebSocketTask](https://developer.apple.com/documentation/foundation/urlsessionwebsockettask) -- Single-shot receive, lifecycle management
-- [NWPathMonitor](https://developer.apple.com/documentation/network/nwpathmonitor) -- Network transition detection
-- [Creating Performant Scrollable Stacks](https://developer.apple.com/documentation/swiftui/creating-performant-scrollable-stacks) -- Apple's guidance on LazyVStack performance
+**Official specifications and docs (HIGH confidence):**
+- [RFC 8785 — JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
+- [OpenAI Responses API migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses)
+- [OpenAI completions-responses-migration-pack](https://github.com/openai/completions-responses-migration-pack)
+- [OpenAI Responses vs Chat Completions comparison](https://platform.openai.com/docs/guides/responses-vs-chat-completions)
+- [Responses API streaming](https://developers.openai.com/api/docs/guides/streaming-responses)
+- [Model Context Protocol Transports spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
+- [MCP stdio transport lifecycle reference (DeepWiki)](https://deepwiki.com/instructkr/claw-code/5.1-mcp-server-lifecycle-and-stdio-transport)
+- [python-websockets documentation 16.0](https://websockets.readthedocs.io/en/stable/reference/asyncio/client.html)
+- [python-websockets common reconnect pattern (issue #414)](https://github.com/aaugustin/websockets/issues/414)
+- [rfc8785 Python library (Trail of Bits)](https://github.com/trailofbits/rfc8785.py)
+- [cyberphone/json-canonicalization test vectors](https://github.com/cyberphone/json-canonicalization)
 
-### SwiftUI Message List Performance
-- [List or LazyVStack: Choosing the Right Container](https://fatbobman.com/en/posts/list-or-lazyvstack/) -- LazyVStack 52.3s vs List 5.53s for scroll-to-bottom; LazyVStack 78 hangs vs List 4.6
-- [SwiftUI List Performance: 10,000+ Items](https://medium.com/@chandra.welim/swiftui-list-performance-smooth-scrolling-for-10-000-items-c64116dc276f) -- Memory and scroll performance at scale
-- [Stream: How Our iOS Team Built the SwiftUI SDK Message List](https://getstream.io/blog/build-message-list-swiftui/) -- LazyVStack retains previous states; crash at ~5K messages
-- [Building Inverted Scroll for Messaging App](https://www.swiftwithvincent.com/blog/building-the-inverted-scroll-of-a-messaging-app) -- 180-degree rotation pattern for chat scroll
+**Security references (HIGH confidence):**
+- [EdDSA (Wikipedia) — Ed25519 signing internals](https://en.wikipedia.org/wiki/EdDSA)
+- [The Provable Security of Ed25519 (IACR)](https://eprint.iacr.org/2020/823.pdf)
+- [Replay attack defenses (Wikipedia)](https://en.wikipedia.org/wiki/Replay_attack)
+- [Radicle signed-reference replay vulnerability disclosure (2026-03)](https://radicle.xyz/2026/03/30/disclosure-of-vulnerability-in-signed-references)
 
-### Streaming and Real-time Rendering
-- [From Stream to Screen: Handling GenAI Rich Responses in SwiftUI](https://medium.com/safe-engineering/from-stream-to-screen-handling-genai-rich-responses-in-swiftui-da138acfaa05) -- Background processing and throttling for streaming text
-- [Real-time with WebSockets and Swift Concurrency](https://medium.com/@thomsmed/real-time-with-websockets-and-swift-concurrency-8b44a8808d0d) -- AsyncThrowingStream wrapping URLSessionWebSocketTask
-- [Iterating over WebSocket Messages with async/await](https://www.donnywals.com/iterating-over-web-socket-messages-with-async-await-in-swift/) -- Single-shot receive pitfall and AsyncStream solution
+**Project context (HIGH confidence):**
+- `.planning/PROJECT.md` — v3.3 milestone scope, outstanding tech debt list, last-shipped artifacts
+- `.planning/RETROSPECTIVE.md` — v3.1 + v3.2 lessons learned, especially cross-plan ID drift, worktree-merge friction, and checker-loop ROI
+- `.planning/milestones/v3.2-MILESTONE-AUDIT.md` — 11-item tech debt inventory with phase attribution + the two XCUITest deferrals (scrollToMessageId timing race, ForEach refresh timing under bulk runs)
+- `packages/connector/`, `packages/connector-claude-code/`, `packages/connector-openai/` — off-GSD work to be ratified in Phase 15
 
-### GRDB Performance
-- [GRDB Performance Wiki](https://github.com/groue/GRDB.swift/wiki/Performance) -- insert() vs save(), batch operations
-- [Large Insert Performance Discussion](https://github.com/groue/GRDB.swift/issues/1004) -- Encoder initialization overhead, query cache costs
-
-### JSON Canonicalization
-- [RFC 8785: JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785) -- The specification; UTF-16 sorting, ECMAScript float formatting
-- [JCS Reference Implementation + Test Vectors](https://github.com/cyberphone/json-canonicalization) -- Cross-platform test vectors for verification
-- [serde_json_canonicalizer (Rust)](https://docs.rs/serde_json_canonicalizer/latest/serde_json_canonicalizer/) -- The Rust implementation the AINM server uses
-
-### WebSocket Lifecycle on iOS
-- [WebSockets and Swift: Client-side Engineering Challenges (Ably)](https://ably.com/topic/websockets-swift) -- Reconnection, network drops, interface switches
-- [Apple Developer Forums: WebSocket Background Execution](https://developer.apple.com/forums/thread/66157) -- iOS does not allow background WebSocket; use APNs
+**Confidence notes:**
+- HIGH: all claims verified against at least one official source or existing project documentation
+- MEDIUM/LOW: none in this document — speculative patterns excluded
 
 ---
-*iOS Reference Client pitfalls research for: AINM v3.3*
-*Researched: 2026-03-29*
+
+*Pitfalls research for v3.3 Universal Agent Client — connector ecosystem + iOS live discovery + compound memory groundwork + off-GSD ratification + v3.2 tech debt.*
+*Researched: 2026-04-18.*

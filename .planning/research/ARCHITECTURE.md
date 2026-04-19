@@ -1,579 +1,766 @@
-# Architecture Patterns: iOS Reference Client
+# Architecture Research: v3.3 Universal Agent Client Integration
 
-**Domain:** Native iOS messaging client for AINM protocol
-**Researched:** 2026-03-29
-**Confidence:** HIGH (protocol is complete and server is implemented; iOS patterns are well-established)
+**Domain:** AINM universal agent client — connector ecosystem integration with existing Rust server + SwiftUI iOS client
+**Researched:** 2026-04-18
+**Confidence:** HIGH for existing-architecture mapping (direct code read); MEDIUM for external integration points (MCP spec, OpenAI Responses API)
+**Supersedes:** prior `ARCHITECTURE.md` covering v3.2 iOS reference client (v3.2 patterns are now live; this document focuses on v3.3 delta)
 
-## Recommended Architecture
+This document maps **how seven v3.3 concerns integrate with the existing architecture**. Each section uses explicit **NEW vs MODIFIED** tagging so the orchestrator can sequence work. Where current code already handles a concern, we say so rather than re-design it.
 
-The iOS client follows **MVVM + Repository** with a clear layered architecture. The critical insight: the server is the source of truth for messages and threads, but the local GRDB database is the source of truth for the UI. All server data flows through the database before reaching views. This "write-through" pattern gives us offline resilience, consistent UI state, and decoupled layers.
+---
 
-```
-+-------------------------------------------------------------+
-|                      SwiftUI Views                           |
-|  ConversationListView | ThreadView | AgentCardView | ...    |
-+-------------------------------------------------------------+
-        |  @Observable binding           ^  GRDB observation
-        v                                |
-+-------------------------------------------------------------+
-|                     ViewModels                               |
-|  ConversationListVM | ThreadVM | StreamingVM | ...           |
-+-------------------------------------------------------------+
-        |  Repository calls              ^  AsyncStream results
-        v                                |
-+-------------------------------------------------------------+
-|                    Repositories                              |
-|  MessageRepository | ThreadRepository | MemoryRepository     |
-|  AgentRepository   | IdentityRepository                     |
-+-------------------------------------------------------------+
-        |          |                     ^          ^
-        v          v                     |          |
-+----------------+  +--------------------+  +----------------+
-| NetworkService |  | PersistenceService |  | CryptoService  |
-| (WebSocket +   |  | (GRDB.swift)       |  | (CryptoKit)    |
-|  HTTP client)  |  |                    |  |                |
-+----------------+  +--------------------+  +----------------+
-        |                    |                      |
-        v                    v                      v
-   Rust Server          SQLite file           iOS Keychain
-   (wss://)             (local)               (Ed25519 keys)
-```
-
-### Component Boundaries
-
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| **SwiftUI Views** | Render UI, capture user input. Zero business logic. | ViewModels (read @Observable state, call actions) |
-| **ViewModels** | UI state, user action handling, coordinate repositories. One per screen/feature. | Repositories (call methods, observe streams) |
-| **Repositories** | Single API for a domain. Orchestrate network + persistence. Expose `AsyncStream` for observation. | NetworkService, PersistenceService, CryptoService |
-| **NetworkService** | WebSocket connection lifecycle, JSON-RPC framing, send/receive. Single persistent connection. | Rust server via `wss://` |
-| **PersistenceService** | GRDB database operations, migrations, observation queries. | SQLite file on disk |
-| **CryptoService** | Ed25519 key generation, message signing (JCS + sign), signature verification. Keychain access. | Apple CryptoKit, iOS Keychain |
-
-### Data Flow
-
-#### Sending a Message (Human -> Server)
+## 1. Existing-Architecture Snapshot (context, read-only)
 
 ```
-User taps Send
-  -> ThreadViewModel.sendMessage(text)
-    -> CryptoService.signEnvelope(message)       // JCS canonicalize + Ed25519 sign
-    -> MessageRepository.send(signedMessage)
-      -> PersistenceService.insert(message, status: .sending)  // Optimistic local insert
-      -> NetworkService.sendRPC("ainm.message.send", params)   // JSON-RPC request
-      -> on success: PersistenceService.update(message, status: .sent)
-      -> on failure: PersistenceService.update(message, status: .failed)
-    -> ThreadViewModel state updates via GRDB observation (automatic)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              iOS Reference Client                            │
+│  SwiftUI Views ──→ ViewModels ──→ Repositories ──→ GRDB + AINMClient         │
+│                                                     │                        │
+│                                                     │ URLSessionWebSocketTask│
+│                                                     │ + CryptoKit (Ed25519)  │
+└────────────────────────────────────────────────────┼────────────────────────┘
+                                                      │  wss:// JSON-RPC 2.0
+                                                      │  + RFC 8785 JCS sig
+┌────────────────────────────────────────────────────┼────────────────────────┐
+│                            AINM Rust Server (Axum)                            │
+│                                                      ▼                        │
+│   ws_upgrade_handler ──→ handshake (ainm.initialize/ainm.initialized)        │
+│       │                           │                                           │
+│       │                           ▼                                           │
+│       │         participant_type in capabilities?                             │
+│       │                ├── "agent"  ──→ handle_agent_connection               │
+│       │                └── "human"  ──→ handle_human_connection               │
+│       ▼                           │            │                              │
+│   HumanRegistry                   │            │                              │
+│   - connections: {user → [mpsc]}  │            │                              │
+│   - thread_participants: {tid→[u]}│            │                              │
+│                                   ▼            ▼                              │
+│              AgentRegistry  to_agent_tx (broadcast)                           │
+│              - connections: {id → [mpsc]}    ──▶ fan-out to all agents        │
+│              - agent_cards: {id → JSON}                                       │
+│                                                                               │
+│   PostgreSQL (sqlx):  threads, messages, memory_nodes (user-scoped),          │
+│                       memory_edges, archival_facts                            │
+│                                                                               │
+│   HTTP: /.well-known/ainm/{agent_name}/agent-card.json                        │
+│         /health, /health/live                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      ▲
+                                      │ outbound wss:// (NAT-friendly)
+                                      │
+┌─────────────────────────────────────┴────────────────────────────────────────┐
+│                     @ainm/connector (TS SDK) — runs as separate Node process │
+│   AINMAgent class                                                             │
+│     ├── WebSocketTransport (ws)                                               │
+│     ├── Keypair (@noble/ed25519 + @noble/hashes sha512)                       │
+│     ├── performHandshake → signInit(identity|ISO-ts)                          │
+│     ├── signEnvelope → canonicalize (npm package) + sign over canonical bytes │
+│     ├── onMessage handler → MessageContext {stream, memory, tools, send}      │
+│     └── registerTool → ainm.tool.invoke dispatch                              │
+│                                                                               │
+│   Wrappers:                                                                   │
+│     @ainm/connector-claude-code  →  spawn claude -p, stream NDJSON → deltas   │
+│     @ainm/connector-openai       →  fetch chat/completions SSE → deltas       │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Receiving a Message (Server -> Human)
+**Invariants (anchor these — do not break in v3.3):**
+
+| Invariant | Where enforced | Consequence if broken |
+|-----------|----------------|-----------------------|
+| JSON-RPC 2.0 envelope on every WS frame | `buildRequest`/`buildNotification` (TS), `protocol::new_*` (Rust) | iOS client silently drops frames |
+| Handshake sequence: `initialize` → response → `initialized` notification before any other method | `handle_ws_connection` loop (server.rs:483-507); `performHandshake` (TS) | Server returns `-32021` "Not initialized" |
+| `participant_type: "agent"` in capabilities routes to `handle_agent_connection` | server.rs:509-522 | Connector is treated as human; agent card not registered; `to_agent_tx` broadcast not subscribed |
+| RFC 8785 canonicalize-then-Ed25519-sign (no whitespace, sorted keys, signature field excluded) | `signEnvelope` (TS), `signing.rs` (Rust), `AINMSigning` (iOS) | Cross-language verification fails silently |
+| Ed25519 signatures in base64url (no padding) | `base64urlEncode` (TS) | Rust verifier rejects (uses `URL_SAFE_NO_PAD`) |
+| Memory graph is **user-scoped** (`user_addr`), not agent-scoped | `graph.rs` — every INSERT/SELECT filters on `user_addr` | Cross-agent memory sharing already supported; compound memory is a UX/policy layer on top |
+| `to_agent_tx` is a **broadcast** channel (every agent sees every human message) | server.rs:989 `state.to_agent_tx.subscribe()` | Thread-scoped delivery is currently best-effort via client-side `thread_id` filtering; see Concern 5 |
+
+**Key observations that drive v3.3 architecture:**
+
+1. The server **already** distinguishes agent vs human connections via `participant_type`. Connector SDK already sends `participant_type: "agent"` (handshake.ts:36). The AgentRegistry is **live** and stores the card derived from `ainm.initialize.capabilities`. This is the basis for iOS live Agent Discovery (concern 5).
+2. The server **does not** currently authenticate connectors beyond the signed `ainm.initialize` payload (`signature = sign(identity|timestamp)`). The `identity_store` lookup is only used for *message* verification (`handle_agent_connection` at server.rs:1030-1036), not for gating the handshake itself. This is the hole concern 4 closes.
+3. Memory is **already** compound-memory-ready at the storage layer — the `memory_nodes` table is keyed on `user_addr`, not agent identity. What's missing is the *scoping policy* (which agent can read which user's memory) and *per-user consent*.
+4. Fan-out from human to agents is currently a flat `broadcast::Sender<String>` (server.rs:210). Every agent sees every human message. Agents filter by `thread_id` client-side. This is fine for a handful of agents per server but must be tightened for multi-tenant production (and is relevant to concern 4's trust model).
+
+---
+
+## 2. Concern 1 — Python Connector SDK Integration (A5)
+
+### Goal
+`@ainm/py-connector` (working name) reaches parity with `@ainm/connector`: same handshake, same signing, same message envelopes, same memory/tool/stream callbacks. A Python connector can be swapped for a TypeScript connector with **zero server-side change**.
+
+### Cross-language Compatibility Surface
+
+**This is the critical table. Each row is a potential drift point.**
+
+| Surface | TypeScript SDK (current) | Python SDK (required) | Drift Risk |
+|---------|--------------------------|------------------------|-----------|
+| WS framing | text frames, one JSON-RPC message per frame | text frames, one JSON-RPC message per frame (`websockets` library, `websocket-client`, or `aiohttp`) | LOW — both mature WS libs |
+| JSON-RPC envelope keys | `{jsonrpc: "2.0", id, method, params}` | same | LOW |
+| Handshake payload | `{protocolVersion, identity, signature, capabilities: {streaming, subThreads, contentTypes, participant_type: "agent", toolVisibility}}` | same | MEDIUM — `participant_type` is easy to forget; see Pitfall 1 |
+| `ainm.initialize` signature | `Ed25519(UTF8(f"{identity}\|{timestamp_iso8601}"))`, base64url no-pad | same | HIGH — see "Signing Protocol Normative Pin" below |
+| Envelope canonicalization | `canonicalize` npm package (pure JS, RFC 8785) | `rfc8785` PyPI package (trailofbits, pure Python) | MEDIUM — test vector suite mandatory |
+| Envelope signing | `signEnvelope`: delete `signature` → canonicalize → `ed25519.signAsync(utf8(canonical), priv)` → base64url no-pad | same: pop `"signature"` → `rfc8785.dumps(env)` → `nacl.signing.SigningKey(priv).sign(canonical).signature` → base64.urlsafe_b64encode without `=` | HIGH — ordering mistakes silent |
+| Key generation | `@noble/ed25519` `utils.randomPrivateKey()` (32 random bytes) | `nacl.signing.SigningKey.generate()` (32 random bytes) | LOW |
+| Public key encoding | Raw 32-byte → base64url no-pad | same | LOW |
+| Stream protocol | `ainm.stream.start` + `ainm.stream.delta` + `ainm.stream.end{collapsed_message}` | same | LOW |
+| Tool protocol | `ainm.tool.invoke` in → `ainm.tool.result`/`ainm.tool.error` out; emit `started`/`progress`/`completed` | same | LOW |
+| Memory RPC | `ainm.memory.briefing`, `ainm.memory.graph.query`, `ainm.memory.graph.contribute` | same | LOW |
+
+### Recommended Python Stack
+
+| Dependency | Version (pin floor) | Rationale |
+|------------|---------------------|-----------|
+| `PyNaCl` | 1.5+ | Ed25519 via libsodium. ~10-20× faster than pure-Python `ed25519`. Maintained by PyCA. Matches security posture of TS `@noble/ed25519` (audited). |
+| `rfc8785` | 0.1+ | Pure-Python RFC 8785 JCS by Trail of Bits (security-focused shop). No deps. |
+| `websockets` | 12+ | asyncio-native. Well-maintained. Cleaner than `websocket-client` for our async model. |
+| `httpx` | 0.27+ | For HTTP calls during bridge scenarios (Agent Card fetch, etc.). |
+| `pydantic` | 2+ | Envelope/content-block type models. Matches TS `types.ts` shapes. |
+| `anyio` | 4+ | Backend-agnostic async primitives; lets the SDK work under asyncio or trio. |
+
+Python version floor: **3.11+** (for `asyncio.TaskGroup`, improved error messages).
+
+### Drift-Prevention Architecture (MANDATORY)
+
+Two SDKs means two implementations of signing, canonicalization, and framing. Drift here causes silent signature verification failures. Mitigations, in priority order:
+
+1. **NEW** `tests/cross-language/` suite at repo root. Known-good inputs (envelope JSON + private key) with expected canonical bytes and expected base64url signatures. Both SDKs run against the same vectors in CI. Authoritative vectors are produced by the **Rust server** (not by either SDK) via a new `cargo run -p ainm-demo --bin gen-vectors` utility.
+2. **NEW** Shared schema package: `schemas/connector-wire/*.schema.json` — the handshake capabilities envelope, the stream event envelope, and the tool event envelope as formal JSON Schema 2020-12. Both SDKs validate outbound frames in development mode. This catches the "forgot `participant_type`" class of bug at runtime.
+3. **NEW** `docs/SDK-PARITY.md` — a checklist of surfaces (the table above). Every PR to either SDK that changes wire shape must tick the parity checklist or be rejected.
+4. **NEW** E2E harness `tests/connector-e2e/` — spins up the Rust server, one TS connector, one Python connector, and the iOS simulator. Sends a message from iOS, asserts both connectors receive-and-respond identically.
+
+### Proposed Python Project Layout
 
 ```
-WebSocket receives ainm.message.deliver notification
-  -> NetworkService.incomingMessages AsyncStream yields
-    -> MessageRepository.handleDelivery(notification)
-      -> CryptoService.verifySignature(message)    // Verify Ed25519
-      -> PersistenceService.insertOrUpdate(message, verified: true/false)
-    -> GRDB observation fires
-      -> ThreadViewModel.messages updated automatically
-        -> SwiftUI re-renders message list
+packages/py-connector/
+├── pyproject.toml              # build config (hatch or uv)
+├── ainm_connector/
+│   ├── __init__.py             # re-export AINMAgent, Transport, types
+│   ├── agent.py                # AINMAgent class (mirrors agent.ts)
+│   ├── identity/
+│   │   ├── keypair.py          # generate_keypair, base64url_encode
+│   │   └── signing.py          # sign_init, sign_envelope, verify_envelope
+│   ├── protocol/
+│   │   ├── rpc.py              # build_request, build_notification, parse_message
+│   │   ├── handshake.py        # perform_handshake
+│   │   ├── streaming.py        # StreamHelper
+│   │   └── types.py            # Pydantic models for envelope/blocks
+│   ├── memory/
+│   │   └── context.py          # MemoryContext factory
+│   └── transport/
+│       ├── interface.py        # abstract Transport protocol
+│       └── websocket.py        # websockets-backed transport
+├── examples/
+│   └── minimal_agent.py        # 5-line hello-world like the TS README
+└── tests/
+    ├── test_signing.py         # cross-language vector verification
+    ├── test_handshake.py       # mocked transport
+    └── test_e2e.py             # spins up Rust server, asserts round-trip
 ```
 
-#### Streaming Agent Response (Server -> Human, real-time)
+**Rationale:** mirror the TS SDK's folder structure exactly. This makes drift visually obvious in code review (a file in one tree and not the other is a red flag).
+
+### Server-Side Changes
+
+**Zero.** If the wire protocol is identical, the server cannot distinguish a Python connector from a TypeScript one. This is the point.
+
+---
+
+## 3. Concern 2 — MCP Bridge Connector Architecture (A6)
+
+### Goal
+Any MCP server (filesystem, GitHub, slack, custom) becomes an AINM thread participant. Users can message the MCP bridge and invoke MCP tools; tool calls render as first-class AINM tool visibility events on iOS.
+
+### Architectural Unit: One Bridge Process per MCP Server
+
+**Decision: ONE BRIDGE PROCESS PER MCP SERVER** (not one bridge multiplexing many MCP servers).
+
+**Rationale:**
+
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| One bridge, many MCP servers | Fewer processes, unified directory | Tool-name collisions across MCP servers, one crash kills all bridges, config sprawl, mixed identity model (whose agent card do we publish?) | Reject |
+| One bridge per MCP server | Clear 1:1 mapping MCP server ↔ AINM identity, isolated failure domain, each MCP server has its own signing key, each publishes a distinct Agent Card | More processes (fine — they're cheap Node procs) | **Pick this** |
+
+The AINM identity model is already email-like (`name@provider`). One MCP server maps cleanly to one identity, e.g. `fs-mcp@localhost`, `github-mcp@localhost`. Users `@mention` exactly the capability they want. A "meta-bridge" can come later if demand exists.
+
+**Multi-MCP user experience:** a user runs several bridge processes (each wrapping one MCP server). The iOS Agent Discovery surface (concern 5) lists them all; user picks which to invite to a thread. This keeps the mental model consistent with Claude Code vs GPT bridges.
+
+### Control Flow
 
 ```
-WebSocket receives ainm.stream.start
-  -> NetworkService.streamEvents AsyncStream yields StreamStart
-    -> StreamingRepository.handleStreamStart(event)
-      -> PersistenceService.insertStreamPlaceholder(messageId, blocks)
-      -> StreamingState[streamId] = StreamBuffer(blocks: [...])
-
-WebSocket receives ainm.stream.delta (many times)
-  -> StreamingRepository.handleDelta(event)
-    -> StreamingState[streamId].appendDelta(blockIndex, text)
-    -> StreamingViewModel.liveText updated (in-memory, NOT persisted per delta)
-    -> SwiftUI re-renders incrementally
-
-WebSocket receives ainm.stream.end
-  -> StreamingRepository.handleStreamEnd(event)
-    -> PersistenceService.replaceStreamPlaceholder(
-         messageId, collapsedMessage, verified: CryptoService.verify(...)
-       )
-    -> StreamingState.remove(streamId)
-    -> GRDB observation fires -> final message rendered
+                                                        ┌────────────┐
+                                                        │ MCP Server │
+                                                        │ (stdio OR  │
+                                                        │  HTTP)     │
+                                                        └─────┬──────┘
+                                                              │ JSON-RPC
+                                                              │ (MCP wire)
+                                                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          MCP Bridge Process (Node)                       │
+│                                                                          │
+│  @modelcontextprotocol/sdk  ←→  McpClient (stdio or StreamableHTTP)      │
+│            │                         │                                   │
+│            │                         │  tools/list, tools/call,          │
+│            │                         │  resources/list, prompts/list     │
+│            │                         ▼                                   │
+│            │               MCPCapabilityCache                            │
+│            │               - tools: {name, description, inputSchema}[]   │
+│            │               - resources: {uri, mimeType}[]                │
+│            │                                                             │
+│            ▼                                                             │
+│    AINMAgent (from @ainm/connector)                                      │
+│      ├── onMessage(handler):                                             │
+│      │      parse user intent → select MCP tool → tools/call → stream    │
+│      │      progress back as ainm.tool.* events                          │
+│      └── Agent Card published with skills synthesized from MCP tools     │
+│                                                                          │
+└────────────────────────────────────────────────────────────────────────┬┘
+                                                                          │
+                                                              wss:// JSON-RPC
+                                                              (AINM wire)
+                                                                          ▼
+                                                              ┌─────────────┐
+                                                              │ AINM Server │
+                                                              └─────────────┘
 ```
 
-**Critical design decision:** Stream deltas are held in-memory only. The collapsed signed message at stream-end is what gets persisted to GRDB. This matches the protocol's design (deltas are ephemeral, only the collapsed message is signed and canonical).
-
-#### Offline / Reconnection Flow
+### Control Flow — Tool Invocation Path
 
 ```
-Connection drops (detected by URLSessionWebSocketTask delegate)
-  -> NetworkService.connectionState = .disconnected
-    -> All ViewModels observe this state -> show offline banner
-
-User sends message while offline:
-  -> PersistenceService.insert(message, status: .queued)
-  -> Message appears in UI with "pending" indicator
-
-Connection restored:
-  -> NetworkService performs ainm.initialize handshake
-  -> NetworkService.connectionState = .connected
-  -> MessageRepository.flushQueuedMessages()
-    -> For each queued message: send via WebSocket, update status
-  -> Server may deliver missed messages via ainm.message.deliver
-    -> Normal receive flow handles them
+[iOS user types "read README.md"]
+        │
+        ▼  ainm.message.send (signed envelope)
+┌───────────────────────────────┐
+│ AINM Server                    │
+│ - verify signature             │
+│ - broadcast via to_agent_tx    │
+└───────────────┬───────────────┘
+                │ ainm.message.deliver
+                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ MCP Bridge Process                                                        │
+│                                                                            │
+│ 1. AINMAgent.onMessage receives message.text = "read README.md"            │
+│                                                                            │
+│ 2. Tool-selection strategy:                                                │
+│    (a) LLM-assisted: ask a local/API model "which MCP tool + args"         │
+│    (b) Explicit: user @mentions the tool, e.g. "@fs-mcp:read_file README"  │
+│    (c) Natural-language heuristic: match user text to MCP tool descriptions│
+│    → v3.3 ships (b) + (c). (a) deferred to v3.4.                           │
+│                                                                            │
+│ 3. ctx.emitToolStarted("read_file", {path: "README.md"})                   │
+│    ──▶ server receives ainm.tool.started                                   │
+│    ──▶ iOS renders "read_file" indicator (existing Phase 13 UI)            │
+│                                                                            │
+│ 4. mcpClient.callTool({name: "read_file", arguments: {path: ...}})         │
+│    ──▶ stdin JSON-RPC to MCP server                                        │
+│    ◀── stdout JSON-RPC response (may include error; may include resources) │
+│                                                                            │
+│ 5. ctx.emitToolCompleted("read_file", {result: fileContents})              │
+│    ──▶ server receives ainm.tool.completed                                 │
+│    ──▶ iOS renders completion                                              │
+│                                                                            │
+│ 6. ctx.stream().delta(fileContents) + ctx.stream().end()                   │
+│    ──▶ iOS renders streamed response                                       │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Component Design Details
+### Bridge Configuration
 
-### 1. NetworkService (Singleton)
-
-The single most important component. Manages the one WebSocket connection to the server.
-
-```swift
-@Observable
-final class NetworkService {
-    // Connection state
-    enum ConnectionState { case disconnected, connecting, handshaking, connected }
-    var connectionState: ConnectionState = .disconnected
-
-    // Outbound
-    func sendRequest(method: String, params: Encodable) async throws -> JSONRPCResponse
-    func sendNotification(method: String, params: Encodable) async throws
-
-    // Inbound streams (multiplexed from single WebSocket)
-    var messageDeliveries: AsyncStream<MessageDeliverParams>
-    var streamEvents: AsyncStream<StreamEvent>        // start/delta/end/error
-    var presenceUpdates: AsyncStream<PresenceUpdate>
-    var memoryNotifications: AsyncStream<MemoryEvent>
-    var contextFrames: AsyncStream<ContextFrame>
-
-    // Lifecycle
-    func connect(to url: URL, identity: String, signature: String) async throws
-    func disconnect() async
-}
-```
-
-**Implementation pattern:** The WebSocket receive loop runs as a detached Task. It deserializes each incoming JSON-RPC message, inspects the `method` field, and routes to the appropriate `AsyncStream.Continuation.yield()`. Pending requests (messages with `id`) are tracked in a `[String: CheckedContinuation]` dictionary for request/response correlation.
-
-**Why a single connection:** The AINM transport spec (Section 4.1) specifies one connection per client session. All JSON-RPC methods are multiplexed on this single WebSocket.
-
-### 2. PersistenceService (GRDB)
-
-Uses GRDB.swift with `DatabaseQueue` (single-connection, appropriate for a single-user iOS app). Provides both write operations and observation-based reads.
-
-**Database schema (key tables):**
+**NEW:** `packages/connector-mcp/config-schema.json` defines bridge configuration. CLI args and env vars map to this schema.
 
 ```
-threads
-  - id TEXT PRIMARY KEY          -- UUIDv7
-  - title TEXT
-  - created_at TEXT              -- RFC 3339
-  - updated_at TEXT
-  - last_message_preview TEXT
-  - unread_count INTEGER DEFAULT 0
-  - is_sub_thread INTEGER DEFAULT 0
-  - parent_thread_id TEXT
-
-messages
-  - id TEXT PRIMARY KEY          -- UUIDv7 (from protocol)
-  - thread_id TEXT NOT NULL      -- FK to threads
-  - from_address TEXT NOT NULL   -- AINM address
-  - timestamp TEXT NOT NULL      -- RFC 3339
-  - type TEXT NOT NULL           -- "message", "action", "system"
-  - content_json TEXT NOT NULL   -- JSON array of content blocks
-  - signature TEXT
-  - verified INTEGER             -- 0/1/NULL
-  - status TEXT NOT NULL         -- "sending", "sent", "delivered", "failed", "queued"
-  - stream_id TEXT               -- non-null during active streaming
-  - INDEX idx_messages_thread ON messages(thread_id, timestamp)
-
-participants
-  - thread_id TEXT NOT NULL
-  - address TEXT NOT NULL
-  - type TEXT NOT NULL           -- "human" or "agent"
-  - presence TEXT                -- "online", "offline", "available"
-  - PRIMARY KEY (thread_id, address)
-
-archival_facts
-  - fact_id TEXT PRIMARY KEY
-  - key TEXT NOT NULL
-  - value_json TEXT NOT NULL
-  - tags_json TEXT
-  - stored_by TEXT NOT NULL
-  - stored_at TEXT NOT NULL
-
-identity
-  - address TEXT PRIMARY KEY
-  - display_name TEXT
-  - type TEXT                    -- "human" or "agent"
-  - public_key_base64 TEXT
-  - server_url TEXT
-
-agent_cards
-  - address TEXT PRIMARY KEY
-  - card_json TEXT NOT NULL      -- Full Agent Card JSON
-  - etag TEXT                    -- For conditional GET caching
-  - fetched_at TEXT
+ainm-mcp-bridge \
+  --server wss://localhost:8080/ws \
+  --identity fs-mcp@localhost \
+  --name "Filesystem (MCP)" \
+  --mcp-transport stdio \
+  --mcp-command "npx @modelcontextprotocol/server-filesystem /data" \
+  --mcp-timeout-ms 30000
 ```
 
-**Observation pattern (GRDB ValueObservation):**
-
-```swift
-// In MessageRepository:
-func observeMessages(threadId: String) -> AsyncValueObservation<[Message]> {
-    let observation = ValueObservation.tracking { db in
-        try Message
-            .filter(Column("thread_id") == threadId)
-            .order(Column("timestamp"))
-            .fetchAll(db)
-    }
-    return observation.values(in: database) // AsyncSequence
-}
-```
-
-ViewModels consume these as `AsyncStream` / `AsyncSequence`, which triggers SwiftUI re-renders automatically when the database changes.
-
-### 3. CryptoService
-
-Wraps Apple CryptoKit for AINM's specific signing requirements.
-
-```swift
-final class CryptoService {
-    // Key management
-    func generateKeyPair() -> Curve25519.Signing.PrivateKey
-    func storePrivateKey(_ key: Curve25519.Signing.PrivateKey, for address: String) // Keychain
-    func loadPrivateKey(for address: String) -> Curve25519.Signing.PrivateKey?   // Keychain
-
-    // Message signing (matches server's signing.rs exactly)
-    func signEnvelope(_ envelope: inout [String: Any]) throws -> String
-    // 1. Remove "signature" key
-    // 2. JCS canonicalize (RFC 8785) -- sorted keys, no whitespace
-    // 3. Sign canonical UTF-8 bytes with Ed25519
-    // 4. Base64url encode (no padding)
-    // 5. Set envelope["signature"]
-
-    // Verification
-    func verifySignature(publicKey: Data, envelope: [String: Any]) throws -> Bool
-
-    // Init signing (transport.md Section 4.3)
-    func signInit(identity: String) throws -> String
-    // Signs: "identity|timestamp" with Ed25519
-}
-```
-
-**JCS (RFC 8785) implementation note:** There is no established Swift library for JSON Canonicalization Scheme. We need to implement it -- it is straightforward (serialize JSON with sorted keys, no extra whitespace, specific number formatting). This is the same algorithm the Rust server uses via `serde_json_canonicalizer`. The implementation is ~100 lines and must produce byte-identical output to the server's version for signatures to verify.
-
-### 4. Repository Layer
-
-Each repository coordinates one domain across network + persistence:
-
-| Repository | Network Methods | Persistence Tables | Key Responsibility |
-|-----------|----------------|-------------------|-------------------|
-| **MessageRepository** | `ainm.message.send`, handles `ainm.message.deliver` | `messages` | Send messages, persist deliveries, flush offline queue |
-| **ThreadRepository** | `ainm.thread.create`, `ainm.thread.join`, `ainm.thread.leave` | `threads`, `participants` | Thread CRUD, participant management |
-| **StreamingRepository** | Handles `ainm.stream.start/delta/end/error/cancel` | `messages` (for collapsed) | In-memory stream buffer, collapse to persistence |
-| **MemoryRepository** | `ainm.memory.store/query/evict`, handles `ainm.context.frame` | `archival_facts` | Memory operations, context frame display |
-| **AgentRepository** | HTTP GET `/.well-known/ainm/{name}/agent-card.json` | `agent_cards` | Agent Card discovery with ETag caching |
-| **IdentityRepository** | HTTP GET identity resolution | `identity` | Identity resolution, key caching |
-
-### 5. ViewModel Layer
-
-| ViewModel | Screens | Key State |
-|-----------|---------|-----------|
-| **ConversationListVM** | Conversation list (home screen) | `[ThreadSummary]`, sorted by last activity |
-| **ThreadVM** | Message thread view | `[Message]`, `[Participant]`, send action |
-| **StreamingVM** | Embedded in ThreadVM | `[StreamId: LiveStreamState]` with in-memory delta text |
-| **AgentCardVM** | Agent detail/discovery view | `AgentCard`, capabilities list |
-| **MemoryVM** | Memory context display | `[ArchivalFact]`, context frames |
-| **SettingsVM** | Identity/connection settings | `ConnectionState`, identity address |
-
-## Patterns to Follow
-
-### Pattern 1: Database as Single Source of Truth (Write-Through Cache)
-
-**What:** All server data writes to GRDB first, then UI observes GRDB. Never hold message state only in ViewModel memory (except streaming deltas).
-
-**When:** Every received message, thread update, participant change.
-
-**Why:** Guarantees consistency. If the app crashes mid-operation, state is recoverable. GRDB observation handles UI updates automatically -- no manual state synchronization.
-
-```swift
-// GOOD: Write-through
-func handleDelivery(_ notification: MessageDeliverParams) async throws {
-    let message = Message(from: notification)
-    try await database.write { db in
-        try message.save(db)    // GRDB handles INSERT or UPDATE
-    }
-    // UI updates automatically via ValueObservation -- no explicit notification needed
-}
-
-// BAD: ViewModel-only state
-func handleDelivery(_ notification: MessageDeliverParams) {
-    messages.append(Message(from: notification))  // Lost on app restart
-}
-```
-
-### Pattern 2: AsyncStream Demultiplexer for WebSocket
-
-**What:** Single WebSocket receive loop demultiplexes by JSON-RPC method into typed AsyncStreams.
-
-**When:** Always. The AINM protocol multiplexes all operations on one WebSocket.
-
-```swift
-private func receiveLoop() async {
-    while let message = try? await webSocket.receive() {
-        guard case .string(let text) = message,
-              let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-              let method = json["method"] as? String else {
-            // No "method" field = this is a JSON-RPC response (has "id" + "result"/"error")
-            if let id = (json?["id"] as? String) ?? (json?["id"] as? Int).map(String.init) {
-                pendingRequests[id]?.resume(returning: json!)
-            }
-            continue
-        }
-
-        switch method {
-        case "ainm.message.deliver":
-            messageDeliveryContinuation.yield(decode(json))
-        case "ainm.stream.start", "ainm.stream.delta", "ainm.stream.end", "ainm.stream.error":
-            streamEventContinuation.yield(decode(json))
-        case "ainm.presence.update":
-            presenceContinuation.yield(decode(json))
-        case "ainm.context.frame":
-            contextFrameContinuation.yield(decode(json))
-        case "ainm.memory.stored", "ainm.memory.evicted", "ainm.memory.query.result":
-            memoryContinuation.yield(decode(json))
-        default:
-            break // Unknown notification, ignore
-        }
-    }
-}
-```
-
-### Pattern 3: Optimistic UI for Sending
-
-**What:** Insert messages locally with `status: .sending` before server confirms. Update to `.sent` on success, `.failed` on error.
-
-**When:** Every outbound message.
-
-**Why:** Instant UI feedback. Messages appear immediately in the thread. Standard pattern in all modern messaging apps (iMessage, WhatsApp, Telegram).
-
-### Pattern 4: Streaming Delta Buffer (In-Memory Only)
-
-**What:** Accumulate stream deltas in-memory per `stream_id`. Only persist the final collapsed message.
-
-**When:** All agent streaming responses.
-
-**Why:** Protocol design -- deltas are ephemeral, unsigned. Persisting hundreds of deltas per message would thrash the database. The collapsed signed message at `ainm.stream.end` is the canonical record.
-
-```swift
-@Observable
-class StreamBuffer {
-    let streamId: String
-    let messageId: String
-    var blockTexts: [String]    // One entry per block in the layout
-    var isComplete: Bool = false
-}
-```
-
-### Pattern 5: Request/Response Correlation with CheckedContinuation
-
-**What:** For JSON-RPC requests (messages with `id`), use a `[String: CheckedContinuation]` map to bridge the async gap between sending a request and receiving its response.
-
-**When:** All outbound JSON-RPC requests (`ainm.message.send`, `ainm.thread.create`, etc.).
-
-```swift
-func sendRequest<T: Decodable>(method: String, params: Encodable) async throws -> T {
-    let id = UUID().uuidString
-    let rpcRequest = JSONRPCRequest(jsonrpc: "2.0", id: id, method: method, params: params)
-
-    return try await withCheckedThrowingContinuation { continuation in
-        pendingRequests[id] = continuation
-        webSocket.send(.string(encode(rpcRequest))) { error in
-            if let error {
-                pendingRequests.removeValue(forKey: id)
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-}
-```
-
-## Anti-Patterns to Avoid
-
-### Anti-Pattern 1: Parsing JSON-RPC in ViewModels
-
-**What:** ViewModel directly deserializes raw WebSocket JSON.
-
-**Why bad:** Couples UI layer to wire protocol. Makes testing impossible without mocking WebSocket.
-
-**Instead:** NetworkService handles all JSON-RPC framing. Repositories handle all protocol-specific logic. ViewModels work with domain model types only.
-
-### Anti-Pattern 2: Multiple WebSocket Connections
-
-**What:** Opening separate WebSocket connections for different features (one for messages, one for streaming, etc.).
-
-**Why bad:** Protocol violation -- AINM specifies one connection per session. Also wastes resources and complicates session state.
-
-**Instead:** Single NetworkService singleton with one WebSocket, demultiplexed streams.
-
-### Anti-Pattern 3: Persisting Stream Deltas
-
-**What:** Writing every `ainm.stream.delta` to GRDB.
-
-**Why bad:** Hundreds of database writes per agent response. Deltas are unsigned and ephemeral by protocol design. Causes UI flicker from rapid observation updates.
-
-**Instead:** In-memory `StreamBuffer`. Persist only the final collapsed message from `ainm.stream.end`.
-
-### Anti-Pattern 4: SwiftData for Messages
-
-**What:** Using SwiftData instead of GRDB for message persistence.
-
-**Why bad:** SwiftData lacks background write support (messages arrive on WebSocket task, not main thread). Performance degrades with large datasets. No raw SQL for complex queries (unread counts, search). Missing observation granularity.
-
-**Instead:** GRDB.swift with `ValueObservation` provides exactly the observation + background-write + raw-SQL combination messaging apps need.
-
-### Anti-Pattern 5: Re-implementing JSON-RPC Framing Ad Hoc
-
-**What:** Hand-rolling JSON-RPC request/response/notification handling scattered across the codebase.
-
-**Why bad:** Error-prone, misses edge cases (error codes, null IDs, notifications vs requests).
-
-**Instead:** Build a small but complete `JSONRPCCodec` layer that handles all framing concerns once. ~200 lines that correctly handles requests, responses, notifications, and errors per the JSON-RPC 2.0 spec.
-
-## Sync Strategy
-
-### Online-First, Offline-Tolerant
-
-This is NOT an offline-first app. The server is authoritative. But the app must handle:
-
-1. **Brief disconnections** (tunnel, elevator, network switch): Queue outbound messages locally, flush on reconnect. Inbound messages delivered by server on reconnect.
-
-2. **App backgrounding**: iOS suspends the app. On foreground, reconnect WebSocket, receive any queued deliveries from server.
-
-3. **Cold start with cached data**: Show conversation list and recent messages from GRDB immediately while WebSocket connects in background.
-
-**What we do NOT need for v1:**
-- Conflict resolution (server is authoritative)
-- CRDTs or operational transforms (messages are append-only)
-- Background sync daemon (iOS kills background WebSocket connections anyway)
-- Delta sync / incremental fetch (server delivers missed messages on reconnect)
-
-### Reconnection Strategy
+For Streamable HTTP MCP servers:
 
 ```
-Disconnect detected
-  -> Wait 1s, attempt reconnect
-  -> If fail: exponential backoff (1s, 2s, 4s, 8s, max 30s)
-  -> On success: full ainm.initialize handshake
-  -> Server delivers any messages queued during offline period
-  -> Flush local outbound queue
+ainm-mcp-bridge \
+  --server wss://localhost:8080/ws \
+  --identity github-mcp@localhost \
+  --name "GitHub (MCP)" \
+  --mcp-transport http \
+  --mcp-url https://mcp.example.com/sse \
+  --mcp-auth-bearer $GITHUB_MCP_TOKEN
 ```
 
-## Build Order (Suggested Phase Sequence)
+### MCP → AINM Agent Card Synthesis
 
-The layers have hard dependencies. Build bottom-up:
+On bridge start:
 
-### Phase 1: Foundation (no server needed)
-1. **Xcode project setup** -- SPM, target config, iOS 18 minimum
-2. **GRDB schema + PersistenceService** -- migrations, all tables, basic CRUD
-3. **CryptoService** -- Ed25519 keygen, JCS canonicalization, signing, verification
-4. **Domain models** -- Swift types for Message, Thread, Participant, ContentBlock, etc.
-5. **Unit tests** -- Verify signing produces output compatible with Rust server's `signing.rs`
+1. Bridge connects to MCP server, calls `tools/list`, `resources/list`, `prompts/list`.
+2. Bridge builds AINM Agent Card capabilities:
+   - Each MCP tool becomes an AINM **skill** with `name`, `description`, `input_schema` (MCP already ships JSON Schema).
+   - `capabilities.toolVisibility = true`.
+   - `contentTypes` defaults to `["text"]` plus any content types the MCP server's resources expose.
+3. Bridge sends the synthesized card via `ainm.initialize.capabilities`. Server's `handle_agent_connection` stores it in `AgentRegistry.agent_cards`.
 
-**Rationale:** Crypto compatibility is the riskiest integration point. Validating early that Swift's CryptoKit Ed25519 + our JCS implementation produces identical signatures to the Rust server prevents late-stage rework.
+### Risks
 
-### Phase 2: Network Layer (needs running server)
-6. **JSONRPCCodec** -- Encode/decode JSON-RPC 2.0 requests, responses, notifications
-7. **NetworkService** -- WebSocket connection, init handshake, receive loop, demux
-8. **Request/response correlation** -- CheckedContinuation map for RPC calls
-9. **Integration test** -- Connect to demo server, complete handshake, send/receive one message
+| Risk | Mitigation |
+|------|------------|
+| MCP tool name collisions if bridge multiplexes servers (rejected above — single-server per bridge) | Architecture decision sidesteps this |
+| MCP stdio process dies | Bridge supervises child; on exit, agent re-registers with "degraded" capability or disconnects entirely |
+| MCP tool call blocks indefinitely | `--mcp-timeout-ms` (default 30s); timeout emits `ainm.tool.error` |
+| MCP returns large resources (e.g. 50 MB file) | Bridge truncates to configurable limit (default 1 MB) and includes a warning; full content available via MCP resources URI if iOS adds resource fetching later |
+| MCP `elicitation/create` (interactive clarification) — MCP 2025-06-18 feature | v3.3 scope: decline elicitation requests with a polite error. Full bridging to AINM ApprovalBlock is a v3.4 follow-up. |
+| Tool-selection quality (no LLM in the loop) | Explicit `@tool-name: args` syntax + naive keyword match for v3.3; document that LLM-assisted selection is v3.4 |
 
-### Phase 3: Core Messaging (server + persistence + network integrated)
-10. **MessageRepository** -- Send, receive, persist, optimistic UI
-11. **ThreadRepository** -- Create thread, manage participants
-12. **ThreadViewModel + ThreadView** -- Message list, send input, basic rendering
-13. **ConversationListViewModel + ConversationListView** -- Thread list with last message preview
-14. **ContentBlockRenderer** -- Render text, code, image, file blocks in SwiftUI
+---
 
-### Phase 4: Real-Time Features
-15. **StreamingRepository + StreamBuffer** -- Handle stream lifecycle
-16. **StreamingViewModel** -- Live text updates in thread view
-17. **Interactive block renderers** -- Button, Form, Table, Approval, Action blocks
-18. **Presence indicators** -- Online/offline/available status display
+## 4. Concern 3 — OpenAI Responses API Integration
 
-### Phase 5: Advanced Features
-19. **MemoryRepository + MemoryVM** -- Context frames, archival facts display
-20. **AgentRepository + AgentCardVM** -- Agent Card discovery with ETag caching
-21. **IdentityRepository + SettingsVM** -- Identity management, connection settings
-22. **Offline queue** -- Queue outbound messages, flush on reconnect
+### Current State
 
-### Phase 6: Polish
-23. **Navigation** -- NavigationStack with deep linking
-24. **Error handling** -- Network errors, signing failures, UI feedback
-25. **Accessibility** -- VoiceOver, Dynamic Type
-26. **Performance** -- Profile GRDB queries, optimize list rendering
+`@ainm/connector-openai` uses `chat/completions` in **stateless** mode: every AINM message becomes a one-turn request with a system prompt. No conversation history is sent beyond the current message. This is broken — the LLM cannot see what was said earlier in the AINM thread. Works-for-hello, fails-for-anything-real.
 
-**Dependency graph:**
+### Target: Responses API with Thread Mapping
+
+The Responses API (GA since 2025) supports stateful conversations via `store: true` + `previous_response_id`. Caching gains (40-80%) and reasoning-model support (GPT-5) make this the default path for new work.
+
+### Mapping AINM Threads ↔ OpenAI Responses
+
+**Decision: 1:1 mapping AINM thread_id ↔ OpenAI response chain.**
+
+The bridge maintains a local map `{ainm_thread_id: {last_response_id, store_enabled}}`. First user message in a thread → `POST /v1/responses` with no `previous_response_id`. Subsequent messages in the same thread → include the last `response.id`. On connector restart the map rebuilds by scanning AINM message history (bounded — see below).
+
+| AINM event | Responses API action |
+|------------|----------------------|
+| User sends first message in thread T | `POST /v1/responses` with `store: true`, no `previous_response_id`. Save `response.id` keyed on T. |
+| User sends Nth message in thread T | `POST /v1/responses` with `previous_response_id = last(T)`. Update last(T). |
+| User creates sub-thread of T | **NEW decision:** sub-thread gets its own OpenAI response chain. AINM sub-thread starts fresh, `previous_response_id` null. (Alternative: inherit parent chain. Rejected — AINM sub-threads are semantically "fork from here for a tangent", not "continuation".) |
+| Connector restart | On first message in thread T after restart, scan AINM message history for T's last OpenAI response hint (stored by bridge in `ainm.memory.graph.contribute` with tag `openai:response_id`). If absent, start fresh chain. |
+| User archives/evicts a message | No-op in Responses API (OpenAI retains state for 30 days). Document this as a known gap. |
+
+**Many-to-1 rejected.** A single OpenAI response chain covering multiple AINM threads blows the "thread as isolated context" invariant and defeats sub-threading.
+
+### Server-Side Tool Execution (OpenAI-Hosted Tools)
+
+The Responses API offers built-in tools: web search, code interpreter, file search, computer use. Tool execution runs on OpenAI servers; we see the tool call + result in the response stream, not control over invocation.
+
+**This is a surprise for AINM tool visibility** — AINM's contract is "every tool call in a thread is visible to every participant." With OpenAI hosting the tool, the connector cannot naturally emit `started` before the tool runs (we only learn about it post-hoc in the streamed response) nor intervene for approval.
+
+**Proposed handling:**
+
+1. Responses API streams back typed events: `response.output_item.added`, `response.function_call_arguments.delta`, `response.file_search.started`, `response.file_search.completed`, etc.
+2. Connector maps these to AINM tool events:
+   - `response.web_search.started` → `ainm.tool.started` with `tool: "openai:web_search"`
+   - `response.web_search.completed` → `ainm.tool.completed` with result summary
+   - `response.output_text.delta` → `ainm.stream.delta`
+3. Prefix all OpenAI-hosted tool names with `openai:` so iOS can disambiguate from connector-hosted tools. This keeps the invariant "all tool calls visible to the thread" honest — users see `openai:web_search` run.
+4. **Document the limitation:** AINM's ApprovalBlock gate cannot intercept OpenAI-hosted tools (they execute on OpenAI infra). For user-approval-required flows, the user must use a connector that hosts tools locally (Claude Code, MCP bridge).
+
+### Migration Strategy
+
+1. Keep `chat/completions` code path under `--api-mode chat` (default for Ollama, Together, Groq, and OpenAI-compatible servers that don't implement Responses).
+2. Add `--api-mode responses` (default when `--base-url` is `api.openai.com`). CLI auto-detection: if base URL matches `api.openai.com`, default to `responses`.
+3. For `responses` mode, use official `openai` npm SDK (has first-class Responses API support) rather than raw `fetch`.
+
+### Compound Memory Interaction
+
+`ctx.memory.getBriefing()` currently returns a blob prepended to the system prompt. With stateful Responses API this is wasteful — the briefing is re-sent every turn.
+
+**NEW behavior:** briefing sent only on the **first** message of a thread (when `previous_response_id` is null). Subsequent turns rely on OpenAI's stored context. When briefing content changes (new compound memory facts committed), the bridge forces a fresh chain on next message and re-injects the updated briefing.
+
+---
+
+## 5. Concern 4 — Connector Auth/Identity Architecture
+
+### Current Trust Model (the hole)
+
 ```
-Phase 1 (Foundation) ----+
-                         |
-Phase 2 (Network) ------+---> Phase 3 (Core Messaging)
-                                |
-                         +------+-------+
-                         |              |
-                   Phase 4 (RT)    Phase 5 (Advanced)
-                         |              |
-                         +------+-------+
-                                |
-                          Phase 6 (Polish)
+connector: signInit("claude-code@localhost", "2026-04-18T12:00:00Z")
+           → base64url(Ed25519 sig)
+           → ainm.initialize {identity, signature, capabilities}
+
+server:    handle_ws_connection → reads init_req.identity ("claude-code@localhost")
+           → sends init response immediately
+           → **does NOT verify the signature against any known public key**
+           → only when agent later sends ainm.message.send does signing.rs:verify_signature run
+             against identity_store.get_public_key_bytes(from) — and that store is
+             seeded only with bootstrap identities (see identity.rs).
 ```
 
-## Scalability Considerations
+**Impact:** any process that can reach the WS port can claim any identity. Signed envelopes afterward only work if the server happens to have the public key for that identity on file — which is a soft fence, not a hard auth gate. For v3.3 production paths (MCP bridges, third-party connectors, OpenAI bridge with API keys), we need a real trust anchor.
 
-| Concern | At 10 conversations | At 100 conversations | At 1000+ conversations |
-|---------|---------------------|----------------------|------------------------|
-| Message list | No issues | SQLite indexed query, fine | Need pagination (GRDB `limit/offset` or cursor) |
-| GRDB observation | Instant | Instant | Use `DatabaseRegionObservation` for targeted observation |
-| WebSocket throughput | Trivial | Fine | One connection handles thousands of messages/sec |
-| Streaming | 1 concurrent stream | Multiple OK | Bound stream buffers to cap memory |
-| SQLite file size | KB | Low MB | Implement message archival/cleanup strategy |
+### Proposed Model: Server-Managed Connector Allowlist with First-Run TOFU
 
-## Key Integration Points with Rust Server
+Trust anchor lives in a **NEW** `connector_keys` table keyed by `(user_addr, agent_identity) → public_key_b64`. The user (via iOS app or out-of-band CLI) enrolls a connector's public key before first use.
 
-| Integration Point | Server Side | iOS Side | Verification Method |
-|-------------------|-------------|----------|-------------------|
-| WebSocket handshake | `ws_upgrade_handler` + `ainm.initialize` | `NetworkService.connect()` | Successful capability exchange |
-| JSON-RPC framing | `protocol.rs` types | `JSONRPCCodec` | Round-trip encode/decode test |
-| Ed25519 signing | `signing.rs` + `ring` | `CryptoService` + CryptoKit | Sign on iOS, verify on server (and vice versa) |
-| JCS canonicalization | `serde_json_canonicalizer` | Custom Swift implementation | Byte-identical canonical output for same input |
-| Message envelope | `ainm.message.send` params | `Message` model | Schema compliance (JSON Schema 2020-12) |
-| Stream lifecycle | `streaming.rs` | `StreamingRepository` | Start/delta/end sequence correctly handled |
-| Content blocks | JSON content array | `ContentBlock` enum + renderers | All 9 block types rendered (text, code, image, file, button, form, table, approval, action) |
-| Agent Card | `agent_card_handler` with ETag | `AgentRepository` HTTP GET | Conditional GET, ETag caching |
-| Thread creation | `ainm.thread.create` handler | `ThreadRepository` | Thread ID returned and persisted |
-| Memory operations | `ainm.memory.store/query/evict` handlers | `MemoryRepository` | Facts stored and retrieved |
-| Presence updates | `ainm.presence.update` notifications | `participants` table + UI | Status reflected in thread participant list |
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Enrollment Flow (first run)                  │
+│                                                                      │
+│ Connector process:                                                   │
+│   1. Generate Ed25519 keypair (if no key in $XDG_CONFIG_HOME)        │
+│   2. Derive pubkey, print:                                           │
+│        "Connector public key: <base64url>"                           │
+│        "Enroll via: ainm-cli enroll --agent claude-code@localhost \  │
+│                       --user santiago@localhost \                    │
+│                       --pubkey <base64url>"                          │
+│                                                                      │
+│ User (on iOS or via CLI):                                            │
+│   3. Invokes enrollment RPC (signed by user's human key):            │
+│      ainm.connector.enroll {agent_identity, pubkey, allow_scopes}    │
+│                                                                      │
+│ Server:                                                              │
+│   4. Verifies the request is signed by a known human identity        │
+│   5. Inserts into connector_keys table                               │
+│   6. Acks                                                            │
+│                                                                      │
+│ Connector (next restart):                                            │
+│   7. ainm.initialize now has a known-good key on file                │
+│   8. Handshake signature is verified server-side before accepting    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### MODIFIED: `handle_ws_connection`
+
+```
+Before (today):
+  read init_req → send init response → wait for initialized → route
+
+After (v3.3):
+  read init_req → look up expected pubkey for init_req.identity
+                  ├── found:
+                  │     verify init signature with that pubkey
+                  │     ├── valid → send init response
+                  │     └── invalid → close(-32022 "Invalid signature")
+                  └── not found:
+                        ├── if server is in "TOFU" mode (dev default):
+                        │     accept, persist pubkey as trust-on-first-use,
+                        │     warn in logs
+                        └── if server is in "strict" mode (production default):
+                              close(-32023 "Unknown agent identity")
+  → wait for initialized → route
+```
+
+### Relationship Between Connector Identity Key and Agent Signing Key
+
+**Decision: they are the SAME key.**
+
+Why: the connector's identity (the thing the handshake proves) and the message-signing identity (the thing each envelope proves) should be the same principal. Splitting them adds a certificate layer we don't need, and the user's mental model is "this connector speaks as this agent" — one key per agent identity.
+
+Corollary: the `connector_keys` table **is** the agent's pubkey source of truth. `identity_store.get_public_key_bytes` in message verification should consult `connector_keys` for agent identities (today it reads from a bootstrap file).
+
+### Auth for Connector → Upstream Runtime (API keys, OAuth)
+
+This is orthogonal to AINM auth, but v3.3 needs to document it:
+
+| Runtime | Auth | Where it lives | Documented in v3.3 |
+|---------|------|----------------|---------------------|
+| Claude Code CLI | Anthropic console OAuth (via `claude login`) OR `ANTHROPIC_API_KEY` | `~/.claude/` (OAuth) or env var | yes — both paths supported today; doc clarifies tradeoffs |
+| OpenAI | `OPENAI_API_KEY` env var (existing) | connector process env | yes |
+| OpenAI-compatible (Ollama, Together, Groq) | `--api-key` or env (may be empty for local) | connector process env | yes |
+| MCP server (HTTP transport) | `--mcp-auth-bearer`, `--mcp-oauth` (deferred to v3.4) | connector process env | partial — bearer only for v3.3 |
+| MCP server (stdio) | environment of the child process | passed through via `--mcp-env` | yes |
+
+**Key architectural point:** AINM never sees upstream credentials. They stay in the connector process. This is the correct trust boundary — the AINM server is a transport, not a credential broker.
+
+### Error Codes (additions to transport.md)
+
+| Code | Meaning |
+|------|---------|
+| -32022 | Invalid handshake signature |
+| -32023 | Unknown agent identity (strict mode, no `connector_keys` row) |
+| -32024 | Pubkey mismatch (enrolled key differs from handshake claim) |
+
+---
+
+## 6. Concern 5 — iOS Live Agent Discovery
+
+### Current Behavior
+
+iOS `AgentCardService` (from Phase 13) fetches `GET /.well-known/ainm/{name}/agent-card.json` over HTTP with ETag caching. This is pull-only. It returns whatever the server has configured, independent of whether the agent is actually connected.
+
+### Target: Live Discovery Reflecting Connected Agents
+
+Iosapp should surface which agents are **currently connected** (from `AgentRegistry`), not just which have a card on file. Push updates when agents connect/disconnect.
+
+### Option Analysis
+
+| Option | Fit with existing model | Verdict |
+|--------|-------------------------|---------|
+| (a) Poll `/.well-known/ainm/directory` every N seconds | Works but spammy, high battery cost on iOS, stale by up to N seconds | Reject for primary path; useful as fallback |
+| (b) JSON-RPC notification `ainm.agents.updated` pushed via HumanRegistry | Uses existing WS channel; fits HumanRegistry.send_to_all; low code impact | **Pick this** |
+| (c) Dedicated pub/sub channel (Redis, NATS) | Overkill for single-server deployment; doesn't interop with our "single Axum process" architecture | Reject |
+
+### Spec Change Required
+
+**NEW method `ainm.directory.list`** (request) — returns currently connected agents' cards:
+
+```
+→ {method: "ainm.directory.list", params: {}}
+← {result: {agents: [{identity, name, capabilities, connected_at, skills}]}}
+```
+
+**NEW notification `ainm.directory.updated`** (server → human clients) — emitted on agent connect/disconnect:
+
+```
+← {method: "ainm.directory.updated",
+   params: {event: "connected"|"disconnected", agent: {identity, name, ...}}}
+```
+
+**NEW HTTP endpoint `GET /.well-known/ainm/directory`** — JSON list of Agent Cards. Used for:
+- Unauthenticated discovery (federation, docs, UI previews)
+- Cold-start when iOS connects (fetch once, then listen for updates)
+
+### Server Integration Points
+
+1. **MODIFIED** `AgentRegistry::register`: after inserting, broadcast `ainm.directory.updated{event: "connected"}` to all human connections via `HumanRegistry.send_to_all`.
+2. **MODIFIED** `AgentRegistry::cleanup`: when last connection for an identity drops, broadcast `event: "disconnected"`.
+3. **NEW** `AgentRegistry::list_cards() -> Vec<AgentCard>`: returns all currently connected agents' cards (public method).
+4. **NEW** handler for `ainm.directory.list` JSON-RPC method in `handle_human_connection`.
+5. **NEW** HTTP route `GET /.well-known/ainm/directory` returning `list_cards()` as JSON array.
+
+### iOS Integration Points
+
+1. **MODIFIED** `AgentDiscoveryView`: on appear, call `AINMClient.request("ainm.directory.list")` instead of hitting HTTP. HTTP `/.well-known/ainm/directory` is kept as fallback for cold-start and for web/federation uses.
+2. **MODIFIED** `AINMClient`: add `onDirectoryUpdated` callback. When `ainm.directory.updated` arrives, invoke the callback on MainActor; AgentCard repository upserts and UI reacts via GRDB observation.
+3. **MODIFIED** `AgentCardRepository`: gains a `connected_at` column; UI filters "show only connected" toggle.
+
+### Backward Compatibility
+
+The existing HTTP Agent Card endpoint stays (federation needs it; some tests depend on it). The new directory endpoint is additive. iOS clients on the old build continue to work; they just don't get live updates.
+
+---
+
+## 7. Concern 6 — Compound Memory Groundwork
+
+### Current State
+
+Memory graph is **already user-scoped** (confirmed by reading `demo/src/graph.rs`: every INSERT/SELECT filters on `user_addr`). The existing RPCs:
+
+- `ainm.memory.briefing` — builds a blob from the user's graph
+- `ainm.memory.graph.query` — searches user's nodes + edges
+- `ainm.memory.graph.contribute` — adds a node/edge
+- `ainm.memory.store`/`ainm.memory.query`/`ainm.memory.evict` — archival facts (per-user)
+
+**Gap:** the scoping policy is implicit ("the agent is trusted because it connected"). For v3.3 we need the *consent* layer, even if we don't ship full cross-agent aggregation (that's v3.4).
+
+### v3.3 Scope (groundwork)
+
+The v3.3 deliverable is **positioning for v3.4**, not full compound memory. Concretely:
+
+1. **MODIFIED** memory briefing: already returns a user-scoped blob. Document the contract: `ctx.memory.getBriefing()` returns **the user's compound memory**, not the agent's private memory. Claude Code connector sees the same briefing the OpenAI connector sees, if both are talking to the same user.
+2. **NEW** consent column on `connector_keys` table: `memory_scopes TEXT[]` — `["read", "write"]`. Default `["read", "write"]` for TOFU enrollment; iOS settings UI can revoke.
+3. **MODIFIED** server-side memory RPC gating: before executing `ainm.memory.graph.query` or `contribute` for an agent, check `connector_keys.memory_scopes`. Return `-32025 "Memory access denied"` if scope is missing.
+4. **NEW** `ainm.memory.consent` RPC for the user's iOS app to grant/revoke per-agent scopes. Grants/revokes signed by the user's key (same identity pattern as connector enrollment).
+5. **DEFERRED to v3.4**: cross-agent memory aggregation, export, visualizations, compaction across agents.
+
+### Data Model Additions
+
+```
+-- NEW table (v3.3)
+CREATE TABLE connector_keys (
+  user_addr TEXT NOT NULL,
+  agent_identity TEXT NOT NULL,
+  public_key BYTEA NOT NULL,
+  memory_scopes TEXT[] NOT NULL DEFAULT ARRAY['read','write'],
+  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ,
+  PRIMARY KEY (user_addr, agent_identity)
+);
+
+-- MODIFIED: memory_nodes/edges already have user_addr column; no schema change
+```
+
+### Architectural Invariant to Preserve
+
+**Memory is user-owned.** A connector writes *on behalf of the user* (with explicit user consent). A connector reading memory is reading *the user's data*, not the agent's data. This framing matters: it's what makes cross-agent compound memory work.
+
+---
+
+## 8. Concern 7 — v3.2 Tech Debt Integration
+
+### Scope
+
+11 iOS HUMAN-UAT items (Phases 10 + 11) + 2 XCUITest flakes (Phase 14):
+- Phase 10: live handshake, cross-platform crypto round-trip, bidirectional signing, Keychain persistence, CI simulator
+- Phase 11: offline read access, real-time list updates, agent identity badges, multi-block rendering
+- Phase 14: deep-link missing-message toast, sub-thread reply-count badge
+
+### Integration Decision: Dedicated Phase 15 (Standalone)
+
+**Do this first, as its own phase, before connector work.**
+
+Rationale:
+- All 13 items are iOS-side. Connector work is Rust + TypeScript + Python — different code, different reviewers, different risk domain.
+- Phase 10/11 items are largely cross-platform crypto verification. Those tests **catch exactly the signing drift risks** that Python SDK introduces. Fixing them first gives us trustworthy iOS ↔ Rust ↔ TS cross-verification; when Python is added, the same test scaffolding extends to Python.
+- XCUITest flakes are timing races. Fixing them now avoids poisoning v3.3's UAT runs (concern 5 adds new XCUITests for live directory).
+- Small phase (1-2 weeks), entirely iOS, keeps the milestone's opening cadence brisk and confidence high.
+
+**Reject interleaving.** Spreading iOS cleanups across phases means every new iOS UI phase has to re-derisk the same crypto plumbing.
+
+---
+
+## 9. Build Order
+
+### Dependency Graph
+
+```
+                    ┌────────────────────────────────────────┐
+                    │ Phase 15: v3.2 iOS tech debt (13 items)│
+                    │ — independent, unblocks cross-lang     │
+                    │   crypto confidence                    │
+                    └────────────────┬───────────────────────┘
+                                     │
+                                     ▼
+           ┌─────────────────────────────────────────────────┐
+           │ Phase 16: Connector auth + A1–A4 ratification   │
+           │ — connector_keys table, signature-verified      │
+           │   handshake, TOFU mode, enrollment RPC,         │
+           │   polish existing TS SDK + ClaudeCode + OpenAI  │
+           │   BLOCKING for Phase 17 (Python wants the       │
+           │   hardened auth contract to match)              │
+           └────────────────┬──────────────────┬─────────────┘
+                            │                  │
+              ┌─────────────▼───────────┐  ┌───▼───────────────────┐
+              │ Phase 17: Python SDK    │  │ Phase 18: OpenAI       │
+              │ — parity with TS SDK,   │  │   Responses API        │
+              │   cross-lang test vecs  │  │ — stateful thread map, │
+              │   and E2E harness       │  │   OpenAI-hosted tools  │
+              │                         │  │                        │
+              │ Can parallelize with 18 │  │ Can parallelize with 17│
+              └─────────────┬───────────┘  └───┬───────────────────┘
+                            │                  │
+                            ▼                  ▼
+           ┌─────────────────────────────────────────────────┐
+           │ Phase 19: MCP Bridge connector                  │
+           │ — depends on connector auth (Phase 16) for      │
+           │   TOFU enrollment, does not depend on Python    │
+           │   (bridge is TS). Ships one-bridge-per-MCP      │
+           │   server model.                                 │
+           └────────────────┬────────────────────────────────┘
+                            │
+                            ▼
+           ┌─────────────────────────────────────────────────┐
+           │ Phase 20: iOS live Agent Discovery + compound   │
+           │   memory groundwork (consent + scoping)         │
+           │ — depends on Phase 16 (connector_keys table     │
+           │   powers memory_scopes). UI touches AgentCard   │
+           │   repo and new memory consent sheet.            │
+           └─────────────────────────────────────────────────┘
+```
+
+### Proposed Phase Ordering
+
+| # | Phase | Est. size | Depends on | Can parallelize with |
+|---|-------|-----------|------------|-----------------------|
+| 15 | iOS tech debt cleanup (13 items) | S | — | — |
+| 16 | Connector auth + A1–A4 ratification | M | 15 | — |
+| 17 | Python Connector SDK (A5) | M | 16 | 18 |
+| 18 | OpenAI Responses API + connector hardening | S | 16 | 17 |
+| 19 | MCP Bridge connector (A6) | M | 16 | — (best sequenced after 17/18 so parity + auth stories are stable) |
+| 20 | iOS live Agent Discovery + compound memory groundwork | M | 16 | — |
+
+### Rationale for Ordering
+
+- **15 first** — closes confidence gaps in the shipped v3.2 surface before we add more surface. It's also the smallest phase and gives the milestone a quick confidence win.
+- **16 before everything else** — connector auth is the trust anchor. Shipping Python SDK or MCP Bridge before the auth gate gives us two places to fix the same class of vulnerability later. Also hardens the TS SDK so Python has a stable target to mirror.
+- **17 || 18** — Python SDK and OpenAI Responses are independent. Different engineers can own them in parallel. They share only the auth contract from 16.
+- **19 after 17/18** — the MCP bridge is a *consumer* of the SDK. It benefits from stabilization work done in 17/18 (better error handling, clearer stream semantics). Also lets us dogfood the bridge with Python tools too (MCP + Python SDK pairing).
+- **20 last** — live discovery and memory consent both touch the iOS UI deeply. Doing this after 16-19 means the AgentRegistry is already producing richer directory data (more connectors), so the UI has real content to render. Memory consent is also best validated with multiple concurrent connectors on the same user.
+
+---
+
+## 10. Integration Summary Table
+
+| New feature | Server changes | Connector SDK changes | iOS changes | Spec changes |
+|-------------|----------------|-----------------------|-------------|--------------|
+| Python SDK (A5) | none | NEW `packages/py-connector/` tree | none | NEW `docs/SDK-PARITY.md`, cross-lang test vectors |
+| MCP Bridge (A6) | none | NEW `packages/connector-mcp/` using `@ainm/connector` + `@modelcontextprotocol/sdk` | none | none (MCP is external); add bridge config schema |
+| OpenAI Responses | none | MODIFIED `packages/connector-openai/` (Responses client, thread map) | none | document `openai:*` tool-name prefix convention |
+| Connector auth | NEW `connector_keys` table, MODIFIED handshake, NEW enrollment RPC | MODIFIED SDK to read/write key from `$XDG_CONFIG_HOME/ainm/{identity}.key` and emit enrollment banner on first run | NEW enrollment UX (QR or paste pubkey), signed enrollment RPC call | NEW error codes -32022/-32023/-32024/-32025; NEW RPC `ainm.connector.enroll` |
+| iOS live directory | NEW directory RPCs, MODIFIED AgentRegistry (broadcast on conn/disc), NEW HTTP /directory | none | MODIFIED AgentDiscoveryView to use RPC + subscribe to updates | NEW `ainm.directory.list` + `ainm.directory.updated` |
+| Compound memory groundwork | MODIFIED memory RPCs to gate on `memory_scopes` | MODIFIED SDK memory context to handle `-32025` errors | NEW memory consent sheet (per-agent scopes) | NEW `ainm.memory.consent` RPC; document user-scoped-memory contract |
+| v3.2 tech debt | none | none | FIXED Phase 10/11/14 items | none |
+
+---
+
+## 11. Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Re-implementing signing in each SDK from scratch
+
+**What people do:** clone the TS SDK's signing logic into Python by eye.
+**Why it's wrong:** RFC 8785 has subtle rules (number serialization follows ECMAScript 6, escaping follows JSON spec but strings are re-serialized, null handling, etc.). Byte-level drift is silent — signatures just fail to verify.
+**Do this instead:** (a) both SDKs use mature RFC 8785 libraries (`canonicalize` / `rfc8785`). (b) Cross-language test vectors generated by the Rust server are canonical; both SDKs verify against them in CI. (c) Any time the signing logic is touched in one SDK, the parity checklist forces a PR to the other.
+
+### Anti-Pattern 2: One connector multiplexing all MCP servers
+
+**What people do:** write a single "meta-bridge" that holds connections to many MCP servers and exposes them all as one AINM agent.
+**Why it's wrong:** (a) tool name collisions ("read_file" exists in half the MCP ecosystem), (b) a single AINM identity has to represent many capability sets — confusing agent card, (c) failure of one MCP server degrades all, (d) isolation between MCP servers is lost.
+**Do this instead:** one bridge process per MCP server. One AINM identity per MCP server. Users `@mention` or invite the specific capability. Cheap: Node processes are free; memory cost is < 50 MB each.
+
+### Anti-Pattern 3: Treating connector keys and message-signing keys as separate
+
+**What people do:** issue a "connector auth token" separate from the agent's Ed25519 identity key, creating a certificate layer.
+**Why it's wrong:** the user's mental model is "this connector speaks as this agent." Two keys means two rotation flows, two enrollment steps, two breakage modes. Also the AINM protocol already signs every message with the agent's key — adding a different key for handshake means the handshake and the messages prove different things.
+**Do this instead:** one Ed25519 keypair per agent identity. Used for handshake signature *and* message envelope signatures. `connector_keys` is the pubkey truth.
+
+### Anti-Pattern 4: iOS polling for agent list
+
+**What people do:** iOS polls `/.well-known/ainm/directory` every 10 seconds.
+**Why it's wrong:** battery drain, stale UI, still doesn't handle "agent disconnected 2s ago", doesn't integrate with the WS channel that's *already open*.
+**Do this instead:** `ainm.directory.list` for cold-start, `ainm.directory.updated` notification for live updates, piggyback on the existing HumanRegistry broadcast channel.
+
+### Anti-Pattern 5: Stateful OpenAI bridge with no thread mapping
+
+**What people do:** store a single `previous_response_id` globally in the connector.
+**Why it's wrong:** multiple AINM threads collapse into one OpenAI response chain. Sub-threads break. Context bleeds across conversations.
+**Do this instead:** map `thread_id → last_response_id`. Each AINM thread is its own OpenAI chain. Sub-threads start fresh (treat AINM's "fork from here" semantics literally).
+
+### Anti-Pattern 6: Server-side allowlist that blocks dev-loop
+
+**What people do:** require pre-enrolled pubkeys for every connector, always.
+**Why it's wrong:** a developer spinning up a new connector has to run an enrollment dance before the first hello-world. Friction kills adoption.
+**Do this instead:** two modes — `--auth-mode tofu` (default in dev, warn on first-seen, persist) vs `--auth-mode strict` (default in prod, reject unknown). Document how to flip per deployment.
+
+---
+
+## 12. Open Questions (flag for later phases)
+
+1. **MCP elicitation handling** — the 2025-06-18 MCP spec added `elicitation/create` for interactive clarification. v3.3 declines these. When do we bridge to AINM ApprovalBlock? Probably v3.4 when we have clearer semantics for agent ↔ agent (connector as intermediary).
+2. **OpenAI-hosted tool approval gates** — AINM ApprovalBlock cannot gate OpenAI-side tools. Do we document this as a known limitation or do we route through a proxy that can veto the tool before sending to OpenAI? Defer to v3.4.
+3. **Multi-user server tenancy** — today `to_agent_tx` is a single broadcast. Multi-user production probably wants per-user agent subscriptions. Not v3.3 scope, but concern 4's `connector_keys` table has `user_addr` as part of the PK, so we're not painting ourselves into a corner.
+4. **Federation × connector auth** — how does a connector enrolled on server A authenticate against server B in a federated context? Probably via the existing federation trust model (mutual TLS between servers) — the user-agent trust stays local. Needs explicit doc in v3.3 federation notes.
+5. **Compound memory export format** — v3.4 ships aggregation. The wire shape should be decided in v3.3 so v3.4 doesn't have to migrate data.
+6. **Rate limiting on memory RPCs** — a misbehaving connector could flood `ainm.memory.graph.contribute`. Not a v3.3 blocker but worth a token-bucket in Phase 16.
+
+---
 
 ## Sources
 
-- [GRDB.swift (v7.10.0)](https://github.com/groue/GRDB.swift) -- SQLite toolkit, observation API
-- [GRDBQuery](https://github.com/groue/GRDBQuery) -- SwiftUI companion for GRDB
-- [Apple CryptoKit - Curve25519.Signing](https://developer.apple.com/documentation/cryptokit/curve25519/signing) -- Ed25519 in iOS
-- [URLSessionWebSocketTask](https://developer.apple.com/documentation/foundation/urlsessionwebsockettask) -- Native WebSocket API
-- [Iterating over web socket messages with async/await in Swift](https://www.donnywals.com/iterating-over-web-socket-messages-with-async-await-in-swift/) -- AsyncStream wrapping pattern
-- [Modern MVVM + Repository Pattern in SwiftUI](https://medium.com/@gauravios/modern-mvvm-repository-pattern-in-swiftui-eca4f78fc2f5) -- Architecture reference
-- [Offline-First Sync Patterns](https://developersvoice.com/blog/mobile/offline-first-sync-patterns/) -- Sync strategy reference
-- AINM spec/transport.md -- Connection lifecycle, JSON-RPC framing, capability negotiation
-- AINM spec/streaming.md -- Stream start/delta/end lifecycle
-- AINM spec/security.md -- Ed25519 signing procedure, JCS canonicalization
-- AINM spec/content.md -- Content block types and base schema
-- AINM spec/interactive.md -- Interactive block types (button, form, table, approval, action)
-- AINM spec/memory.md -- Three-tier memory model, context frames
-- AINM spec/identity.md -- Address format, identity resolution
-- AINM demo/src/server.rs -- Server WebSocket handler implementation (integration target)
-- AINM demo/src/signing.rs -- Reference signing implementation (port to Swift)
-- AINM demo/src/streaming.rs -- Reference streaming implementation
-- AINM demo/src/protocol.rs -- JSON-RPC type definitions (match in Swift)
+- **Existing code (HIGH confidence):**
+  - `demo/src/server.rs` (HumanRegistry, AgentRegistry, handshake)
+  - `demo/src/graph.rs` (user-scoped memory)
+  - `demo/src/signing.rs` (Rust verify path)
+  - `packages/connector/src/` (TS SDK — current reference)
+  - `packages/connector-claude-code/src/claude-code-agent.ts`
+  - `packages/connector-openai/src/openai-agent.ts`
+- **AINM spec docs:** `docs/transport.md`, `docs/agent-card.md`, `docs/compound-memory.md`, `docs/security.md`, `docs/tool-visibility.md`
+- **External (MEDIUM confidence, verified 2026-04):**
+  - [MCP 2026 Roadmap — Model Context Protocol Blog](https://blog.modelcontextprotocol.io/posts/2026-mcp-roadmap/)
+  - [MCP Transport Future — Model Context Protocol Blog (2025-12-19)](https://blog.modelcontextprotocol.io/posts/2025-12-19-mcp-transport-future/)
+  - [MCP Bridge paper (arXiv 2504.08999)](https://arxiv.org/html/2504.08999v2)
+  - [OpenAI: Migrate to the Responses API](https://developers.openai.com/api/docs/guides/migrate-to-responses)
+  - [OpenAI: Responses vs Chat Completions](https://platform.openai.com/docs/guides/responses-vs-chat-completions)
+  - [OpenAI: Conversation state](https://developers.openai.com/api/docs/guides/conversation-state)
+  - [rfc8785 (PyPI) — trailofbits](https://pypi.org/project/rfc8785/)
+  - [PyNaCl (PyPI)](https://pypi.org/project/PyNaCl/)
+  - [RFC 8785: JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
+
+---
+
+*Architecture research for: v3.3 Universal Agent Client integration*
+*Researched: 2026-04-18*
