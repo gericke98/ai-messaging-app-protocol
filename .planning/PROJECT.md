@@ -35,7 +35,22 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ### Active
 
-(None — v3.2 just shipped. Run `/gsd:new-milestone` to define v3.3 goals.)
+## Current Milestone: v3.3 Universal Agent Client
+
+**Goal:** Turn AINM from a reference iOS client for the protocol into a universal client where any agent runtime (Claude Code, Codex, GPT, MCP servers, custom Python) can connect and participate as a first-class thread member — with compound memory groundwork laid for v3.4.
+
+**Target features:**
+- v3.2 tech debt cleanup — 11 HUMAN-UAT items + 2 deferred Phase 14 XCUITest flakes cleared before new surface area
+- Ratify A1–A4 (connector SDK + Claude Code + OpenAI + AgentRegistry) into GSD with production hardening; wire iOS Agent Discovery to live AgentRegistry
+- A5 Python Connector SDK — feature parity with TypeScript SDK; unit + E2E tests
+- A6 MCP Bridge connector — any MCP server becomes an AINM agent participant; MCP tools surface as AINM tool calls
+- OpenAI Responses API upgrade + connector auth hardening — real tool support; signed-handshake connector identity; OAuth-vs-API-key documented for Claude Code
+- Compound memory groundwork — connectors push memory context back to server, positioning v3.4 for full compound memory aggregation/export
+
+**Key context:**
+- ~60-70% of the connector work exists on disk (`packages/connector/`, `packages/connector-claude-code/`, `packages/connector-openai/`) from development outside GSD. This milestone ratifies, tests, documents, and hardens — it is not greenfield
+- Phase numbering continues from v3.2 (ended at phase 14); v3.3 starts at phase 15
+- Strategic frame: after v3.3 the iOS app can message any agent. v3.4 layers compound memory aggregation on top of this plumbing
 
 ## Last Shipped: v3.2 iOS Reference Client (2026-04-19)
 
@@ -157,4 +172,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-19 after v3.2 iOS Reference Client milestone completion*
+*Last updated: 2026-04-18 — v3.3 Universal Agent Client milestone started*
