@@ -34,17 +34,17 @@ final class ToolCallIndicatorUITests: AINMUITestCase {
                       "Check scenario-01-events.json timing and ToolCallGroupView render path.")
 
         // t=100ms from bootstrap: tool.call.started → running spinner (ProgressView) appears.
-        // ProgressView resolves as `otherElements` or `progressIndicators` in XCUITest.
+        // ProgressView resolves as `activityIndicators` in XCUITest (confirmed via hierarchy dump).
+        let runningActivity = app.activityIndicators[UITestID.ToolCall.statusRunning].firstMatch
         let runningOther = app.otherElements[UITestID.ToolCall.statusRunning].firstMatch
         let runningImage = app.images[UITestID.ToolCall.statusRunning].firstMatch
-        let runningProgress = app.progressIndicators[UITestID.ToolCall.statusRunning].firstMatch
-        let runningAppeared = runningOther.waitForExistence(timeout: 5)
+        let runningAppeared = runningActivity.waitForExistence(timeout: 5)
+            || runningOther.waitForExistence(timeout: 1)
             || runningImage.waitForExistence(timeout: 1)
-            || runningProgress.waitForExistence(timeout: 1)
         XCTAssertTrue(runningAppeared,
                       "Running spinner did not appear after tool.call.started (UITestID.ToolCall.statusRunning)")
         // Use the element that found it for subsequent assertions.
-        let running = runningOther.exists ? runningOther : (runningImage.exists ? runningImage : runningProgress)
+        let running = runningActivity.exists ? runningActivity : (runningOther.exists ? runningOther : runningImage)
 
         // t=20s: tool.call.completed → green checkmark replaces spinner.
         let completed = app.images[UITestID.ToolCall.statusCompleted].firstMatch
