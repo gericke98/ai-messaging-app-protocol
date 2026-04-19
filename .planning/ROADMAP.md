@@ -19,7 +19,7 @@
 
 </details>
 
-### 🚧 v3.3 Universal Agent Client (Phases 15-21) — IN PROGRESS
+## Current Milestone: v3.3 Universal Agent Client (Phases 15-21) — IN PROGRESS
 
 - [ ] **Phase 15: v3.2 Tech Debt + Off-GSD Ratification** — Close 13 v3.2 audit items and ratify 4 off-GSD connector packages against an 8-point checklist before new connector surface ships
 - [ ] **Phase 16: Connector Auth Hardening + Delivery Gating** — Ship the `connector_keys` trust anchor, two-key identity split, signed challenge handshake, and server-side @-mention routing (keystone — blocks every subsequent connector phase)
@@ -28,8 +28,6 @@
 - [ ] **Phase 19: MCP Bridge Connector** — Any MCP server becomes an AINM agent participant via one-bridge-per-MCP-server architecture with full `inputSchema` passthrough
 - [ ] **Phase 20: iOS Live Agent Discovery + Compound Memory Groundwork** — Replace HTTP-snapshot Agent Discovery with live push-subscription; ship memory provenance + connector write channel + portability primitives for v3.4
 - [ ] **Phase 21: Multi-Agent UX + Connector Lifecycle + Tool Transparency** — iOS surfaces that realize the "universal agent client" claim end-to-end: distinct agent identity, add/revoke flows, approve-before-run policy, grouped/truncated tool calls
-
-## Phase Details
 
 ### Phase 15: v3.2 Tech Debt + Off-GSD Ratification
 **Goal**: v3.2 iOS HUMAN-UAT items are closed and off-GSD connector packages (`@ainm/connector`, `@ainm/connector-claude-code`, `@ainm/connector-openai`, server `AgentRegistry`) are production-hardened before any new connector surface ships
