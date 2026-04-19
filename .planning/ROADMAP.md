@@ -3,77 +3,31 @@
 ## Milestones
 
 - ✅ **v3.1 AI-Native Messaging Protocol v1 Specification & Demo** — Phases 1-6 (shipped 2026-03-29) — [Archive](milestones/v3.1-ROADMAP.md)
+- ✅ **v3.2 iOS Reference Client** — Phases 10-14 (shipped 2026-04-19) — [Archive](milestones/v3.2-ROADMAP.md)
 
-## Current Milestone: v3.2 iOS Reference Client
+## Phases
 
-### Phase 12: Streaming & Interactive Blocks
-**Goal**: Agent responses stream token-by-token in real-time and users can interact with rich UI blocks (buttons, forms, tables, approvals) that send responses back through the protocol
-**Depends on**: Phase 11
-**Requirements**: STR-01, STR-02, STR-03, STR-04, INT-01, INT-02, INT-03, INT-04, INT-05
-**Success Criteria** (what must be TRUE):
-  1. When an agent streams a response, tokens appear one-by-one with a cursor animation at 30-60fps — no main thread starvation even at 100+ deltas/second
-  2. User can tap "Stop Generating" during an active stream and the agent stops — the partial response is preserved in the thread
-  3. User taps a ButtonBlock and the app sends a signed ActionBlock response as a new thread message; FormBlocks validate input client-side before submission; ApprovalBlocks cycle through pending/approved/rejected states
-  4. TableBlocks render with horizontal scroll for wide data and row-level action buttons; unrecognized block types display their fallback text instead of crashing
-  5. Typing/processing indicators show for both humans and agents, and parallel block streaming (two blocks receiving deltas simultaneously) renders correctly
-**Plans**: 4 plans
-Plans:
-- [x] 12-01-PLAN.md -- Streaming data layer: StreamEvent models, StreamingManager actor, AINMClient stream handling
-- [x] 12-02-PLAN.md -- Interactive block models and renderers: ContentBlock extension, 5 new SwiftUI views
-- [x] 12-03-PLAN.md -- Streaming UI: StreamingViewModel, StreamingMessageView, CursorView, StopGeneratingButton
-- [x] 12-04-PLAN.md -- ActionBlock response flow, TypingIndicatorView, presence handling
-**UI hint**: yes
+<details>
+<summary>✅ v3.2 iOS Reference Client (Phases 10-14) — SHIPPED 2026-04-19</summary>
 
-### Phase 13: AI-Native Features & Platform
-**Goal**: The app showcases AINM's differentiating features — tool call transparency, memory context, agent discovery, sub-threading, and platform integration — delivering a reference-quality iOS client
-**Depends on**: Phase 12
-**Requirements**: AI-01, AI-02, AI-03, AI-04, AI-05, PLT-04, PLT-05
-**Success Criteria** (what must be TRUE):
-  1. When an agent executes tool calls, the user sees collapsible indicators grouped by call_id showing the started/progress/completed lifecycle — tool execution is transparent, not hidden
-  2. User can @-mention agents and humans in the composer with autocomplete, and mentions are highlighted in rendered messages
-  3. User can browse an agent discovery view showing Agent Cards with skills, tools, and capabilities — and start a conversation with a discovered agent
-  4. User can view active memory context frames for an agent in a thread, search archival memory facts, and delete specific facts — memory is transparent and user-controlled
-  5. User can branch a sub-thread from any message (one level per spec), navigate between parent and sub-thread, and open a specific thread/message via deep link URL
-**Plans**: 5 plans
-Plans:
-- [x] 13-01-PLAN.md -- Tool call visibility: models, GRDB persistence, AINMClient handling, ToolCallIndicatorView
-- [x] 13-02-PLAN.md -- @-mentions: MentionTextRenderer highlighting, MentionAutocompleteView in composer
-- [x] 13-03-PLAN.md -- Agent discovery: AgentCard model, HTTP service with ETag caching, AgentDiscoveryView, AgentCardDetailView
-- [x] 13-04-PLAN.md -- Memory context: ContextFrame models, memory query/evict methods, MemoryContextView sheet, ArchivalMemoryView
-- [x] 13-05-PLAN.md -- Sub-threading and deep linking: branch/navigate sub-threads, ainm:// URL scheme, AgentDiscovery navigation
-**UI hint**: yes
+- [x] Phase 10: Foundation (5/5 plans) — completed 2026-03-30
+- [x] Phase 11: Core Messaging UI (4/4 plans) — completed 2026-03-30
+- [x] Phase 12: Streaming & Interactive Blocks (4/4 plans) — completed 2026-03-30
+- [x] Phase 13: AI-Native Features & Platform (5/5 plans) — completed 2026-03-30
+- [x] Phase 14: UAT Automation Harness (6/6 plans) — completed 2026-04-19
+
+</details>
+
+### 📋 Next Milestone
+
+Planning pending. Run `/gsd:new-milestone` to start the next milestone cycle.
 
 ## Progress
 
-**Execution Order:**
-Phases execute in numeric order: 10 -> 11 -> 12 -> 13
-
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 10. Foundation | v3.3 | 5/5 | Complete    | 2026-03-30 |
-| 11. Core Messaging UI | v3.3 | 4/4 | Complete    | 2026-03-30 |
-| 12. Streaming & Interactive Blocks | v3.3 | 4/4 | Complete    | 2026-03-30 |
-| 13. AI-Native Features & Platform | v3.3 | 5/5 | Complete    | 2026-03-30 |
-
-### Phase 14: UAT automation harness
-
-**Goal:** Automated XCUITest coverage for the 6 Phase 13 acceptance scenarios so UAT runs hermetically from `xcodebuild test` — no human taps required. Ships an `AINMMessengerUITests` target, a launch-argument-driven seed bootstrap that provisions threads/agents/context frames against a local AINM server, and CI-runnable green runs that flip `13-HUMAN-UAT.md` from `partial` → `complete`.
-**Requirements**: TBD
-**Depends on:** Phase 13
-**Success Criteria** (what must be TRUE):
-  1. `AINMMessengerUITests` target exists in `AINMMessenger.xcodeproj` with a test scheme runnable via `xcodebuild test -scheme AINMMessengerUITests`
-  2. A seed bootstrap (launch argument e.g. `-UITestSeed <fixture>`) can provision the backend state each test needs (active thread, agent participant, mid-stream tool call, context frames, sub-thread parent message) without the test having to click through login/setup
-  3. One XCUITest per Phase 13 scenario: tool call indicator visual states, @-mention autocomplete, agent discovery flow, memory context sheet, sub-thread branch/navigate, `ainm://` deep links — each asserting the user-observable behavior from `13-HUMAN-UAT.md`
-  4. All 6 tests pass green locally against a booted iOS 18+ simulator with the AINM server running
-  5. `13-HUMAN-UAT.md` status updates to `complete` with passing results for tests 1–6
-  6. CI-runnable command documented (script or Makefile target) so the harness can be wired into the GitHub Actions matrix later
-**Plans:** 6/6 plans complete
-**UI hint**: no
-
-Plans:
-- [x] 14-01-PLAN.md -- Xcode scaffold: AINMMessengerUITests target + shared scheme + UITestIdentifiers.swift + launch-arg skeleton with named TODO blocks
-- [x] 14-02-PLAN.md -- Rust --uat flag (ephemeral DB, port 8080, /health) + Makefile orchestrator + placeholder CI workflow + docs
-- [x] 14-03-PLAN.md -- SeedLoader + UITestIdentityBootstrap (deterministic Ed25519) + 6 scenario fixture JSONs; replaces TODO(14-03) blocks
-- [x] 14-04-PLAN.md -- TestEventInjector + scenario-01/04 event scripts + replaces TODO(14-04) block
-- [x] 14-05-PLAN.md -- Accessibility identifier retrofit across ~13 Phase 13 UI files (~34 identifiers)
-- [x] 14-06-PLAN.md -- 6 XCUITest scenario classes + AINMUITestCase base + green run + flip 13-HUMAN-UAT.md to complete
+| 10. Foundation | v3.2 | 5/5 | Complete | 2026-03-30 |
+| 11. Core Messaging UI | v3.2 | 4/4 | Complete | 2026-03-30 |
+| 12. Streaming & Interactive Blocks | v3.2 | 4/4 | Complete | 2026-03-30 |
+| 13. AI-Native Features & Platform | v3.2 | 5/5 | Complete | 2026-03-30 |
+| 14. UAT Automation Harness | v3.2 | 6/6 | Complete | 2026-04-19 |

@@ -1,5 +1,27 @@
 # Milestones
 
+## v3.2 iOS Reference Client (Shipped: 2026-04-19)
+
+**Phases completed:** 3 phases, 15 plans, 32 tasks
+
+**Key accomplishments:**
+
+- StreamingManager actor with delta accumulation per block index, stream event Codable models, and AINMClient routing for all stream/presence JSON-RPC notifications
+- StreamingViewModel, CursorView, StreamingMessageView, and StopGeneratingButton wired into MessageThreadView with ephemeral-to-permanent transition and 5-second verification timeout
+- 1. [Rule 3 - Blocking] Added AnyCodableValue.fromAny helper
+- Tool call lifecycle indicators with ToolCallEvent model, GRDB persistence, AINMClient notification handling, and collapsible ToolCallIndicatorView showing running/completed/error/timedOut states
+- MentionTextRenderer for highlighted mention spans (accent blue bold / white bold) and MentionAutocompleteView with composer integration for @-participant picking
+- Agent Card browsing with ETag-cached HTTP fetch, GRDB persistence, searchable discovery list, and full profile detail with Start Conversation
+- Memory context transparency with context frame push, archival fact search via ainm.memory.query, and swipe-to-delete via ainm.memory.evict
+- Sub-thread branching with context menu, parent/child navigation, ainm:// deep links, and AgentDiscovery toolbar access
+- 1. [Rule 1 - Bug] Used explicit PBXFileReference instead of membershipExceptions for `UITestIdentifiers.swift`
+- Created:
+- 1. [Rule 1 - Bug] CryptoKit Curve25519 signatures are not byte-deterministic
+- 1. [Rule — Naming alignment] ToolCallState.id instead of state.callId
+- 1. [Rule 3 - Blocker] Makefile PID-capture subshell bug
+
+---
+
 ## v3.1 AI-Native Messaging Protocol v1 Specification & Demo (Shipped: 2026-03-29)
 
 **Phases completed:** 6 phases, 20 plans, 38 tasks

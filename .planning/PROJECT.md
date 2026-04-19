@@ -29,27 +29,24 @@ The protocol must enable mixed human-agent threads where any participant (human 
 - ✓ Published formal protocol specification (JSON Schema 2020-12 + AsyncAPI 3.1.0) — v3.1
 - ✓ Protocol versioning with backwards compatibility rules — v3.1
 
+- ✓ Native iOS app (SwiftUI) as reference client — full AINM protocol implementation — v3.2
+- ✓ WebSocket + JSON-RPC 2.0 client with streaming, tool visibility, memory, sub-threading, deep links, @-mentions — v3.2
+- ✓ Hermetic XCUITest harness (AINMMessengerUITests target, launch-arg seed bootstrap, `make uat` orchestrator) — v3.2
+
 ### Active
 
-- [ ] Native iOS app (SwiftUI) as reference client — full AINM protocol implementation
+(None — v3.2 just shipped. Run `/gsd:new-milestone` to define v3.3 goals.)
 
-## Current Milestone: v3.3 iOS Reference Client
+## Last Shipped: v3.2 iOS Reference Client (2026-04-19)
 
-**Goal:** A native SwiftUI iOS app that connects to the AINM Rust server and delivers a messaging experience built for agent interaction — rendering all protocol features (streaming, interactive blocks, tool calls, memory) as first-class native UI.
+A native SwiftUI iOS app that connects to the AINM Rust server and delivers a reference-quality messaging experience where humans and agents are equal thread participants. All protocol features render as first-class native UI: streaming, interactive blocks, tool calls, memory context, agent discovery, sub-threading, `ainm://` deep links, @-mentions.
 
-**Target features:**
-- Full AINM protocol client — WebSocket connection to Rust server with JSON-RPC 2.0
-- Conversation list and message thread views with mixed human-agent participation
-- Native rendering of all content block types (text, code, image, file)
-- Interactive block rendering — forms, buttons, tables, approvals, action blocks
-- Real-time streaming with token-by-token rendering
-- Tool call transparency — visible started/progress/completed events
-- Memory context display (active context frames, conversation history)
-- Agent discovery — browse agent capabilities via Agent Cards
-- Simplified identity flow architected for full name@provider + Ed25519 Keychain storage
-- Ed25519 message signing via Apple CryptoKit
-- Local persistence via GRDB.swift for offline message access
-- iOS 18+ / SwiftUI / Swift Concurrency / MVVM + Repository
+**Delivered across 5 phases (10-14):**
+- Phase 10 Foundation — iOS Xcode scaffold, Swift 6 strict concurrency, 7 Codable model types, Ed25519 crypto (CryptoKit + Keychain), RFC 8785 JCS canonicalizer, GRDB persistence, WebSocket AINMClient, onboarding
+- Phase 11 Core Messaging UI — ContentBlock discriminated union, conversation list, message thread with rich blocks (text/code/image/file), composer, offline access
+- Phase 12 Streaming & Interactive Blocks — StreamingManager actor, token-by-token cursor, stop generating, ButtonBlock / FormBlock / TableBlock / ApprovalBlock, ActionBlock response flow
+- Phase 13 AI-Native Features — Tool call lifecycle indicators, @-mention autocomplete + rendering, Agent Card discovery, memory context sheet, archival fact search + delete, sub-thread branching, `ainm://` deep links
+- Phase 14 UAT Automation Harness — XCUITest target, 6 scenario classes (10 methods), SeedLoader + fixtures, TestEventInjector, a11y identifier retrofit, `make uat` green runs, 13-HUMAN-UAT flipped to complete
 
 ### Out of Scope
 
@@ -61,20 +58,26 @@ The protocol must enable mixed human-agent threads where any participant (human 
 
 ## Context
 
-### Current State (Phase 10 complete — 2026-03-30)
+### Current State (v3.2 iOS Reference Client shipped — 2026-04-19)
 
-Phase 10 (Foundation) complete — iOS Xcode project scaffold with Swift 6 strict concurrency, all protocol Codable models, Ed25519 crypto (CryptoKit + Keychain), GRDB persistence layer, WebSocket networking with AINM protocol client, onboarding UI, and GitHub Actions CI. Build verified on iOS 26.2 simulator.
+v3.2 iOS Reference Client complete — 5 phases, 24 plans, 34/34 v1 requirements satisfied. The native SwiftUI app connects to the AINM Rust server via WebSocket + JSON-RPC 2.0, renders every protocol feature (streaming, interactive blocks, tool calls, memory, agent discovery, sub-threads, deep links, @-mentions) as first-class native UI, persists locally via GRDB, signs messages with Ed25519 via CryptoKit, and ships with a hermetic XCUITest harness runnable via `make uat`.
 
-The v1 protocol specification is complete and published:
+Published artifacts across all milestones:
 - **11 prose spec documents** covering identity, security, transport, content, threading, streaming, interactive UI, agent discovery, tool visibility, memory, and compatibility
 - **12 JSON Schema 2020-12 files** with 52 formal type definitions
 - **AsyncAPI 3.1.0** transport bindings with 25 operations across 9 channels
-- **Rust CLI demo** (single-binary Axum server) proving the protocol end-to-end
+- **Rust CLI demo** (single-binary Axum server) proving the protocol end-to-end, now with `ainm-demo --uat` mode for test orchestration
 - **Docusaurus site** for spec publication with GitHub Pages deployment
-- **57/57 v1 spec requirements** satisfied across 6 phases (v3.1)
-- **28/28 federation requirements** satisfied across 3 phases (v3.2) — mTLS relay, replay protection, persistent offline queues, backfill, AI-native features across federation, comprehensive Docker Compose demo
+- **Native iOS reference client** (SwiftUI, Swift 6 strict concurrency, @Observable, GRDB, CryptoKit)
+- **57/57 v1 spec requirements** (v3.1) + **28/28 federation requirements** (v3.2 federation scope, phases 7-9) + **34/34 iOS client requirements** (v3.2 iOS client, phases 10-14)
 
-Tech stack: Rust 1.85+ (Axum, Tokio, ring, serde), ~73K LOC across Rust, Markdown, JSON Schema, YAML, TypeScript.
+Tech stack: Rust 1.85+ (Axum, Tokio, ring, serde) server; Swift 6 / SwiftUI / GRDB.swift / CryptoKit iOS client; ~80K+ LOC across Rust, Swift, Markdown, JSON Schema, YAML, TypeScript.
+
+### Outstanding Tech Debt (from v3.2 audit — to address in v3.3 or follow-up)
+
+- **Phase 10 HUMAN-UAT** (5 items): live WebSocket handshake against running server, cross-platform crypto round-trip (Swift↔Rust), bidirectional message signing, Keychain keypair persistence across app launches, CI simulator-name assumption
+- **Phase 11 HUMAN-UAT** (4 items, status: partial): offline read access, real-time list updates, agent identity badge visual distinctness, multi-block message rendering — all functionally working but not human-verified
+- **Phase 14 deferred** (2 items): `DeepLinkUITests.test_deepLink_missingMessage_showsNotFoundToast` XCTSkipped (onAppear timing race); `SubThreadBranchUITests` reply-count badge soft-asserted (ForEach refresh timing). Both manually verified working; tracked for Phase 15 or v3.3 cleanup.
 
 ### The Landscape (March 2026)
 
@@ -131,6 +134,10 @@ The agent communication ecosystem is fragmented across layers:
 | JSON-RPC 2.0 over WebSocket | Simpler than gRPC, works everywhere, debuggable. MCP alignment. | ✓ Confirmed — demo proves full lifecycle |
 | Ed25519 signing with RFC 8785 JCS | Deterministic signing, misuse-resistant, compact signatures. | ✓ Confirmed — all demo messages signed and verified |
 | One-level sub-threading only | Prevents Matrix-style complexity. Keep it simple for v1. | ✓ Confirmed — spec and demo validate approach |
+| GRDB-direct hermetic test seed (v3.2 P14) | Full-protocol seeding would couple tests to server lifecycle. Direct DB writes keep UAT fast + deterministic; AINMClient still connects for live events. | ✓ Confirmed — `make uat` produces green runs with 10 tests in < 2 min |
+| In-app TestEventInjector behind #if DEBUG (v3.2 P14) | iOS XCUITest runner cannot invoke `Process()`; event scripts run in-app and exercise real AINMClient callback pipeline. | ✓ Confirmed — scenario 1 tool-call lifecycle + scenario 4 memory push both assert real UI rendering |
+| `-UITestDeepLink` launch arg vs `simctl openurl` (v3.2 P14) | Original CONTEXT.md decision was simctl-primary; runtime research showed Process() unavailable and simctl timing unreliable on iOS 18+ sim. Pivoted to launch-arg primary with simctl as belt-and-suspenders. | ✓ Evolved — same `DeepLinkHandler.parse` code path exercised |
+| Deterministic Ed25519 keypair from fixed 32-byte seed (v3.2 P14) | `Curve25519.Signing.PrivateKey(rawRepresentation:)` accepts deterministic bytes; CryptoKit signatures still use randomized nonces so tests assert sign+verify round-trip, not byte equality. | ✓ Confirmed — `uat-user@localhost` pubkey stable across runs |
 
 ## Evolution
 
@@ -150,4 +157,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-30 after Phase 10 Foundation completion*
+*Last updated: 2026-04-19 after v3.2 iOS Reference Client milestone completion*
