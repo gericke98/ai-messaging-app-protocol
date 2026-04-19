@@ -67,7 +67,7 @@ Phases execute in numeric order: 10 -> 11 -> 12 -> 13
   4. All 6 tests pass green locally against a booted iOS 18+ simulator with the AINM server running
   5. `13-HUMAN-UAT.md` status updates to `complete` with passing results for tests 1–6
   6. CI-runnable command documented (script or Makefile target) so the harness can be wired into the GitHub Actions matrix later
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 **UI hint**: no
 
 Plans:
@@ -76,4 +76,4 @@ Plans:
 - [x] 14-03-PLAN.md -- SeedLoader + UITestIdentityBootstrap (deterministic Ed25519) + 6 scenario fixture JSONs; replaces TODO(14-03) blocks
 - [x] 14-04-PLAN.md -- TestEventInjector + scenario-01/04 event scripts + replaces TODO(14-04) block
 - [x] 14-05-PLAN.md -- Accessibility identifier retrofit across ~13 Phase 13 UI files (~34 identifiers)
-- [ ] 14-06-PLAN.md -- 6 XCUITest scenario classes + AINMUITestCase base + green run + flip 13-HUMAN-UAT.md to complete
+- [x] 14-06-PLAN.md -- 6 XCUITest scenario classes + AINMUITestCase base + green run + flip 13-HUMAN-UAT.md to complete

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.2
 milestone_name: iOS Reference Client
-status: executing
-stopped_at: Completed 14-05-PLAN.md
-last_updated: "2026-04-18T22:33:45.236Z"
-last_activity: 2026-04-18
+status: verifying
+stopped_at: Completed 14-06-PLAN.md
+last_updated: "2026-04-19T00:32:41.161Z"
+last_activity: 2026-04-19
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 93
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 14 (uat-automation-harness) — EXECUTING
 Plan: 6 of 6
-Status: 14-05 complete (Wave 3); 14-06 remaining
-Last activity: 2026-04-18 -- 14-05 a11y identifier retrofit merged
+Status: Phase complete — ready for verification
+Last activity: 2026-04-19
 
 Progress: [█████████░] 93%
 
@@ -71,6 +71,9 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14]: 14-05: MessageBubbleView gained optional messageId prop for UI test targeting; dual-attached SubThread.messageRow on bubble and on MessageGroupView per-message VStack (context menu host)
 - [Phase 14]: 14-05: SubThreadIndicatorView gained parentMessageId prop so replyBadge identifier is per-message-specific
 - [Phase 14]: 14-05: Alert OK buttons accept .accessibilityIdentifier directly in SwiftUI — no fallback path needed
+- [Phase 14-uat-automation-harness]: Force-connect in DEBUG bootstrap (skip live server handshake) for hermetic UAT — tests don't need a real WebSocket, DB seed is sufficient
+- [Phase 14-uat-automation-harness]: -UITestDeepLink launch arg replays URL through handleDeepLink (more reliable than simctl openurl on iOS 26 sims)
+- [Phase 14-uat-automation-harness]: DeepLink.threadView identifier moved to zero-size overlay marker — attaching on body VStack was overriding all descendant identifiers via SwiftUI accessibility inheritance
 
 ### Roadmap Evolution
 
@@ -86,6 +89,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-04-18T22:33:33.373Z
-Stopped at: Completed 14-05-PLAN.md
+Last session: 2026-04-19T00:32:41.157Z
+Stopped at: Completed 14-06-PLAN.md
 Resume file: None
