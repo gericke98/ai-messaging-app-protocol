@@ -1,11 +1,16 @@
 ---
 phase: 15
 slug: v3-2-tech-debt-off-gsd-ratification
-status: draft
+status: approved
 shadcn_initialized: false
 preset: not applicable (native iOS SwiftUI + Rust server + TypeScript SDK; no web framework)
 created: 2026-04-18
+reviewed_at: 2026-04-18
 contract_type: negative
+flags:
+  - dimension: spacing
+    severity: non-blocking
+    note: "AgentMessageView badge row uses HStack(spacing: 6) — pre-existing v3.2 value, not a multiple of 4. Phase 15 must not change it. Realign to 8pt when Phase 21 (MA-01 distinct-agent-identity) next touches AgentMessageView."
 ---
 
 # Phase 15 — UI Design Contract (NEGATIVE)
