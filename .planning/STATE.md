@@ -2,12 +2,13 @@
 gsd_state_version: 1.0
 milestone: v3.3
 milestone_name: Universal Agent Client
-status: defining_requirements
-stopped_at: Milestone started, defining requirements
+status: roadmapped
+stopped_at: Roadmap approved, awaiting Phase 15 planning
 last_updated: "2026-04-18T00:00:00.000Z"
 last_activity: 2026-04-18
+current_phase: 15
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,16 +22,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** Enable mixed human-agent threads where any participant (human or agent) can seamlessly join, communicate, and coordinate with the same quality of experience.
-**Current focus:** Defining v3.3 requirements — Universal Agent Client
+**Current focus:** v3.3 Universal Agent Client — Phase 15 (v3.2 Tech Debt + Off-GSD Ratification) next
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 15 (v3.2 Tech Debt + Off-GSD Ratification) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-18 — Milestone v3.3 started
+Status: Roadmap complete, awaiting `/gsd:plan-phase 15`
+Last activity: 2026-04-18 — Roadmap for v3.3 (Phases 15-21) created, 75 requirements mapped
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [░░░░░░░░░░] 0% (0/7 phases complete)
+
+## Roadmap Summary
+
+v3.3 ships across 7 phases (15-21):
+
+| Phase | Name | Requirements |
+|-------|------|--------------|
+| 15 | v3.2 Tech Debt + Off-GSD Ratification | DEBT × 13 + RAT × 6 (19) |
+| 16 | Connector Auth Hardening + Delivery Gating | AU × 8 + MA-05 (9) — keystone |
+| 17 | Python Connector SDK | PY × 8 (8) — parallelizable with 18 |
+| 18 | OpenAI Responses API Upgrade | OA × 6 (6) — parallelizable with 17 |
+| 19 | MCP Bridge Connector | MCP × 7 (7) |
+| 20 | iOS Live Agent Discovery + Compound Memory Groundwork | DISC × 5 + MEM × 5 (10) |
+| 21 | Multi-Agent UX + Connector Lifecycle + Tool Transparency | MA × 6 + CN × 5 + TC × 5 (16) |
+
+Total: 75 requirements mapped to 7 phases.
 
 ## Accumulated Context
 
@@ -74,11 +91,15 @@ See PROJECT.md Key Decisions table for full history.
 - [Phase 14-uat-automation-harness]: Force-connect in DEBUG bootstrap (skip live server handshake) for hermetic UAT — tests don't need a real WebSocket, DB seed is sufficient
 - [Phase 14-uat-automation-harness]: -UITestDeepLink launch arg replays URL through handleDeepLink (more reliable than simctl openurl on iOS 26 sims)
 - [Phase 14-uat-automation-harness]: DeepLink.threadView identifier moved to zero-size overlay marker — attaching on body VStack was overriding all descendant identifiers via SwiftUI accessibility inheritance
+- [v3.3 Roadmap]: MA-05 (server-side @-mention routing) placed in Phase 16 (keystone) not Phase 21 — it's security-class (blocks ANTI-01 runaway loops), server-side AgentRegistry delivery-gating (structurally adjacent to connector_keys trust anchor), and must ship before any multi-agent thread is user-visible
+- [v3.3 Roadmap]: 7-phase structure (15-21) derived from requirement clusters, not imposed; Phase 15 ratification before new connector surface gives cross-language crypto confidence that Phase 17 Python SDK then inherits
+- [v3.3 Roadmap]: Phases 17 (Python SDK) and 18 (OpenAI Responses) are parallelizable — they share only the Phase 16 auth contract and touch different code paths
 
 ### Roadmap Evolution
 
 - Phase 14 added (2026-04-18): UAT automation harness — XCUITest coverage for 6 Phase 13 acceptance tests with hermetic seed bootstrap so HUMAN-UAT can run via `xcodebuild test`
 - Milestone v3.3 started (2026-04-18): Universal Agent Client — ratify Phase A connector work into GSD, add Python SDK + MCP Bridge, upgrade OpenAI to Responses API, wire iOS live Agent Discovery, lay compound memory groundwork, close v3.2 tech debt as Phase 1
+- v3.3 Roadmap created (2026-04-18): 7 phases (15-21), 75 requirements mapped, Phase 16 keystone, MA-05 lifted from Phase 21 to Phase 16 for security gating
 
 ### Pending Todos
 
@@ -91,5 +112,5 @@ None active.
 ## Session Continuity
 
 Last session: 2026-04-18T00:00:00.000Z
-Stopped at: Milestone v3.3 defining requirements
+Stopped at: v3.3 roadmap complete, awaiting `/gsd:plan-phase 15`
 Resume file: None

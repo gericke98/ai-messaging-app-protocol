@@ -173,4 +173,109 @@ iOS-side features that realize the "universal agent client" claim end-to-end. Bu
 
 ## Traceability
 
-*(Populated by roadmapper: REQ-ID → Phase mapping)*
+REQ-ID → Phase mapping (v3.3 Universal Agent Client — 75 requirements across Phases 15-21).
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DEBT-01 | Phase 15 | Pending |
+| DEBT-02 | Phase 15 | Pending |
+| DEBT-03 | Phase 15 | Pending |
+| DEBT-04 | Phase 15 | Pending |
+| DEBT-05 | Phase 15 | Pending |
+| DEBT-06 | Phase 15 | Pending |
+| DEBT-07 | Phase 15 | Pending |
+| DEBT-08 | Phase 15 | Pending |
+| DEBT-09 | Phase 15 | Pending |
+| DEBT-10 | Phase 15 | Pending |
+| DEBT-11 | Phase 15 | Pending |
+| DEBT-12 | Phase 15 | Pending |
+| DEBT-13 | Phase 15 | Pending |
+| RAT-01 | Phase 15 | Pending |
+| RAT-02 | Phase 15 | Pending |
+| RAT-03 | Phase 15 | Pending |
+| RAT-04 | Phase 15 | Pending |
+| RAT-05 | Phase 15 | Pending |
+| RAT-06 | Phase 15 | Pending |
+| AU-01 | Phase 16 | Pending |
+| AU-02 | Phase 16 | Pending |
+| AU-03 | Phase 16 | Pending |
+| AU-04 | Phase 16 | Pending |
+| AU-05 | Phase 16 | Pending |
+| AU-06 | Phase 16 | Pending |
+| AU-07 | Phase 16 | Pending |
+| AU-08 | Phase 16 | Pending |
+| MA-05 | Phase 16 | Pending |
+| PY-01 | Phase 17 | Pending |
+| PY-02 | Phase 17 | Pending |
+| PY-03 | Phase 17 | Pending |
+| PY-04 | Phase 17 | Pending |
+| PY-05 | Phase 17 | Pending |
+| PY-06 | Phase 17 | Pending |
+| PY-07 | Phase 17 | Pending |
+| PY-08 | Phase 17 | Pending |
+| OA-01 | Phase 18 | Pending |
+| OA-02 | Phase 18 | Pending |
+| OA-03 | Phase 18 | Pending |
+| OA-04 | Phase 18 | Pending |
+| OA-05 | Phase 18 | Pending |
+| OA-06 | Phase 18 | Pending |
+| MCP-01 | Phase 19 | Pending |
+| MCP-02 | Phase 19 | Pending |
+| MCP-03 | Phase 19 | Pending |
+| MCP-04 | Phase 19 | Pending |
+| MCP-05 | Phase 19 | Pending |
+| MCP-06 | Phase 19 | Pending |
+| MCP-07 | Phase 19 | Pending |
+| DISC-01 | Phase 20 | Pending |
+| DISC-02 | Phase 20 | Pending |
+| DISC-03 | Phase 20 | Pending |
+| DISC-04 | Phase 20 | Pending |
+| DISC-05 | Phase 20 | Pending |
+| MEM-01 | Phase 20 | Pending |
+| MEM-02 | Phase 20 | Pending |
+| MEM-03 | Phase 20 | Pending |
+| MEM-04 | Phase 20 | Pending |
+| MEM-05 | Phase 20 | Pending |
+| MA-01 | Phase 21 | Pending |
+| MA-02 | Phase 21 | Pending |
+| MA-03 | Phase 21 | Pending |
+| MA-04 | Phase 21 | Pending |
+| MA-06 | Phase 21 | Pending |
+| MA-07 | Phase 21 | Pending |
+| CN-01 | Phase 21 | Pending |
+| CN-02 | Phase 21 | Pending |
+| CN-03 | Phase 21 | Pending |
+| CN-04 | Phase 21 | Pending |
+| CN-05 | Phase 21 | Pending |
+| TC-01 | Phase 21 | Pending |
+| TC-02 | Phase 21 | Pending |
+| TC-03 | Phase 21 | Pending |
+| TC-04 | Phase 21 | Pending |
+| TC-05 | Phase 21 | Pending |
+
+### Coverage Check
+
+- Total v1 requirements: 75
+- Mapped to phases: 75
+- Orphaned (unmapped): 0
+- Duplicates (mapped to >1 phase): 0
+
+✓ 100% coverage
+
+### Phase Distribution
+
+| Phase | Category Composition | Count |
+|-------|----------------------|-------|
+| 15 | DEBT × 13 + RAT × 6 | 19 |
+| 16 | AU × 8 + MA × 1 (MA-05) | 9 |
+| 17 | PY × 8 | 8 |
+| 18 | OA × 6 | 6 |
+| 19 | MCP × 7 | 7 |
+| 20 | DISC × 5 + MEM × 5 | 10 |
+| 21 | MA × 6 (MA-01..04, 06, 07) + CN × 5 + TC × 5 | 16 |
+| **Total** | | **75** |
+
+### Notes
+
+- **MA-05 in Phase 16**, not Phase 21: server-side @-mention routing is security-class (blocks ANTI-01 runaway loops / $47K multi-agent failure mode). It is a server-side AgentRegistry delivery-gating change, structurally adjacent to the connector_keys trust anchor. Shipping it in Phase 21 alongside iOS UX would require either un-gated multi-agent threads in the interim (unacceptable) or a blocked Phase 21. Lifting it to Phase 16 keeps the trust anchor and the delivery gate colocated and lets Phase 21 build on already-gated delivery.
+- **MA × 6 in Phase 21**: MA-01 (distinct identity), MA-02 (parallel indicators), MA-03 (always-attributed), MA-04 (tool attribution), MA-06 (silence agent), MA-07 (remove agent). MA-05 lives in Phase 16 per above.
