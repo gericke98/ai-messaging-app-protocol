@@ -14,6 +14,8 @@ UAT_RESULT_BUNDLE    := tmp/UAT-Results
 
 uat: ## Run hermetic UAT suite (boot server, poll health, run xcodebuild test, teardown)
 	@mkdir -p tmp
+	@# Clean prior result bundle — xcodebuild refuses to overwrite existing xcresults.
+	@rm -rf "$(UAT_RESULT_BUNDLE)" "$(UAT_RESULT_BUNDLE).xcresult"
 	@# Preflight: fail fast if port is in use (Pitfall 8 -- tokio bind would otherwise fail silently in background)
 	@if lsof -nP -iTCP:$(UAT_PORT) -sTCP:LISTEN >/dev/null 2>&1; then \
 	  echo "[uat] port $(UAT_PORT) already in use. Run 'lsof -i :$(UAT_PORT)' to identify; aborting." >&2 ; exit 1 ; \
