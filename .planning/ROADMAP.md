@@ -39,7 +39,16 @@
   3. All 4 off-GSD packages pass the 8-point ratification checklist (deps pinned, tests green, DECISIONS.md present, logs redacted, errors mapped, versions aligned with SDK parity, no blocking TODOs, CI integrated)
   4. `dist/` directories are excluded from git via `.gitignore` + CI enforcement, and `DeepLinkUITests` + `SubThreadBranchUITests` pass without XCTSkip (root-cause documented, not masked)
   5. A dependency map clusters the 13 DEBT items by shared surface (Keychain, offline, UAT timing) and every UAT cluster completes a full XCUITest regression run before moving to the next
-**Plans**: TBD
+**Plans**: 9 plans
+- [ ] 15-01-PLAN.md — Foundation hygiene: .gitignore for dist/, connector-ci.yml, exact-pin deps, DECISIONS.md scaffolds (RAT-05, RAT-06)
+- [ ] 15-02-PLAN.md — DEBT Cluster A: Keychain hardening + cross-platform JCS/Ed25519 conformance + bidirectional signing test (DEBT-02, DEBT-03, DEBT-04)
+- [ ] 15-03-PLAN.md — Server AgentRegistry race + lifecycle tests (RAT-04)
+- [ ] 15-04-PLAN.md — DEBT Cluster B: XCUITest stabilization (un-skip DeepLink test, hard-assert SubThread badge) + anti-flake gate (DEBT-10, DEBT-11)
+- [ ] 15-05-PLAN.md — Ratify @ainm/connector: log.ts redactor, errors.ts taxonomy, error-path tests (RAT-01, RAT-06)
+- [ ] 15-06-PLAN.md — Ratify @ainm/connector-claude-code: detached spawn + process-group cleanup, leak-detection test, OAuth-vs-bare DECISIONS (RAT-02, RAT-06)
+- [ ] 15-07-PLAN.md — Ratify @ainm/connector-openai: build test suite from scratch, sanitize briefing logs, add to CI matrix (RAT-03, RAT-06)
+- [ ] 15-08-PLAN.md — DEBT Cluster D: simulator discovery + anti-flake gate codified + DEBT-12 cluster map (DEBT-05, DEBT-12, DEBT-13)
+- [ ] 15-09-PLAN.md — DEBT Cluster C: live-server HUMAN-UAT for handshake, offline read, real-time list, agent badge contrast, multi-block render (DEBT-01, DEBT-06, DEBT-07, DEBT-08, DEBT-09)
 
 ### Phase 16: Connector Auth Hardening + Delivery Gating
 **Goal**: Connectors prove identity at handshake with a server-bound challenge nonce signed by a separate-from-signing connector key, users enroll/revoke connectors via a `connector_keys` allowlist, and agents only receive messages they are @-mentioned in — establishing the trust anchor that every subsequent phase depends on
@@ -128,7 +137,7 @@
 | 12. Streaming & Interactive Blocks | v3.2 | 4/4 | Complete | 2026-03-30 |
 | 13. AI-Native Features & Platform | v3.2 | 5/5 | Complete | 2026-03-30 |
 | 14. UAT Automation Harness | v3.2 | 6/6 | Complete | 2026-04-19 |
-| 15. v3.2 Tech Debt + Off-GSD Ratification | v3.3 | 0/? | Not started | — |
+| 15. v3.2 Tech Debt + Off-GSD Ratification | v3.3 | 0/9 | Not started | — |
 | 16. Connector Auth Hardening + Delivery Gating | v3.3 | 0/? | Not started | — |
 | 17. Python Connector SDK | v3.3 | 0/? | Not started | — |
 | 18. OpenAI Responses API Upgrade | v3.3 | 0/? | Not started | — |
