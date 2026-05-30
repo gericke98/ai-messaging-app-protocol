@@ -30,3 +30,12 @@ def test_run_all_produces_one_result_per_consumer_per_arm(monkeypatch):
         raw = [r for r in results if r["arm"] == "raw" and r["consumer"] == c][0]
         comp = [r for r in results if r["arm"] == "compound" and r["consumer"] == c][0]
         assert comp["context_tokens"] <= raw["context_tokens"]
+
+def test_build_contexts_handles_sparse_raw_without_crashing():
+    # When raw is tiny, compound must be capped so parity holds (no ValueError).
+    from compound_spike.harness import build_contexts
+    profile = _profile()
+    tiny_msgs = [Message("claude", "c", "m1", "user", "hi", "2026-01-01")]
+    ctx = build_contexts("plan my week", profile, tiny_msgs, TokenCounter())
+    c = TokenCounter()
+    assert c.count(ctx["compound"]) <= c.count(ctx["raw"])

@@ -48,7 +48,14 @@ def extract_facts(chunk: Chunk, idx_start: int) -> list[Fact]:
     facts, keys = [], {}
     for i, fd in enumerate(data.get("facts", [])):
         fid = f"f_{idx_start + i}"
-        prov = [Provenance(**p) for p in fd.get("provenance", [])]
+        prov = []
+        for p in fd.get("provenance", []):
+            if not isinstance(p, dict):
+                continue
+            prov.append(Provenance(
+                source=p.get("source", ""), conv_id=p.get("conv_id", ""),
+                msg_id=p.get("msg_id", ""), ts=p.get("ts", ""),
+            ))
         facts.append(Fact(
             id=fid, category=fd.get("category", "patterns"),
             statement=fd.get("statement", "").strip(),

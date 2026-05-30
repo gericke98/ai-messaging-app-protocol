@@ -11,7 +11,8 @@ SYSTEM_BASE = ("You are a helpful assistant. If context about the user is provid
 def build_contexts(task: str, profile: Profile, messages: list[Message],
                    counter: TokenCounter, budget: int = BUDGET_N) -> dict[str, str]:
     raw = select_raw_excerpts(messages, task, budget, counter)
-    compound = render_profile(profile, budget, counter)
+    raw_tokens = counter.count(raw)
+    compound = render_profile(profile, min(budget, raw_tokens), counter)
     assert_budget_parity(raw=raw, compound=compound, counter=counter)
     return {"cold": "", "raw": raw, "compound": compound}
 

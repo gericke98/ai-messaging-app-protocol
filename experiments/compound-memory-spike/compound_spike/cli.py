@@ -6,7 +6,7 @@ from compound_spike.harness import run_all
 from compound_spike.judge import build_blind_table
 from compound_spike.models import Profile
 from compound_spike.tokens import TokenCounter
-from config import OUT_DIR, DATA_DIR
+from config import OUT_DIR
 
 OUT_DIR.mkdir(exist_ok=True)
 
