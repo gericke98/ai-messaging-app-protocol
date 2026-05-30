@@ -59,8 +59,9 @@ def extract_facts(chunk: Chunk, idx_start: int) -> list[Fact]:
     extract_facts._last_keys = keys  # carried out via distill()
     return facts
 
-def distill(messages: list[Message], counter: TokenCounter) -> Profile:
-    chunks = chunk_conversations(messages, counter)
+def distill(messages: list[Message], counter: TokenCounter,
+            max_tokens: int = DISTILL_CHUNK_TOKENS) -> Profile:
+    chunks = chunk_conversations(messages, counter, max_tokens)
     all_facts: list[Fact] = []
     conflict_keys: dict[str, str] = {}
     n = 0

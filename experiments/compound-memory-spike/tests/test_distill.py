@@ -22,7 +22,7 @@ def test_distill_calls_llm_per_chunk_and_reconciles(monkeypatch):
         "first_seen": "2026-01-01", "last_seen": "2026-01-01"
     }]})
     monkeypatch.setattr(distill, "complete", lambda **kw: fake_json)
-    profile = distill.distill(_msgs(40), TokenCounter())
+    profile = distill.distill(_msgs(40), TokenCounter(), max_tokens=300)
     # duplicates across chunks reconcile down to one active fact
     assert len(profile.active()) == 1
     assert profile.active()[0].statement == "Prefers Rust"
