@@ -1,0 +1,31 @@
+[
+  {
+    "title": "Backend language choice",
+    "create_time": 1730500000.0,
+    "mapping": {
+      "root": { "id": "root", "message": null, "parent": null, "children": ["n1"] },
+      "n1": {
+        "id": "n1",
+        "message": {
+          "id": "msg_a",
+          "author": { "role": "user" },
+          "create_time": 1730500001.0,
+          "content": { "content_type": "text", "parts": ["I'm rewriting our backend. I prefer Rust over Go for it."] }
+        },
+        "parent": "root",
+        "children": ["n2"]
+      },
+      "n2": {
+        "id": "n2",
+        "message": {
+          "id": "msg_b",
+          "author": { "role": "assistant" },
+          "create_time": 1730500002.0,
+          "content": { "content_type": "text", "parts": ["Rust is a solid choice for that."] }
+        },
+        "parent": "n1",
+        "children": []
+      }
+    }
+  }
+]
