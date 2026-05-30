@@ -1,0 +1,5 @@
+litellm==1.55.10
+tiktoken==0.8.0
+pandas==2.2.3
+pytest==8.3.4
+python-dotenv==1.0.1
