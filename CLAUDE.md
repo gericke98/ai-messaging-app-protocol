@@ -235,24 +235,31 @@ Conventions not yet established. Will populate as patterns emerge during develop
 Architecture not yet mapped. Follow existing patterns found in the codebase.
 <!-- GSD:architecture-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+## Development Workflow
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+This project uses the **superpowers** skills to drive non-trivial work, not GSD. The skill system
+surfaces when each applies; the core flow and entry points:
 
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
+- **Brainstorming** (`superpowers:brainstorming`) — before any new feature or creative work. Turns
+  an idea into an approved design doc in `docs/superpowers/specs/`. Required before implementation.
+- **Writing plans** (`superpowers:writing-plans`) — turn an approved spec into an executable
+  implementation plan.
+- **Executing plans** (`superpowers:executing-plans`, `superpowers:subagent-driven-development`) —
+  work a plan with review checkpoints.
+- **TDD** (`superpowers:test-driven-development`) — default discipline for implementation code.
+- **Systematic debugging** (`superpowers:systematic-debugging`) — for any bug, test failure, or
+  unexpected behavior; find root cause before proposing a fix.
+- **Verification before completion** (`superpowers:verification-before-completion`) — run the
+  verification and confirm the output before claiming anything is done, fixed, or passing.
 
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
+Design specs live in `docs/superpowers/specs/`. Commit in small, focused increments.
+
+> **GSD is retired for this project.** The `.planning/` directory remains as the historical record
+> of the v3.1–v3.3 milestones, but it is no longer the active workflow — do not route new work
+> through `/gsd:*` commands.
 
 
 
-<!-- GSD:profile-start -->
 ## Developer Profile
 
-> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+> Profile not yet configured.

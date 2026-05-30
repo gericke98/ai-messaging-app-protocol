@@ -1,0 +1,22 @@
+[
+  {
+    "uuid": "conv_x",
+    "name": "Weekend project",
+    "created_at": "2026-04-18T10:00:00Z",
+    "chat_messages": [
+      {
+        "uuid": "cm1",
+        "sender": "human",
+        "text": "My side project is a SwiftUI habit tracker called Streaks.",
+        "created_at": "2026-04-18T10:00:00Z"
+      },
+      {
+        "uuid": "cm2",
+        "sender": "assistant",
+        "text": "",
+        "content": [{ "type": "text", "text": "Nice — SwiftUI is great for that." }],
+        "created_at": "2026-04-18T10:00:05Z"
+      }
+    ]
+  }
+]
