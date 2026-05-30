@@ -7,7 +7,12 @@ def _profile():
                                  provenance=[Provenance("claude","c","m","2026")])])
 
 def _msgs():
-    return [Message("claude", "c", "m1", "user", "I love Rust backends", "2026-01-01")]
+    return [
+        Message("claude", "c", f"m{i}", "user",
+                f"I love Rust backends and this is past message {i} about my work and projects",
+                f"2026-01-0{i+1}")
+        for i in range(5)
+    ]
 
 def test_run_all_produces_one_result_per_consumer_per_arm(monkeypatch):
     monkeypatch.setattr(harness, "complete",
