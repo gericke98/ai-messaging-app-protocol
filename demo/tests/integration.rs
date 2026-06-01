@@ -958,3 +958,34 @@ async fn test_accounts_migration_applies() {
         assert!(exists, "table {table} should exist after migration");
     }
 }
+
+#[tokio::test]
+async fn test_account_repo_roundtrip() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::accounts;
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("user_{uniq}");
+    let email_hash = format!("hash_{uniq}");
+
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash)
+        .await
+        .expect("create");
+    assert_eq!(acct.status, "pending");
+    assert_eq!(acct.address, format!("{username}@test.ainm.local"));
+
+    let dup = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await;
+    assert!(matches!(dup, Err(_)), "duplicate account must be rejected");
+
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &format!("pk_{uniq}"), Some("iphone")).await.unwrap();
+
+    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().expect("active key");
+    assert_eq!(key.public_key, format!("pk_{uniq}"));
+
+    let second = accounts::insert_account_key(&pool, acct.id, &format!("pk2_{uniq}"), None).await;
+    assert!(matches!(second, Err(_)), "second active key must be rejected");
+
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+    let found = accounts::find_account_by_address(&pool, &acct.address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+}
