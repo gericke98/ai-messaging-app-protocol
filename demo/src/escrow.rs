@@ -205,37 +205,44 @@ pub async fn fetch_and_evaluate(
     account_id: uuid::Uuid,
     blinded_b64: &str,
 ) -> Result<EscrowFetch, FetchError> {
-    let row: Option<(Option<Vec<u8>>, Vec<u8>, serde_json::Value, i32, i32, bool)> =
-        sqlx::query_as(
-            "SELECT oprf_key, ciphertext, kdf_params, eval_attempts, max_attempts, destroyed \
-         FROM key_escrow WHERE account_id = $1",
-        )
-        .bind(account_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| FetchError::Db(e.to_string()))?;
+    // Atomic: increment the attempt counter and, if this guess trips the cap, destroy the
+    // OPRF key in the SAME statement (closes the read-then-update TOCTOU window). The row lock
+    // taken by UPDATE serializes concurrent guesses, so eval_attempts is re-read per guess.
+    // Only rows that are still live (not destroyed, key present) are updated.
+    let updated: Option<(Option<Vec<u8>>, Vec<u8>, serde_json::Value)> = sqlx::query_as(
+        "UPDATE key_escrow \
+         SET eval_attempts = eval_attempts + 1, \
+             oprf_key  = CASE WHEN eval_attempts + 1 >= max_attempts THEN NULL ELSE oprf_key END, \
+             destroyed = CASE WHEN eval_attempts + 1 >= max_attempts THEN true ELSE destroyed END, \
+             updated_at = NOW() \
+         WHERE account_id = $1 AND destroyed = false AND oprf_key IS NOT NULL \
+         RETURNING oprf_key, ciphertext, kdf_params",
+    )
+    .bind(account_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| FetchError::Db(e.to_string()))?;
 
-    let Some((oprf_key_opt, ciphertext, kdf_json, attempts, max, destroyed)) = row else {
-        return Err(FetchError::NotFound);
+    let Some((oprf_key_opt, ciphertext, kdf_json)) = updated else {
+        // No live row was updated: either there is no escrow at all (NotFound) or it was
+        // already destroyed/null (Destroyed). Classify with a cheap existence check.
+        let exists: Option<(bool,)> =
+            sqlx::query_as("SELECT destroyed FROM key_escrow WHERE account_id = $1")
+                .bind(account_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| FetchError::Db(e.to_string()))?;
+        return match exists {
+            Some(_) => Err(FetchError::Destroyed), // row present but not live -> destroyed/null
+            None => Err(FetchError::NotFound),
+        };
     };
-    if destroyed || oprf_key_opt.is_none() {
-        return Err(FetchError::Destroyed);
-    }
-    if attempts + 1 >= max {
-        sqlx::query("UPDATE key_escrow SET oprf_key = NULL, destroyed = true, eval_attempts = eval_attempts + 1, updated_at = NOW() WHERE account_id = $1")
-            .bind(account_id)
-            .execute(pool)
-            .await
-            .map_err(|e| FetchError::Db(e.to_string()))?;
-        return Err(FetchError::Destroyed);
-    }
-    sqlx::query("UPDATE key_escrow SET eval_attempts = eval_attempts + 1, updated_at = NOW() WHERE account_id = $1")
-        .bind(account_id)
-        .execute(pool)
-        .await
-        .map_err(|e| FetchError::Db(e.to_string()))?;
 
-    let oprf_key = oprf_key_opt.unwrap();
+    // If this very request tripped the cap, the CASE just NULLed the key: fail closed, no eval.
+    let Some(oprf_key) = oprf_key_opt else {
+        return Err(FetchError::Destroyed);
+    };
+
     let evaluated_b64 = server_evaluate(&oprf_key, blinded_b64).map_err(FetchError::Crypto)?;
     let kdf_params: KdfParams =
         serde_json::from_value(kdf_json).map_err(|e| FetchError::Crypto(e.to_string()))?;
