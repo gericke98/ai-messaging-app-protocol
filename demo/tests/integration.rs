@@ -943,3 +943,18 @@ async fn briefing_peer_card_gated_by_identity_scope() {
     assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "",
         "peer card must be empty when the identity scope is not granted");
 }
+
+#[tokio::test]
+async fn test_accounts_migration_applies() {
+    let Some(pool) = test_pool().await else { return };
+    for table in ["accounts", "account_keys", "email_verifications", "key_escrow"] {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
+        )
+        .bind(table)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists, "table {table} should exist after migration");
+    }
+}
