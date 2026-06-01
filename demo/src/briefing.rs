@@ -244,7 +244,8 @@ pub async fn generate_briefing(
         retrieval::RankedItem { id: i as i64, score: base * boost, char_len: n.label.len() }
     }).collect();
     const BRIEFING_CHAR_BUDGET: usize = 4000;
-    let kept_idx = retrieval::pack_to_budget(ranked, BRIEFING_CHAR_BUDGET);
+    const BRIEFING_MIN_SCORE: f32 = 0.05; // drop facts whose recency×confidence(×boost) is negligible (e.g. >~4 months stale)
+    let kept_idx = retrieval::pack_to_budget(ranked, BRIEFING_CHAR_BUDGET, BRIEFING_MIN_SCORE);
     let nodes: Vec<graph::NodeRow> = kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
 
     // 4) Peer card from identity facts (separate query, unchanged behavior).

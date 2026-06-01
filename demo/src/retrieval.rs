@@ -43,9 +43,10 @@ pub struct RankedItem {
     pub char_len: usize,
 }
 
-/// Greedy budget fill: sort by score desc, keep while cumulative char_len <= budget.
-/// Returns kept ids in score order.
-pub fn pack_to_budget(mut items: Vec<RankedItem>, budget_chars: usize) -> Vec<i64> {
+/// Greedy budget fill among items scoring >= min_score: sort by score desc,
+/// keep while cumulative char_len <= budget. Returns kept ids in score order.
+pub fn pack_to_budget(mut items: Vec<RankedItem>, budget_chars: usize, min_score: f32) -> Vec<i64> {
+    items.retain(|it| it.score >= min_score);
     items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     let mut used = 0usize;
     let mut kept = Vec::new();
@@ -118,7 +119,7 @@ mod tests {
             RankedItem { id: 2, score: 0.9, char_len: 50 },
             RankedItem { id: 3, score: 0.5, char_len: 50 },
         ];
-        let kept = pack_to_budget(items, 100);
+        let kept = pack_to_budget(items, 100, 0.0);
         assert_eq!(kept, vec![2, 3]);
     }
 
@@ -129,8 +130,18 @@ mod tests {
             RankedItem { id: 2, score: 0.8, char_len: 50 },
             RankedItem { id: 3, score: 0.7, char_len: 15 },
         ];
-        let kept = pack_to_budget(items, 100);
+        let kept = pack_to_budget(items, 100, 0.0);
         assert_eq!(kept, vec![1, 3]);
+    }
+
+    #[test]
+    fn pack_to_budget_drops_below_floor_even_with_budget_room() {
+        let items = vec![
+            RankedItem { id: 1, score: 0.9, char_len: 10 },
+            RankedItem { id: 2, score: 0.001, char_len: 10 }, // below floor, budget has room
+        ];
+        let kept = pack_to_budget(items, 1000, 0.05);
+        assert_eq!(kept, vec![1]); // id 2 dropped by floor despite ample budget
     }
 
     #[test]

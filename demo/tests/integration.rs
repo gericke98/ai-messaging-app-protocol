@@ -622,6 +622,131 @@ async fn dogfood_emit_briefings() {
     println!("=== DOGFOOD BRIEFINGS ===\n{}", serde_json::to_string_pretty(&out).unwrap());
 }
 
+// ── Dogfood: SCALE test — briefing surfaces salient facts, drops noise ─────
+
+#[tokio::test]
+#[ignore]
+async fn dogfood_scale_test() {
+    let pool = test_pool().await.expect("Postgres up");
+    let user = "dogfood-scale@local";
+    let thread = "dogfood-scale-thread";
+    let task = "Help me plan what to work on this week.";
+
+    // Clean prior data (idempotent)
+    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1").bind(user).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM messages WHERE thread_id = $1").bind(thread).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM threads WHERE id = $1").bind(thread).execute(&pool).await.unwrap();
+
+    // Seed thread + task message
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
+        .bind(thread).bind("local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(thread).bind(user).bind(serde_json::json!({"text": task})).execute(&pool).await.unwrap();
+
+    // 10 IMPORTANT facts — valid_from = NOW() by default (recent) + high confidence
+    let prov = serde_json::json!({"source": "dogfood-scale-seed"});
+    let tags = serde_json::json!([]);
+    let important: Vec<(&str, &str, f32)> = vec![
+        ("projects", "[IMP1] Current milestone is v3.3 Universal Agent Client", 0.95),
+        ("projects", "[IMP2] Next up: connector auth hardening Phase 16", 0.9),
+        ("projects", "[IMP3] Building the compound-memory capture layer this sprint", 0.95),
+        ("projects", "[IMP4] Wants to validate compound memory before investing further", 0.9),
+        ("decisions", "[IMP5] Decided to run a scale test of memory briefing", 0.88),
+        ("preferences", "[IMP6] Prefers to plan the week around highest-leverage AINM work", 0.9),
+        ("projects", "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress", 0.9),
+        ("patterns", "[IMP8] Works in focused sprints", 0.85),
+        ("projects", "[IMP9] Needs to decide what to build after the memory layer", 0.9),
+        ("identity", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
+    ];
+    for (cat, label, conf) in &important {
+        ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+    }
+
+    // 290 NOISE facts — OLD valid_from (400-700 days) + varied confidence, via raw SQL
+    for i in 0..290 {
+        let days_old: i64 = 400 + (i as i64 % 300); // 400-699 days old
+        let conf: f32 = 0.4 + ((i % 6) as f32) * 0.1; // 0.4..0.9 varied (some high)
+        sqlx::query(
+            "INSERT INTO memory_nodes (user_addr, node_type, category, label, confidence, valid_from) \
+             VALUES ($1,'semantic','fact',$2,$3, NOW() - ($4 || ' days')::interval)"
+        )
+        .bind(user)
+        .bind(format!("Random trivia fact number {i}: an old unrelated note about topic {}", i % 50))
+        .bind(conf)
+        .bind(days_old.to_string())
+        .execute(&pool).await.unwrap();
+    }
+
+    let store_total = important.len() + 290;
+
+    // Arm B (dump): no query, no filter, no ranking — the firehose.
+    let dump = ainm_demo::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let arm_b_count = dump.len();
+    let arm_b_chars: usize = dump.iter().map(|n| n.label.len()).sum();
+
+    // Arm C (briefing): recency x confidence ranking, query boost, budget pack.
+    let c = ainm_demo::briefing::generate_briefing(
+        &pool, user, "agent@x", thread, ainm_demo::briefing::ConsentLevel::Standard,
+    ).await.unwrap();
+    let c_blob = serde_json::to_string(&c).unwrap();
+
+    // C injected fact count = count of facts across all sections arrays.
+    let sections = c.get("sections").unwrap().as_object().unwrap();
+    let arm_c_fact_count: usize = sections.values()
+        .map(|v| v.as_array().map(|a| a.len()).unwrap_or(0))
+        .sum();
+    let arm_c_char_budget_used = c.get("char_budget_used").unwrap().as_u64().unwrap();
+    let arm_c_peer_card = c.get("peer_card").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut arm_c_sections_keys: Vec<String> = sections.keys().cloned().collect();
+    arm_c_sections_keys.sort();
+
+    // Diagnostic: per-section counts, and which noise ("fact" category) leaked in.
+    let mut section_counts: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for (k, v) in sections.iter() {
+        section_counts.insert(k.clone(), serde_json::json!(v.as_array().map(|a| a.len()).unwrap_or(0)));
+    }
+    // Count noise that leaked into C and which trivia indices (recency signal check).
+    let mut leaked_noise_indices: Vec<i64> = Vec::new();
+    for cap in c_blob.match_indices("Random trivia fact number ") {
+        let tail = &c_blob[cap.0 + "Random trivia fact number ".len()..];
+        let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = num.parse::<i64>() { leaked_noise_indices.push(n); }
+    }
+    leaked_noise_indices.sort();
+    let arm_c_noise_leaked = leaked_noise_indices.len();
+
+    let out = serde_json::json!({
+        "task": task,
+        "store_total": store_total,
+        "arm_b_count": arm_b_count,
+        "arm_b_chars": arm_b_chars,
+        "arm_c_char_budget_used": arm_c_char_budget_used,
+        "arm_c_fact_count": arm_c_fact_count,
+        "arm_c_peer_card": arm_c_peer_card,
+        "arm_c_sections_keys": arm_c_sections_keys,
+        "arm_c_section_counts": section_counts,
+        "arm_c_noise_leaked": arm_c_noise_leaked,
+        "arm_c_leaked_noise_indices": leaked_noise_indices,
+    });
+    let dir = "/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out";
+    std::fs::create_dir_all(dir).unwrap();
+    let path = format!("{dir}/dogfood_scale.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+    println!("=== DOGFOOD SCALE ===\n{}", serde_json::to_string_pretty(&out).unwrap());
+
+    // ── Assertions (the proof) ──
+    // 1) All 10 important facts surface in C despite 300-fact store + budget
+    for i in 1..=10 {
+        assert!(c_blob.contains(&format!("[IMP{i}]")), "C must include important fact IMP{i}");
+    }
+    // 2) C is focused: far fewer facts than the dump, and under budget
+    assert!(arm_c_fact_count < 25, "C should inject a focused set, got {arm_c_fact_count}");
+    assert!(arm_b_count >= 200, "dump returns the firehose, got {arm_b_count}");
+    assert!(arm_c_char_budget_used <= 4000, "C must be under budget, got {arm_c_char_budget_used}");
+    // 3) C drops stale noise
+    assert!(!c_blob.contains("Random trivia fact number 250"), "stale noise must be excluded from C");
+}
+
 // ── Graph: Thread Message Texts ───────────────────────────────────────────
 
 #[tokio::test]
