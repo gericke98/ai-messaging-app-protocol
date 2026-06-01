@@ -58,6 +58,19 @@ pub fn pack_to_budget(mut items: Vec<RankedItem>, budget_chars: usize) -> Vec<i6
     kept
 }
 
+/// Build a capped, human-readable identity anchor from fact labels.
+/// Adds facts as "- <label>\n" while staying within `cap_chars`. Empty if none fit.
+pub fn build_peer_card(facts: &[String], cap_chars: usize) -> String {
+    let mut out = String::new();
+    for f in facts {
+        let line = format!("- {f}\n");
+        if out.len() + line.len() <= cap_chars {
+            out.push_str(&line);
+        }
+    }
+    out.trim_end().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +131,29 @@ mod tests {
         ];
         let kept = pack_to_budget(items, 100);
         assert_eq!(kept, vec![1, 3]);
+    }
+
+    #[test]
+    fn build_peer_card_joins_facts_under_cap() {
+        let facts = vec![
+            "Name is Santiago".to_string(),
+            "Prefers Rust".to_string(),
+            "Building AINM".to_string(),
+        ];
+        let card = build_peer_card(&facts, 200);
+        assert!(card.contains("Santiago") && card.contains("Rust") && card.contains("AINM"));
+    }
+
+    #[test]
+    fn build_peer_card_truncates_whole_facts_to_cap() {
+        let facts = vec!["a".repeat(40), "b".repeat(40), "c".repeat(40)];
+        let card = build_peer_card(&facts, 90);
+        assert!(card.len() <= 90);
+        assert!(card.contains(&"a".repeat(40)));
+    }
+
+    #[test]
+    fn build_peer_card_empty_when_no_facts() {
+        assert_eq!(build_peer_card(&[], 200), "");
     }
 }
