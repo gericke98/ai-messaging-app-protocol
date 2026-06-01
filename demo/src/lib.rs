@@ -7,3 +7,4 @@ pub mod graph;
 pub mod llm;
 pub mod protocol;
 pub mod repository;
+pub mod retrieval;
