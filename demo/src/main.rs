@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod email;
 mod error;
+mod escrow;
 mod federation;
 mod graph;
 mod llm;

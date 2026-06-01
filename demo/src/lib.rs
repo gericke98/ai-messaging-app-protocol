@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod email;
 pub mod error;
+pub mod escrow;
 pub mod graph;
 pub mod identity;
 pub mod llm;
