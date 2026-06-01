@@ -348,8 +348,14 @@ async fn test_briefing_minimal_consent() {
         .await.unwrap();
 
     let sections = briefing.get("sections").unwrap().as_object().unwrap();
-    // Minimal consent only shares identity (fact category) — not skills
-    assert!(!sections.contains_key("expertise"));
+    // Minimal consent shares only the identity scope's categories (fact/relationship) —
+    // the seeded 'skill' (expertise scope) is excluded under enforcement.
+    assert!(sections.contains_key("fact"), "identity 'fact' present at minimal: {sections:?}");
+    assert!(!sections.contains_key("skill"), "expertise 'skill' excluded at minimal");
+    // Identity scope is in Minimal, so the peer card must populate (green-path guard:
+    // catches a regression that always returns an empty peer card).
+    assert!(!briefing.get("peer_card").unwrap().as_str().unwrap().is_empty(),
+        "identity scope must produce a non-empty peer card");
 }
 
 // ── Compiler: Full Pipeline ───────────────────────────────────────────────
