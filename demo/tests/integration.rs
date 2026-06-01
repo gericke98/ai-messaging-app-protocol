@@ -1012,3 +1012,37 @@ async fn test_otp_verify_flow() {
         email::VerifyOutcome::NotFound
     );
 }
+
+#[tokio::test]
+async fn test_signup_verify_bind_key() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, email, auth_token, protocol};
+    use email::EmailSender;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("u{uniq}");
+    let user_email = format!("{username}@mail.test");
+    let email_hash = email::hash_email(&user_email);
+
+    let _acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let code = email::generate_code();
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
+    let mock = email::MockEmailSender::new();
+    mock.send_code(&user_email, &code, "signup").await.unwrap();
+    assert!(mock.last_code(&user_email, "signup").is_some());
+
+    assert_eq!(
+        email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(),
+        email::VerifyOutcome::Ok
+    );
+    let acct = accounts::find_account_by_email_hash(&pool, &email_hash).await.unwrap().unwrap();
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+
+    let signer = auth_token::TokenSigner::new(b"itest-secret");
+    let token = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
+    let aid = signer.verify(&token, "enrollment", protocol::now_unix()).unwrap();
+    accounts::insert_account_key(&pool, uuid::Uuid::parse_str(&aid).unwrap(), &format!("pk_{uniq}"), Some("test")).await.unwrap();
+
+    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().unwrap();
+    assert_eq!(key.public_key, format!("pk_{uniq}"));
+}

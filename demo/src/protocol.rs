@@ -92,6 +92,11 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// Current Unix time in seconds.
+pub fn now_unix() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
 /// Build a JSON-RPC error as a raw `serde_json::Value`.
 ///
 /// Useful for handlers that return `Json<serde_json::Value>` instead of

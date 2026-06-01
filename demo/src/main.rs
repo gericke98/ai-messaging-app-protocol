@@ -463,6 +463,30 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         (None, None)
     };
 
+    // 7d. Account identity: token signer + email sender
+    let token_secret = std::env::var("AINM_TOKEN_SECRET")
+        .map(|s| s.into_bytes())
+        .unwrap_or_else(|_| {
+            use rand::RngCore;
+            let mut b = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut b);
+            tracing::warn!("[accounts] AINM_TOKEN_SECRET unset; using a random per-process secret (tokens won't survive restart)");
+            b.to_vec()
+        });
+    let token_signer = auth_token::TokenSigner::new(&token_secret);
+
+    let email_sender: std::sync::Arc<dyn email::EmailSender> =
+        match (std::env::var("AINM_EMAIL__RESEND_API_KEY").ok(), std::env::var("AINM_EMAIL__FROM").ok()) {
+            (Some(key), Some(from)) => {
+                tracing::info!("[email] using Resend sender");
+                std::sync::Arc::new(email::ResendEmailSender::new(key, from))
+            }
+            _ => {
+                tracing::info!("[email] no AINM_EMAIL__RESEND_API_KEY; using mock email sender (codes logged)");
+                std::sync::Arc::new(email::MockEmailSender::new())
+            }
+        };
+
     // 8. Create broadcast channel for local delivery
     let (local_delivery_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
@@ -498,6 +522,9 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         db_pool,
         compile_tx,
         compile_notify_tx,
+        email_sender,
+        token_signer,
+        server_id.to_string(),
     )
     .await?;
 

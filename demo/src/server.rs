@@ -10,7 +10,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
@@ -224,6 +224,102 @@ pub struct ServerState {
     pub compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
     /// Broadcast sender for compilation notifications (worker → human clients).
     pub compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
+    /// Email sender for account verification codes.
+    pub email_sender: std::sync::Arc<dyn crate::email::EmailSender>,
+    /// HMAC token signer for enrollment/auth tokens.
+    pub token_signer: crate::auth_token::TokenSigner,
+    /// This server's domain (used to build account addresses).
+    pub server_domain: String,
+}
+
+// --- Account REST handlers (signup / verify / bind-key) ---
+
+#[derive(serde::Deserialize)]
+pub struct SignupReq { pub email: String, pub username: String }
+#[derive(serde::Serialize)]
+pub struct SignupResp { pub address: String }
+
+pub async fn signup_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<SignupReq>,
+) -> Result<Json<SignupResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let username = crate::accounts::validate_username(&req.username)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid username: {e:?}")))?;
+    if !req.email.contains('@') {
+        return Err((StatusCode::BAD_REQUEST, "invalid email".into()));
+    }
+    let email_hash = crate::email::hash_email(&req.email);
+    let acct = crate::accounts::create_pending_account(pool, &username, &state.server_domain, &email_hash)
+        .await
+        .map_err(|e| match e {
+            crate::error::StorageError::Duplicate(_) =>
+                (StatusCode::CONFLICT, "username or email already registered".into()),
+            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+        })?;
+    let code = crate::email::generate_code();
+    crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "signup")
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    state.email_sender.send_code(&req.email, &code, "signup").await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(SignupResp { address: acct.address }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct VerifyReq { pub email: String, pub code: String }
+#[derive(serde::Serialize)]
+pub struct VerifyResp { pub enrollment_token: String }
+
+pub async fn verify_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<VerifyReq>,
+) -> Result<Json<VerifyResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    let outcome = crate::email::verify_code(pool, &email_hash, "signup", &crate::email::hash_code(&req.code))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if outcome != crate::email::VerifyOutcome::Ok {
+        return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
+    }
+    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
+    crate::accounts::set_email_verified(pool, acct.id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let token = state.token_signer.issue(&acct.id.to_string(), "enrollment", crate::protocol::now_unix(), 900);
+    Ok(Json(VerifyResp { enrollment_token: token }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct BindKeyReq { pub enrollment_token: String, pub public_key: String, pub device_label: Option<String> }
+
+pub async fn bind_key_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<BindKeyReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    crate::accounts::insert_account_key(pool, account_id, &req.public_key, req.device_label.as_deref())
+        .await
+        .map_err(|e| match e {
+            crate::error::StorageError::Duplicate(_) =>
+                (StatusCode::CONFLICT, "key already bound".into()),
+            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Start the Axum WebSocket server on a random available port (legacy mode).
@@ -246,6 +342,9 @@ pub async fn start(
         db: None,
         compile_tx: None,
         compile_notify_tx: None,
+        email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
+        token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
+        server_domain: "demo.ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -254,6 +353,9 @@ pub async fn start(
             "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -294,6 +396,9 @@ pub async fn start_with_port(
         db: None,
         compile_tx: None,
         compile_notify_tx: None,
+        email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
+        token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
+        server_domain: "demo.ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -304,6 +409,9 @@ pub async fn start_with_port(
         )
         .route("/health", get(|| async { StatusCode::OK }))
         .route("/health/live", get(|| async { StatusCode::OK }))
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
@@ -326,6 +434,9 @@ pub async fn start_federation(
     db: Option<sqlx::PgPool>,
     compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
     compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
+    email_sender: std::sync::Arc<dyn crate::email::EmailSender>,
+    token_signer: crate::auth_token::TokenSigner,
+    server_domain: String,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -341,6 +452,9 @@ pub async fn start_federation(
         db,
         compile_tx,
         compile_notify_tx,
+        email_sender,
+        token_signer,
+        server_domain,
     };
 
     let app = Router::new()
@@ -352,6 +466,9 @@ pub async fn start_federation(
         )
         .route("/health/live", get(|| async { StatusCode::OK }))
         .route("/health/ready", get(health_ready_handler))
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
