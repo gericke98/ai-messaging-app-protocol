@@ -249,8 +249,11 @@ pub async fn generate_briefing(
     let nodes: Vec<graph::NodeRow> = kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
 
     // 4) Peer card from identity facts (separate query, unchanged behavior).
+    // Peer card draws from the identity scope's real categories (fact, relationship).
+    // The compiler never emits a literal "identity" category — querying it returned nothing.
+    let identity_cats: Vec<&str> = scope_to_categories("identity");
     let identity_nodes = graph::query_nodes(
-        db, user_addr, None, None, Some(&["identity"]), "current", 0.0, 20,
+        db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
     ).await.unwrap_or_default();
     let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
     let peer_card = retrieval::build_peer_card(&identity_labels, 400);
