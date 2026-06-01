@@ -287,6 +287,8 @@ pub async fn verify_handler(
     if outcome != crate::email::VerifyOutcome::Ok {
         return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
     }
+    // INVARIANT: at most one account per email_hash (enforced by the unique index
+    // accounts_email_hash_idx in migration 003), so this single lookup is unambiguous.
     let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
