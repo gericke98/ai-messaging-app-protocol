@@ -22,6 +22,22 @@ pub fn all() -> Vec<&'static str> {
         .collect()
 }
 
+/// Normalize a raw category to its canonical form, or `None` if off-list.
+///
+/// Trims surrounding whitespace and ASCII-lowercases the input, then
+/// membership-tests against the closed canonical set. Returns the canonical
+/// `&'static str` literal so callers store the exact vocabulary form rather
+/// than the model's casing.
+pub fn normalize(raw: &str) -> Option<&'static str> {
+    let key = raw.trim().to_ascii_lowercase();
+    SEMANTIC
+        .iter()
+        .chain(EPISODIC)
+        .chain(PROCEDURAL)
+        .copied()
+        .find(|&c| c == key.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -38,5 +54,28 @@ mod tests {
         assert_eq!(all.len(), 13, "canonical set is 13 categories");
         let unique: BTreeSet<&&str> = all.iter().collect();
         assert_eq!(unique.len(), all.len(), "no category may appear in two groups");
+    }
+
+    #[test]
+    fn normalize_accepts_exact_canonical() {
+        assert_eq!(normalize("fact"), Some("fact"));
+        assert_eq!(normalize("decision"), Some("decision"));
+        assert_eq!(normalize("communication"), Some("communication"));
+    }
+
+    #[test]
+    fn normalize_recovers_casing_and_whitespace_variants() {
+        assert_eq!(normalize("Fact"), Some("fact"));
+        assert_eq!(normalize(" preference "), Some("preference"));
+        assert_eq!(normalize("DECISION"), Some("decision"));
+        assert_eq!(normalize("Skill"), Some("skill"));
+    }
+
+    #[test]
+    fn normalize_rejects_off_list_and_empty() {
+        assert_eq!(normalize("project"), None);
+        assert_eq!(normalize("misc"), None);
+        assert_eq!(normalize(""), None);
+        assert_eq!(normalize("   "), None);
     }
 }

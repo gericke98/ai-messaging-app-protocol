@@ -69,9 +69,33 @@ pub async fn run_compilation(
     // Step 1: LLM extraction
     let extraction = llm.extract(&req.messages).await?;
 
+    // Step 1b: Ingestion-side category enforcement. The extraction prompt
+    // instructs the model to use the canonical closed set, but the model may
+    // still deviate. Normalize trivial casing/whitespace variance to the
+    // canonical form; drop (and log) any node whose category is genuinely
+    // off-list so storage only ever holds consent-mappable categories.
+    let valid_nodes: Vec<CandidateNode> = extraction
+        .nodes
+        .into_iter()
+        .filter_map(|mut c| match crate::categories::normalize(&c.category) {
+            Some(canon) => {
+                c.category = canon.to_string();
+                Some(c)
+            }
+            None => {
+                tracing::warn!(
+                    "[compiler] dropping node with off-list category {:?} (label {:?})",
+                    c.category,
+                    c.label
+                );
+                None
+            }
+        })
+        .collect();
+
     // Step 2: Dedup candidates against existing graph
     let (new_nodes, updated_count, superseded_count) =
-        dedup_and_integrate_nodes(&db, &req.user_addr, &req.thread_id, &extraction.nodes).await?;
+        dedup_and_integrate_nodes(&db, &req.user_addr, &req.thread_id, &valid_nodes).await?;
 
     // Step 3: Create edges between nodes
     let edges_created =
@@ -288,7 +312,14 @@ async fn integrate_edges(
                 // Try to find by label in the graph
                 match find_existing_node(db, user_addr, &candidate.source_label, "semantic").await? {
                     Some((id, _)) => id,
-                    None => continue, // Skip edge if source not found
+                    None => {
+                        tracing::warn!(
+                            "[compiler] skipping edge {:?} -> {:?}: source node not found (may have been dropped as off-list)",
+                            candidate.source_label,
+                            candidate.target_label
+                        );
+                        continue;
+                    }
                 }
             }
         };
@@ -298,7 +329,14 @@ async fn integrate_edges(
             None => {
                 match find_existing_node(db, user_addr, &candidate.target_label, "semantic").await? {
                     Some((id, _)) => id,
-                    None => continue,
+                    None => {
+                        tracing::warn!(
+                            "[compiler] skipping edge {:?} -> {:?}: target node not found (may have been dropped as off-list)",
+                            candidate.source_label,
+                            candidate.target_label
+                        );
+                        continue;
+                    }
                 }
             }
         };
