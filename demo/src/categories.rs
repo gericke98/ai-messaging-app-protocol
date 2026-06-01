@@ -30,7 +30,12 @@ pub fn all() -> Vec<&'static str> {
 /// than the model's casing.
 pub fn normalize(raw: &str) -> Option<&'static str> {
     let key = raw.trim().to_ascii_lowercase();
-    all().into_iter().find(|&c| c == key.as_str())
+    SEMANTIC
+        .iter()
+        .chain(EPISODIC)
+        .chain(PROCEDURAL)
+        .copied()
+        .find(|&c| c == key.as_str())
 }
 
 #[cfg(test)]
