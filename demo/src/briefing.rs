@@ -66,10 +66,14 @@ impl ConsentLevel {
 }
 
 /// Map scopes to node categories for graph filtering.
-#[allow(dead_code)]
+///
+/// The union of all scopes' categories must equal `crate::categories::all()`
+/// (enforced by `tests::scope_map_exactly_covers_the_canonical_set`). Scopes may
+/// overlap: `goals ⊂ history` by design — `history` simply adds `outcome` and
+/// `interaction` on top of the `event`/`decision` that `goals` also grants.
 fn scope_to_categories(scope: &str) -> Vec<&'static str> {
     match scope {
-        "identity" => vec!["fact"],
+        "identity" => vec!["fact", "relationship"],
         "preferences" => vec!["preference", "tool"],
         "expertise" => vec!["skill"],
         "goals" => vec!["event", "decision"],
@@ -249,8 +253,11 @@ pub async fn generate_briefing(
     let nodes: Vec<graph::NodeRow> = kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
 
     // 4) Peer card from identity facts (separate query, unchanged behavior).
+    // Peer card draws from the identity scope's real categories (fact, relationship).
+    // The compiler never emits a literal "identity" category — querying it returned nothing.
+    let identity_cats: Vec<&str> = scope_to_categories("identity");
     let identity_nodes = graph::query_nodes(
-        db, user_addr, None, None, Some(&["identity"]), "current", 0.0, 20,
+        db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
     ).await.unwrap_or_default();
     let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
     let peer_card = retrieval::build_peer_card(&identity_labels, 400);
@@ -375,9 +382,25 @@ mod tests {
 
     #[test]
     fn test_scope_to_categories() {
-        assert_eq!(scope_to_categories("identity"), vec!["fact"]);
+        assert_eq!(scope_to_categories("identity"), vec!["fact", "relationship"]);
         assert_eq!(scope_to_categories("preferences"), vec!["preference", "tool"]);
         assert_eq!(scope_to_categories("expertise"), vec!["skill"]);
         assert!(scope_to_categories("unknown").is_empty());
+    }
+
+    #[test]
+    fn scope_map_exactly_covers_the_canonical_set() {
+        use std::collections::BTreeSet;
+        let mapped: BTreeSet<&str> = SCOPES
+            .iter()
+            .copied()
+            .flat_map(scope_to_categories)
+            .collect();
+        let canonical: BTreeSet<&str> = crate::categories::all().into_iter().collect();
+        assert_eq!(
+            mapped, canonical,
+            "every canonical category must be reachable by some scope, and no scope may \
+             map to a non-canonical category"
+        );
     }
 }
