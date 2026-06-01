@@ -156,6 +156,96 @@ pub fn client_finalize_and_open(
     Ok(out)
 }
 
+use crate::error::StorageError;
+use sqlx::PgPool;
+
+/// Finalize enrollment: persist ciphertext + kdf_params + oprf server state, reset counters.
+pub async fn store_escrow(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    ciphertext: &[u8],
+    kdf_params: &KdfParams,
+    oprf_key: &[u8],
+) -> Result<(), StorageError> {
+    let kdf_json =
+        serde_json::to_value(kdf_params).map_err(|e| StorageError::Duplicate(e.to_string()))?;
+    sqlx::query(
+        "INSERT INTO key_escrow (account_id, ciphertext, kdf_params, oprf_key) \
+         VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (account_id) DO UPDATE SET \
+           ciphertext = $2, kdf_params = $3, oprf_key = $4, eval_attempts = 0, destroyed = false, updated_at = NOW()",
+    )
+    .bind(account_id)
+    .bind(ciphertext)
+    .bind(kdf_json)
+    .bind(oprf_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub struct EscrowFetch {
+    pub evaluated_b64: String,
+    pub ciphertext: Vec<u8>,
+    pub kdf_params: KdfParams,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum FetchError {
+    Destroyed,
+    NotFound,
+    Crypto(String),
+    Db(String),
+}
+
+/// One recovery guess = one server OPRF evaluation. Increments eval_attempts; on reaching
+/// max_attempts, deletes oprf_key + sets destroyed and returns Destroyed (fail closed).
+pub async fn fetch_and_evaluate(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    blinded_b64: &str,
+) -> Result<EscrowFetch, FetchError> {
+    let row: Option<(Option<Vec<u8>>, Vec<u8>, serde_json::Value, i32, i32, bool)> =
+        sqlx::query_as(
+            "SELECT oprf_key, ciphertext, kdf_params, eval_attempts, max_attempts, destroyed \
+         FROM key_escrow WHERE account_id = $1",
+        )
+        .bind(account_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| FetchError::Db(e.to_string()))?;
+
+    let Some((oprf_key_opt, ciphertext, kdf_json, attempts, max, destroyed)) = row else {
+        return Err(FetchError::NotFound);
+    };
+    if destroyed || oprf_key_opt.is_none() {
+        return Err(FetchError::Destroyed);
+    }
+    if attempts + 1 >= max {
+        sqlx::query("UPDATE key_escrow SET oprf_key = NULL, destroyed = true, eval_attempts = eval_attempts + 1, updated_at = NOW() WHERE account_id = $1")
+            .bind(account_id)
+            .execute(pool)
+            .await
+            .map_err(|e| FetchError::Db(e.to_string()))?;
+        return Err(FetchError::Destroyed);
+    }
+    sqlx::query("UPDATE key_escrow SET eval_attempts = eval_attempts + 1, updated_at = NOW() WHERE account_id = $1")
+        .bind(account_id)
+        .execute(pool)
+        .await
+        .map_err(|e| FetchError::Db(e.to_string()))?;
+
+    let oprf_key = oprf_key_opt.unwrap();
+    let evaluated_b64 = server_evaluate(&oprf_key, blinded_b64).map_err(FetchError::Crypto)?;
+    let kdf_params: KdfParams =
+        serde_json::from_value(kdf_json).map_err(|e| FetchError::Crypto(e.to_string()))?;
+    Ok(EscrowFetch {
+        evaluated_b64,
+        ciphertext,
+        kdf_params,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

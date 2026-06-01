@@ -324,6 +324,118 @@ pub async fn bind_key_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(serde::Deserialize)]
+pub struct StoreEscrowReq {
+    pub enrollment_token: String,
+    pub ciphertext_b64: String,
+    pub kdf_params: crate::escrow::KdfParams,
+    pub oprf_key_b64: String,
+}
+
+pub async fn store_escrow_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<StoreEscrowReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    let ciphertext = b64.decode(&req.ciphertext_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let oprf_key = b64.decode(&req.oprf_key_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    crate::escrow::store_escrow(pool, account_id, &ciphertext, &req.kdf_params, &oprf_key)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::accounts::set_status(pool, account_id, "active")
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RecoverStartReq { pub email: String }
+
+pub async fn recover_start_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<RecoverStartReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    // Send a code only if the account exists; respond 204 either way (don't leak existence).
+    if crate::accounts::find_account_by_email_hash(pool, &email_hash).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.is_some()
+    {
+        let code = crate::email::generate_code();
+        crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "recovery")
+            .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        state.email_sender.send_code(&req.email, &code, "recovery").await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RecoverVerifyReq { pub email: String, pub code: String }
+#[derive(serde::Serialize)]
+pub struct RecoverVerifyResp { pub recovery_token: String }
+
+pub async fn recover_verify_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<RecoverVerifyReq>,
+) -> Result<Json<RecoverVerifyResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    let outcome = crate::email::verify_code(pool, &email_hash, "recovery", &crate::email::hash_code(&req.code))
+        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if outcome != crate::email::VerifyOutcome::Ok {
+        return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
+    }
+    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
+    let token = state.token_signer.issue(&acct.id.to_string(), "recovery", crate::protocol::now_unix(), 900);
+    Ok(Json(RecoverVerifyResp { recovery_token: token }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct EscrowFetchReq { pub recovery_token: String, pub blinded_point: String }
+#[derive(serde::Serialize)]
+pub struct EscrowFetchResp { pub evaluated_point: String, pub ciphertext_b64: String, pub kdf_params: crate::escrow::KdfParams }
+
+pub async fn escrow_fetch_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<EscrowFetchReq>,
+) -> Result<Json<EscrowFetchResp>, (StatusCode, String)> {
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.recovery_token, "recovery", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    match crate::escrow::fetch_and_evaluate(pool, account_id, &req.blinded_point).await {
+        Ok(f) => Ok(Json(EscrowFetchResp {
+            evaluated_point: f.evaluated_b64,
+            ciphertext_b64: b64.encode(&f.ciphertext),
+            kdf_params: f.kdf_params,
+        })),
+        Err(crate::escrow::FetchError::Destroyed) => Err((StatusCode::GONE, "recovery blob destroyed".into())),
+        Err(crate::escrow::FetchError::NotFound) => Err((StatusCode::NOT_FOUND, "no escrow".into())),
+        Err(crate::escrow::FetchError::Crypto(e)) => Err((StatusCode::BAD_REQUEST, e)),
+        Err(crate::escrow::FetchError::Db(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
 /// Start the Axum WebSocket server on a random available port (legacy mode).
 /// Returns the bound address and the server task handle.
 pub async fn start(
@@ -358,6 +470,10 @@ pub async fn start(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -414,6 +530,10 @@ pub async fn start_with_port(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
@@ -471,6 +591,10 @@ pub async fn start_federation(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;

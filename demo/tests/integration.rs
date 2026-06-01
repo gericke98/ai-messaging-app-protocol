@@ -1082,3 +1082,43 @@ async fn test_handshake_enforcement() {
     let unknown = format!("ghost{uniq}@test.ainm.local");
     assert!(accounts::find_account_by_address(&pool, &unknown).await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn test_escrow_store_and_fetch() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, escrow};
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("rec{uniq}");
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+
+    let secret = [9u8; 32];
+    let pin = "135790";
+    let enrolled = escrow::enroll(&secret, pin).unwrap();
+    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+
+    // Correct-PIN recovery round-trip via the server functions.
+    let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    let fetched = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.expect("fetch");
+    let recovered = escrow::client_finalize_and_open(pin, &fetched.kdf_params, &blind, &fetched.evaluated_b64, &fetched.ciphertext).unwrap();
+    assert_eq!(recovered, secret, "correct PIN recovers the escrowed secret");
+
+    // Exhaustion: keep guessing until Destroyed (max_attempts=5 → destroyed on the 5th request).
+    let mut destroyed = false;
+    for _ in 0..10 {
+        let b = escrow::client_blind("000000", &enrolled.kdf_params).unwrap();
+        match escrow::fetch_and_evaluate(&pool, acct.id, &b.blinded_b64).await {
+            Ok(_) => continue,
+            Err(escrow::FetchError::Destroyed) => { destroyed = true; break; }
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
+    }
+    assert!(destroyed, "escrow must be destroyed after exhausting attempts");
+
+    // Post-destruction fetch fails closed.
+    let b = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    assert!(matches!(
+        escrow::fetch_and_evaluate(&pool, acct.id, &b.blinded_b64).await,
+        Err(escrow::FetchError::Destroyed)
+    ));
+}
