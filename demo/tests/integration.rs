@@ -495,3 +495,23 @@ async fn test_compilation_dedup_updates_confidence() {
     assert_eq!(nodes.len(), 1);
     assert!(nodes[0].confidence >= 0.9, "Confidence should be updated to >= 0.9, got {}", nodes[0].confidence);
 }
+
+// ── Graph: Thread Message Texts ───────────────────────────────────────────
+
+#[tokio::test]
+async fn fetch_recent_thread_texts_returns_newest_first() {
+    let Some(pool) = test_pool().await else { return; };
+    let thread = unique_addr("thread_texts");
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(&thread).bind("test.ainm.local").execute(&pool).await.unwrap();
+    for (seq, txt) in [(1i64, "hello rust"), (2, "postgres migration")] {
+        sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,$2,$3,$4)")
+            .bind(&thread).bind(seq).bind("u@a")
+            .bind(serde_json::json!({"text": txt}))
+            .execute(&pool).await.unwrap();
+    }
+    let texts = ainm_demo::graph::fetch_recent_thread_texts(&pool, &thread, 10).await.unwrap();
+    assert_eq!(texts.len(), 2);
+    assert_eq!(texts[0], "postgres migration");
+    assert!(texts.contains(&"hello rust".to_string()));
+}
