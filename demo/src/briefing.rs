@@ -69,7 +69,7 @@ impl ConsentLevel {
 #[allow(dead_code)]
 fn scope_to_categories(scope: &str) -> Vec<&'static str> {
     match scope {
-        "identity" => vec!["fact"],
+        "identity" => vec!["fact", "relationship"],
         "preferences" => vec!["preference", "tool"],
         "expertise" => vec!["skill"],
         "goals" => vec!["event", "decision"],
@@ -375,9 +375,25 @@ mod tests {
 
     #[test]
     fn test_scope_to_categories() {
-        assert_eq!(scope_to_categories("identity"), vec!["fact"]);
+        assert_eq!(scope_to_categories("identity"), vec!["fact", "relationship"]);
         assert_eq!(scope_to_categories("preferences"), vec!["preference", "tool"]);
         assert_eq!(scope_to_categories("expertise"), vec!["skill"]);
         assert!(scope_to_categories("unknown").is_empty());
+    }
+
+    #[test]
+    fn scope_map_exactly_covers_the_canonical_set() {
+        use std::collections::BTreeSet;
+        let mapped: BTreeSet<&str> = SCOPES
+            .iter()
+            .copied()
+            .flat_map(scope_to_categories)
+            .collect();
+        let canonical: BTreeSet<&str> = crate::categories::all().into_iter().collect();
+        assert_eq!(
+            mapped, canonical,
+            "every canonical category must be reachable by some scope, and no scope may \
+             map to a non-canonical category"
+        );
     }
 }
