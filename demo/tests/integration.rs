@@ -331,7 +331,8 @@ async fn test_generate_briefing() {
     assert!(briefing.get("sections").is_some());
 
     let sections = briefing.get("sections").unwrap().as_object().unwrap();
-    assert!(sections.contains_key("identity") || sections.contains_key("preferences") || sections.contains_key("expertise"));
+    // Dynamic sections use the node's actual category as the key.
+    assert!(!sections.is_empty(), "sections should not be empty when facts exist: {sections:?}");
 }
 
 #[tokio::test]
@@ -494,4 +495,274 @@ async fn test_compilation_dedup_updates_confidence() {
     let nodes = graph::query_nodes(&pool, &user, Some("Likes Rust"), None, None, "current", 0.0, 10).await.unwrap();
     assert_eq!(nodes.len(), 1);
     assert!(nodes[0].confidence >= 0.9, "Confidence should be updated to >= 0.9, got {}", nodes[0].confidence);
+}
+
+// ── Briefing: Query-conditioned + Peer Card ───────────────────────────────
+
+#[tokio::test]
+async fn briefing_is_query_conditioned_and_has_peer_card() {
+    let Some(pool) = test_pool().await else { return; };
+    let user = unique_addr("bqc_user");
+    let thread = unique_addr("bqc_thread");
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(&thread).bind("test.local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(&thread).bind(&user).bind(serde_json::json!({"text": "help with my rust backend"}))
+        .execute(&pool).await.unwrap();
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+        "Prefers Rust for backend services", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "identity",
+        "Name is Santiago", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+        "Enjoys hiking on weekends", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+
+    let briefing = ainm_demo::briefing::generate_briefing(
+        &pool, &user, "agent@x", &thread, ainm_demo::briefing::ConsentLevel::Standard,
+    ).await.unwrap();
+
+    let card = briefing.get("peer_card").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(card.contains("Santiago"), "peer_card should contain identity: {card}");
+    let blob = serde_json::to_string(&briefing).unwrap();
+    assert!(blob.contains("Prefers Rust"), "relevant fact should be injected");
+    assert!(briefing.get("char_budget_used").is_some());
+}
+
+// ── Briefing: Broad recall — salient unmatched facts still included ───────
+
+#[tokio::test]
+async fn briefing_includes_salient_unmatched_facts() {
+    let Some(pool) = test_pool().await else { return; };
+    let user = unique_addr("bsuf_user");
+    let thread = unique_addr("bsuf_thread");
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
+        .bind(&thread).bind("test.local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(&thread).bind(&user).bind(serde_json::json!({"text":"help me plan my week"}))
+        .execute(&pool).await.unwrap();
+    let prov = serde_json::json!({}); let tags = serde_json::json!([]);
+    // high-confidence fact with NO lexical overlap with "plan/week"
+    ainm_demo::graph::insert_node(&pool,&user,"semantic","projects",
+        "Next milestone is connector auth hardening Phase 16",&serde_json::json!({}),0.9,&prov,&tags).await.unwrap();
+    let b = ainm_demo::briefing::generate_briefing(&pool,&user,"agent@x",&thread,
+        ainm_demo::briefing::ConsentLevel::Standard).await.unwrap();
+    let blob = serde_json::to_string(&b).unwrap();
+    assert!(blob.contains("Phase 16"), "salient unmatched fact must still be injected: {blob}");
+}
+
+// ── Dogfood: Emit briefings for comparison ────────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn dogfood_emit_briefings() {
+    let pool = test_pool().await.expect("Postgres must be up for dogfood");
+    let user = "dogfood-user@local";
+    let thread = "dogfood-thread-week";
+    let task = "Help me plan what to work on this week.";
+
+    // clean prior dogfood data (idempotent)
+    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1").bind(user).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM messages WHERE thread_id = $1").bind(thread).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM threads WHERE id = $1").bind(thread).execute(&pool).await.unwrap();
+
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
+        .bind(thread).bind("local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(thread).bind(user).bind(serde_json::json!({"text": task})).execute(&pool).await.unwrap();
+
+    // ~20 realistic facts: (category, label, confidence)
+    let facts: Vec<(&str, &str, f32)> = vec![
+        ("identity", "Name is Santiago Gericke", 0.98),
+        ("identity", "Founder and engineer at TechTorch", 0.95),
+        ("identity", "Works primarily in Rust, Swift, and TypeScript", 0.90),
+        ("preferences", "Prefers Rust for backend services", 0.92),
+        ("preferences", "Prefers native SwiftUI over React Native for iOS", 0.90),
+        ("preferences", "Values production-grade implementations over demos", 0.93),
+        ("preferences", "Prefers terse, direct, critical feedback", 0.88),
+        ("preferences", "Defaults to test-driven development", 0.85),
+        ("projects", "Building AINM, an AI-native messaging app for chatting with many agents", 0.95),
+        ("projects", "Current milestone is v3.3 Universal Agent Client", 0.90),
+        ("projects", "Building a compound-memory capture layer that compiles conversations into a user profile", 0.92),
+        ("projects", "Shipped the v3.2 iOS reference client", 0.90),
+        ("decisions", "Chose a server-first hybrid architecture for memory compute", 0.85),
+        ("decisions", "Retired the GSD workflow in favor of superpowers skills", 0.85),
+        ("decisions", "Treats portable, user-owned memory as the core moat", 0.90),
+        ("decisions", "Decided hosted runtime is the consent-enforcement boundary", 0.82),
+        ("patterns", "Works in focused sprints and pivots based on research", 0.80),
+        ("patterns", "Often acts as a critic to pressure-test scope before building", 0.82),
+        ("projects", "Wants to validate whether compound memory makes new agents better before investing further", 0.88),
+        ("projects", "Next up: connector auth hardening (Phase 16)", 0.80),
+    ];
+    let prov = serde_json::json!({"source": "dogfood-seed"});
+    let tags = serde_json::json!([]);
+    for (cat, label, conf) in &facts {
+        ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+    }
+
+    // B: old dump — no query, no category filter, no ranking
+    let dump_nodes = ainm_demo::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let dump = dump_nodes.iter().map(|n| format!("- {}", n.label)).collect::<Vec<_>>().join("\n");
+
+    // C: new briefing
+    let new_briefing = ainm_demo::briefing::generate_briefing(
+        &pool, user, "agent@x", thread, ainm_demo::briefing::ConsentLevel::Standard,
+    ).await.unwrap();
+
+    let out = serde_json::json!({
+        "task": task,
+        "arm_a_none": "",
+        "arm_b_dump": dump,
+        "arm_c_new_briefing": new_briefing,
+        "seeded_fact_count": facts.len(),
+    });
+    let path = "/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out/dogfood_briefings.json";
+    std::fs::create_dir_all("/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out").unwrap();
+    std::fs::write(path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+    println!("=== DOGFOOD BRIEFINGS ===\n{}", serde_json::to_string_pretty(&out).unwrap());
+}
+
+// ── Dogfood: SCALE test — briefing surfaces salient facts, drops noise ─────
+
+#[tokio::test]
+#[ignore]
+async fn dogfood_scale_test() {
+    let pool = test_pool().await.expect("Postgres up");
+    let user = "dogfood-scale@local";
+    let thread = "dogfood-scale-thread";
+    let task = "Help me plan what to work on this week.";
+
+    // Clean prior data (idempotent)
+    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1").bind(user).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM messages WHERE thread_id = $1").bind(thread).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM threads WHERE id = $1").bind(thread).execute(&pool).await.unwrap();
+
+    // Seed thread + task message
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
+        .bind(thread).bind("local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(thread).bind(user).bind(serde_json::json!({"text": task})).execute(&pool).await.unwrap();
+
+    // 10 IMPORTANT facts — valid_from = NOW() by default (recent) + high confidence
+    let prov = serde_json::json!({"source": "dogfood-scale-seed"});
+    let tags = serde_json::json!([]);
+    let important: Vec<(&str, &str, f32)> = vec![
+        ("projects", "[IMP1] Current milestone is v3.3 Universal Agent Client", 0.95),
+        ("projects", "[IMP2] Next up: connector auth hardening Phase 16", 0.9),
+        ("projects", "[IMP3] Building the compound-memory capture layer this sprint", 0.95),
+        ("projects", "[IMP4] Wants to validate compound memory before investing further", 0.9),
+        ("decisions", "[IMP5] Decided to run a scale test of memory briefing", 0.88),
+        ("preferences", "[IMP6] Prefers to plan the week around highest-leverage AINM work", 0.9),
+        ("projects", "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress", 0.9),
+        ("patterns", "[IMP8] Works in focused sprints", 0.85),
+        ("projects", "[IMP9] Needs to decide what to build after the memory layer", 0.9),
+        ("identity", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
+    ];
+    for (cat, label, conf) in &important {
+        ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+    }
+
+    // 290 NOISE facts — OLD valid_from (400-700 days) + varied confidence, via raw SQL
+    for i in 0..290 {
+        let days_old: i64 = 400 + (i as i64 % 300); // 400-699 days old
+        let conf: f32 = 0.4 + ((i % 6) as f32) * 0.1; // 0.4..0.9 varied (some high)
+        sqlx::query(
+            "INSERT INTO memory_nodes (user_addr, node_type, category, label, confidence, valid_from) \
+             VALUES ($1,'semantic','fact',$2,$3, NOW() - ($4 || ' days')::interval)"
+        )
+        .bind(user)
+        .bind(format!("Random trivia fact number {i}: an old unrelated note about topic {}", i % 50))
+        .bind(conf)
+        .bind(days_old.to_string())
+        .execute(&pool).await.unwrap();
+    }
+
+    let store_total = important.len() + 290;
+
+    // Arm B (dump): no query, no filter, no ranking — the firehose.
+    let dump = ainm_demo::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let arm_b_count = dump.len();
+    let arm_b_chars: usize = dump.iter().map(|n| n.label.len()).sum();
+
+    // Arm C (briefing): recency x confidence ranking, query boost, budget pack.
+    let c = ainm_demo::briefing::generate_briefing(
+        &pool, user, "agent@x", thread, ainm_demo::briefing::ConsentLevel::Standard,
+    ).await.unwrap();
+    let c_blob = serde_json::to_string(&c).unwrap();
+
+    // C injected fact count = count of facts across all sections arrays.
+    let sections = c.get("sections").unwrap().as_object().unwrap();
+    let arm_c_fact_count: usize = sections.values()
+        .map(|v| v.as_array().map(|a| a.len()).unwrap_or(0))
+        .sum();
+    let arm_c_char_budget_used = c.get("char_budget_used").unwrap().as_u64().unwrap();
+    let arm_c_peer_card = c.get("peer_card").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut arm_c_sections_keys: Vec<String> = sections.keys().cloned().collect();
+    arm_c_sections_keys.sort();
+
+    // Diagnostic: per-section counts, and which noise ("fact" category) leaked in.
+    let mut section_counts: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for (k, v) in sections.iter() {
+        section_counts.insert(k.clone(), serde_json::json!(v.as_array().map(|a| a.len()).unwrap_or(0)));
+    }
+    // Count noise that leaked into C and which trivia indices (recency signal check).
+    let mut leaked_noise_indices: Vec<i64> = Vec::new();
+    for cap in c_blob.match_indices("Random trivia fact number ") {
+        let tail = &c_blob[cap.0 + "Random trivia fact number ".len()..];
+        let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = num.parse::<i64>() { leaked_noise_indices.push(n); }
+    }
+    leaked_noise_indices.sort();
+    let arm_c_noise_leaked = leaked_noise_indices.len();
+
+    let out = serde_json::json!({
+        "task": task,
+        "store_total": store_total,
+        "arm_b_count": arm_b_count,
+        "arm_b_chars": arm_b_chars,
+        "arm_c_char_budget_used": arm_c_char_budget_used,
+        "arm_c_fact_count": arm_c_fact_count,
+        "arm_c_peer_card": arm_c_peer_card,
+        "arm_c_sections_keys": arm_c_sections_keys,
+        "arm_c_section_counts": section_counts,
+        "arm_c_noise_leaked": arm_c_noise_leaked,
+        "arm_c_leaked_noise_indices": leaked_noise_indices,
+    });
+    let dir = "/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out";
+    std::fs::create_dir_all(dir).unwrap();
+    let path = format!("{dir}/dogfood_scale.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+    println!("=== DOGFOOD SCALE ===\n{}", serde_json::to_string_pretty(&out).unwrap());
+
+    // ── Assertions (the proof) ──
+    // 1) All 10 important facts surface in C despite 300-fact store + budget
+    for i in 1..=10 {
+        assert!(c_blob.contains(&format!("[IMP{i}]")), "C must include important fact IMP{i}");
+    }
+    // 2) C is focused: far fewer facts than the dump, and under budget
+    assert!(arm_c_fact_count < 25, "C should inject a focused set, got {arm_c_fact_count}");
+    assert!(arm_b_count >= 200, "dump returns the firehose, got {arm_b_count}");
+    assert!(arm_c_char_budget_used <= 4000, "C must be under budget, got {arm_c_char_budget_used}");
+    // 3) C drops stale noise
+    assert!(!c_blob.contains("Random trivia fact number 250"), "stale noise must be excluded from C");
+}
+
+// ── Graph: Thread Message Texts ───────────────────────────────────────────
+
+#[tokio::test]
+async fn fetch_recent_thread_texts_returns_newest_first() {
+    let Some(pool) = test_pool().await else { return; };
+    let thread = unique_addr("thread_texts");
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(&thread).bind("test.ainm.local").execute(&pool).await.unwrap();
+    for (seq, txt) in [(1i64, "hello rust"), (2, "postgres migration")] {
+        sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,$2,$3,$4)")
+            .bind(&thread).bind(seq).bind("u@a")
+            .bind(serde_json::json!({"text": txt}))
+            .execute(&pool).await.unwrap();
+    }
+    let texts = ainm_demo::graph::fetch_recent_thread_texts(&pool, &thread, 10).await.unwrap();
+    assert_eq!(texts.len(), 2);
+    assert_eq!(texts[0], "postgres migration");
+    assert!(texts.contains(&"hello rust".to_string()));
 }

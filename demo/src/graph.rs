@@ -218,7 +218,13 @@ pub async fn query_nodes(
     let ts_query_str;
     if let Some(q) = text_query {
         if !q.is_empty() {
-            ts_query_str = q.split_whitespace().collect::<Vec<_>>().join(" & ");
+            // If the caller already supplied a tsquery expression (contains | or &),
+            // pass it through verbatim; otherwise AND-join space-separated terms.
+            ts_query_str = if q.contains('|') || q.contains('&') {
+                q.to_string()
+            } else {
+                q.split_whitespace().collect::<Vec<_>>().join(" & ")
+            };
             sql.push_str(&format!(" AND search_vector @@ to_tsquery('english', ${param_idx})"));
             let _ = param_idx; // consumed by the format above
         } else {
@@ -531,6 +537,30 @@ pub async fn graph_stats(
     .await?;
 
     Ok((node_count.0, edge_count.0))
+}
+
+// ── Thread Message Texts ───────────────────────────────────────────────────
+
+/// Return the text of the most recent `limit` messages in a thread, newest first.
+/// Extracts the `text` field from the `content` JSONB; skips messages without text.
+pub async fn fetch_recent_thread_texts(
+    pool: &PgPool,
+    thread_id: &str,
+    limit: i64,
+) -> Result<Vec<String>, StorageError> {
+    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT content FROM messages WHERE thread_id = $1 ORDER BY sequence DESC LIMIT $2",
+    )
+    .bind(thread_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(content,)| {
+            content.get("text").and_then(|v| v.as_str()).map(|s| s.to_string())
+        })
+        .collect())
 }
 
 // ── Export / Import ────────────────────────────────────────────────────────

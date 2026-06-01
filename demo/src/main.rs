@@ -14,6 +14,7 @@ mod relay;
 mod render;
 mod repl;
 mod repository;
+mod retrieval;
 mod server;
 mod signing;
 mod streaming;
