@@ -471,6 +471,8 @@ async fn test_compilation_rejects_off_list_categories() {
 
     // Only the two valid nodes are persisted; the off-list `project` node is dropped.
     assert_eq!(result.nodes_created, 2, "off-list node must not be persisted");
+    assert_eq!(result.nodes_updated, 0, "no pre-existing nodes to update in this test");
+    assert_eq!(result.nodes_superseded, 0, "no contradiction in this test");
 
     let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10).await.unwrap();
     let labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();

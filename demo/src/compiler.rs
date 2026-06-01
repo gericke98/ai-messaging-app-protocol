@@ -312,7 +312,14 @@ async fn integrate_edges(
                 // Try to find by label in the graph
                 match find_existing_node(db, user_addr, &candidate.source_label, "semantic").await? {
                     Some((id, _)) => id,
-                    None => continue, // Skip edge if source not found
+                    None => {
+                        tracing::warn!(
+                            "[compiler] skipping edge {:?} -> {:?}: source node not found (may have been dropped as off-list)",
+                            candidate.source_label,
+                            candidate.target_label
+                        );
+                        continue;
+                    }
                 }
             }
         };
@@ -322,7 +329,14 @@ async fn integrate_edges(
             None => {
                 match find_existing_node(db, user_addr, &candidate.target_label, "semantic").await? {
                     Some((id, _)) => id,
-                    None => continue,
+                    None => {
+                        tracing::warn!(
+                            "[compiler] skipping edge {:?} -> {:?}: target node not found (may have been dropped as off-list)",
+                            candidate.source_label,
+                            candidate.target_label
+                        );
+                        continue;
+                    }
                 }
             }
         };
