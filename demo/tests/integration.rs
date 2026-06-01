@@ -1046,3 +1046,39 @@ async fn test_signup_verify_bind_key() {
     let key = accounts::find_active_key(&pool, acct.id).await.unwrap().unwrap();
     assert_eq!(key.public_key, format!("pk_{uniq}"));
 }
+
+#[tokio::test]
+async fn test_handshake_enforcement() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, signing, identity};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("alice{uniq}");
+    let address = format!("{username}@test.ainm.local");
+
+    let key_a = identity::generate_keypair(&address).unwrap();
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key_a.public_key_bytes), Some("a")).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let reg_bytes = b64.decode(&reg.public_key).unwrap();
+
+    // Correct key A signs -> accepted.
+    let (sig_a, ts_a) = signing::sign_init(&key_a.key_pair, &address).unwrap();
+    let now = chrono::Utc::now();
+    assert!(signing::verify_init(&reg_bytes, &address, &ts_a, &sig_a, now, 300), "bound key must be accepted");
+
+    // Spoof: key B signs as alice -> rejected.
+    let key_b = identity::generate_keypair(&address).unwrap();
+    let (sig_b, ts_b) = signing::sign_init(&key_b.key_pair, &address).unwrap();
+    assert!(!signing::verify_init(&reg_bytes, &address, &ts_b, &sig_b, now, 300), "spoofed key must be rejected");
+
+    // Unknown address -> no account row.
+    let unknown = format!("ghost{uniq}@test.ainm.local");
+    assert!(accounts::find_account_by_address(&pool, &unknown).await.unwrap().is_none());
+}

@@ -17,6 +17,17 @@ async fn ws_connect(identity: &str) -> (
     let (mut sink, mut stream) = ws.split();
 
     // Handshake: ainm.initialize
+    //
+    // NOTE (AIB-10 anti-spoof enforcement): As of the address<->registered-key binding
+    // landing in `handle_ws_connection`, a DB-backed server REJECTS this handshake with
+    // JSON-RPC error -32021. The hardcoded `"signature": "test-sig"` below is not a real
+    // Ed25519 signature, and `e2e-tester@server-a.local` has no bound, active account.
+    // To run this `#[ignore]`d test against a real server again, a future maintainer must:
+    //   1. create + activate an account for `identity` (accounts::create_pending_account +
+    //      insert_account_key + set_status "active"),
+    //   2. replace this stub with a real signed init from signing::sign_init(key, identity)
+    //      placing the resulting (signature, timestamp) into params.
+    // Deferred — this test is not in the default `cargo test` run.
     let init = json!({
         "jsonrpc": "2.0",
         "id": 1,

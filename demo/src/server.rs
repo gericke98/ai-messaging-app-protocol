@@ -574,6 +574,49 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
         .unwrap_or("unknown")
         .to_string();
 
+    // --- Anti-spoof: verify the claimed address against its REGISTERED key (sub-project A) ---
+    // Only enforced when a DB is configured; in-memory / legacy mode preserves prior behavior.
+    if let Some(pool) = state.db.clone() {
+        let signature = init_req
+            .get("params").and_then(|p| p.get("signature")).and_then(|v| v.as_str())
+            .unwrap_or("");
+        let timestamp = init_req
+            .get("params").and_then(|p| p.get("timestamp")).and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // Send a JSON-RPC auth error (-32021) using the file's concrete sink, then close the
+        // connection. Inlined (vs. a helper fn) to reuse the exact send pattern used elsewhere
+        // in this handler for the "Not initialized" path.
+        macro_rules! reject_conn {
+            ($msg:expr) => {{
+                let err = protocol::new_error(req_id.clone(), -32021, $msg);
+                let mut s = ws_sender.lock().await;
+                let _ = s.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                return;
+            }};
+        }
+
+        let account = match crate::accounts::find_account_by_address(&pool, &from_addr).await {
+            Ok(Some(a)) => a,
+            _ => reject_conn!("unknown address"),
+        };
+        if account.status != "active" {
+            reject_conn!("account not active");
+        }
+        let registered_pk_b64 = match crate::accounts::find_active_key(&pool, account.id).await {
+            Ok(Some(k)) => k.public_key,
+            _ => reject_conn!("no registered key"),
+        };
+        let pk_bytes = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&registered_pk_b64) {
+            Ok(b) => b,
+            Err(_) => reject_conn!("corrupt key"),
+        };
+        if !crate::signing::verify_init(&pk_bytes, &from_addr, timestamp, signature, chrono::Utc::now(), 300) {
+            reject_conn!("signature does not match registered key");
+        }
+        tracing::info!("[handshake] verified binding for {from_addr}");
+    }
+
     // Send ainm.initialized response
     let init_response = protocol::new_response(
         req_id,
