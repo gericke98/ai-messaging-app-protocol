@@ -5,6 +5,7 @@ mod categories;
 mod compiler;
 mod config;
 mod db;
+mod email;
 mod error;
 mod federation;
 mod graph;

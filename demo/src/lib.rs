@@ -4,6 +4,7 @@ pub mod categories;
 pub mod compiler;
 pub mod config;
 pub mod db;
+pub mod email;
 pub mod error;
 pub mod graph;
 pub mod llm;
