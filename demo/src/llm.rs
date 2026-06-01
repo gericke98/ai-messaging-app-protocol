@@ -132,13 +132,13 @@ impl LlmClient for OpenAiClient {
             .join("\n");
 
         // Run entity and relationship extraction in a single call for cost efficiency
-        let system = EXTRACTION_SYSTEM_PROMPT;
+        let system = extraction_system_prompt();
         let user_prompt = format!(
             "Extract entities and relationships from this conversation:\n\n{conversation}\n\n\
              Respond with JSON matching the schema described in the system prompt."
         );
 
-        let response_text = self.chat_completion(system, &user_prompt).await?;
+        let response_text = self.chat_completion(&system, &user_prompt).await?;
 
         // Parse the JSON response
         let parsed: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
@@ -206,7 +206,7 @@ impl LlmClient for MockLlmClient {
 
 // ── Prompt ─────────────────────────────────────────────────────────────────
 
-const EXTRACTION_SYSTEM_PROMPT: &str = r#"You are a knowledge extraction specialist. Extract structured entities and relationships from conversations.
+const EXTRACTION_SYSTEM_PROMPT_TEMPLATE: &str = r#"You are a knowledge extraction specialist. Extract structured entities and relationships from conversations.
 
 ## Rules
 - Extract SPECIFIC entities only: named people, technologies, tools, projects, preferences, decisions, events, patterns
@@ -216,16 +216,16 @@ const EXTRACTION_SYSTEM_PROMPT: &str = r#"You are a knowledge extraction special
 - Assign confidence: 0.9-1.0 for explicitly stated facts, 0.7-0.89 for strongly implied, 0.5-0.69 for inferred
 
 ## Entity Types
-- semantic: stable facts (categories: preference, fact, skill, relationship, tool)
-- episodic: time-bound events (categories: event, decision, outcome, interaction)
-- procedural: learned patterns (categories: pattern, workflow, strategy, communication)
+- semantic: stable facts (categories: <<SEMANTIC>>)
+- episodic: time-bound events (categories: <<EPISODIC>>)
+- procedural: learned patterns (categories: <<PROCEDURAL>>)
 
 ## Output Schema (JSON)
 {
   "entities": [
     {
       "type": "semantic|episodic|procedural",
-      "category": "preference|fact|skill|tool|event|decision|pattern|...",
+      "category": "<<ALL>>",
       "label": "human-readable description",
       "confidence": 0.0-1.0,
       "properties": {},
@@ -242,7 +242,17 @@ const EXTRACTION_SYSTEM_PROMPT: &str = r#"You are a knowledge extraction special
   ]
 }
 
+The "category" field MUST be exactly one of: <<ALL>>. Do not invent new categories.
 Only output valid JSON. No markdown, no explanation."#;
+
+/// Build the extraction system prompt with the canonical, closed category set.
+fn extraction_system_prompt() -> String {
+    EXTRACTION_SYSTEM_PROMPT_TEMPLATE
+        .replace("<<SEMANTIC>>", &crate::categories::SEMANTIC.join(", "))
+        .replace("<<EPISODIC>>", &crate::categories::EPISODIC.join(", "))
+        .replace("<<PROCEDURAL>>", &crate::categories::PROCEDURAL.join(", "))
+        .replace("<<ALL>>", &crate::categories::all().join("|"))
+}
 
 // ── Response parsing helpers ───────────────────────────────────────────────
 
@@ -311,4 +321,25 @@ fn parse_edges(json: &serde_json::Value) -> Vec<CandidateEdge> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extraction_prompt_is_closed_over_canonical_categories() {
+        let p = extraction_system_prompt();
+        for c in crate::categories::all() {
+            assert!(p.contains(c), "prompt must mention canonical category `{c}`");
+        }
+        assert!(
+            !p.contains("<<"),
+            "all template tokens must be substituted (found a leftover `<<`)"
+        );
+        assert!(
+            !p.contains("|...") && !p.contains("...\""),
+            "category set must be closed — no open-ended `...`"
+        );
+    }
 }
