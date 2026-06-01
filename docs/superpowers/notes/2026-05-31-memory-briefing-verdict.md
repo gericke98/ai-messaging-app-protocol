@@ -25,11 +25,16 @@ For the broad task, the first implementation used the FTS query as a **filter** 
 ## Round 2 result: C ≥ B
 Arm C now returns the same fact set as the dump **plus** structured sections (identity/projects/preferences/decisions/patterns), a peer card ("Name is Santiago Gericke / Founder at TechTorch / Rust, Swift, TypeScript"), and salience+query ranking. `char_budget_used: 1024`. Full suite: 19 passed, only the 2 pre-existing failures (`test_graph_traversal`, `test_compilation_dedup_updates_confidence`, which fail on `main` too).
 
-## Verdict: PARTIAL — regression fixed, full value not yet proven
-- ✅ The briefing is now correct and strictly ≥ the dump: broad recall + structure + peer card + ranking.
-- ✅ The dogfood succeeded in its purpose — it cheaply caught a real regression before merge.
-- ⚠️ **C-vs-B differentiation is unproven at this scale.** With ~20 facts the budget never bites, so C and B carry identical facts; C's ranking/selection advantage only manifests with a large profile (hundreds of facts). 
-- ⚠️ **Answer-quality A/B not run** (no LLM key provided). At this profile size it would only show memory (C/B) > none (A), not C > B.
+## Round 3: scale test (300 facts) + relevance floor → C is FOCUSED > B
+Seeded 10 recent high-confidence important facts + 290 stale noise facts (400–700 days old, `demo/tests/integration.rs::dogfood_scale_test`).
+
+- **Round 3a (commit before floor):** C surfaced all 10 important facts and dropped the *oldest* noise (recency ranking works), but **backfilled the char budget with 52 stale-but-not-oldest noise facts** → 62 facts total. Finding: the packer was budget-*bounded* but not relevance-*floored* — greedy fill backfills leftover budget with marginal items.
+- **Round 3b (commit `8cc160e`): added a minimum-score floor to `pack_to_budget`** (drop facts below an absolute relevance threshold regardless of remaining budget; `BRIEFING_MIN_SCORE = 0.05`, ~negligible recency×confidence). Result: **arm C = exactly the 10 important facts, 550 chars, 0 noise leaked**; arm B = 200-fact 13,174-char firehose. Locked by `pack_to_budget_drops_below_floor_even_with_budget_room` (unit) + the scale test asserting `arm_c_fact_count < 25` + all 10 `[IMP]` present + noise excluded.
+
+## Verdict: CONFIRMED at the briefing level
+- ✅ Regression fixed (Round 2) and **C demonstrably beats B at scale** (Round 3): under a real budget over 300 facts, C surfaces 100% of the relevant recent facts and 0 noise; B is an unranked 200-fact firehose. C is curated by relevance, not capped by size.
+- ✅ The dogfood loop did its job three times: caught the broad-task regression, then the bounded-but-not-focused gap, each fixed cheaply before merge.
+- ⚠️ **Downstream answer-quality A/B not run** (no LLM key). The briefing-content evidence is strong, but the final "agent answers better" measurement is still open — run it when a key is available, ideally on the large profile.
 
 ## Recommended follow-ups (not done here)
 1. **Scale test:** seed 200–500 facts and re-run the dogfood so the budget forces selection — this is the test that actually proves C > B.
