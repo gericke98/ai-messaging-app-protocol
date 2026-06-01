@@ -525,7 +525,7 @@ async fn briefing_is_query_conditioned_and_has_peer_card() {
     assert!(card.contains("Santiago"), "peer_card should contain identity: {card}");
     let blob = serde_json::to_string(&briefing).unwrap();
     assert!(blob.contains("Prefers Rust"), "relevant fact should be injected");
-    assert!(briefing.get("token_budget_used").is_some());
+    assert!(briefing.get("char_budget_used").is_some());
 }
 
 // ── Graph: Thread Message Texts ───────────────────────────────────────────

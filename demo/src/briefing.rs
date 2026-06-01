@@ -411,7 +411,7 @@ pub async fn generate_briefing(
         "sections": sections,
         "graph_snapshot": graph_snapshot,
         "peer_card": peer_card,
-        "token_budget_used": token_budget_used,
+        "char_budget_used": token_budget_used,
     });
 
     tracing::info!(
@@ -424,16 +424,6 @@ pub async fn generate_briefing(
     );
 
     Ok(briefing)
-}
-
-/// Rough token estimate for briefing payload.
-fn estimate_tokens(nodes: &[graph::NodeRow]) -> usize {
-    // ~4 chars per token, estimate from labels + properties
-    let chars: usize = nodes
-        .iter()
-        .map(|n| n.label.len() + n.properties.to_string().len())
-        .sum();
-    chars / 4
 }
 
 #[cfg(test)]
