@@ -4,14 +4,14 @@ use base64::Engine;
 use ring::signature::{Ed25519KeyPair, UnparsedPublicKey, ED25519};
 use serde_json_canonicalizer::to_string as canonicalize;
 
-/// Sign an initialization request per transport.md Section 4.3.
-/// Signs: identity_address + "|" + timestamp as the init token.
-/// Returns base64url-encoded Ed25519 signature.
-pub fn sign_init(key_pair: &Ed25519KeyPair, identity: &str) -> Result<String> {
+/// Sign the init payload `"{identity}|{timestamp}"`. Returns (signature_b64url, timestamp).
+/// The caller MUST place both the signature and the timestamp in the handshake params so
+/// the server can reconstruct and verify the payload (see verify_init).
+pub fn sign_init(key_pair: &Ed25519KeyPair, identity: &str) -> Result<(String, String)> {
     let timestamp = crate::protocol::now_rfc3339();
     let payload = format!("{}|{}", identity, timestamp);
     let sig = key_pair.sign(payload.as_bytes());
-    Ok(URL_SAFE_NO_PAD.encode(sig.as_ref()))
+    Ok((URL_SAFE_NO_PAD.encode(sig.as_ref()), timestamp))
 }
 
 /// Sign a message envelope following security.md Section 4:
