@@ -34,10 +34,30 @@ Seeded 10 recent high-confidence important facts + 290 stale noise facts (400–
 ## Verdict: CONFIRMED at the briefing level
 - ✅ Regression fixed (Round 2) and **C demonstrably beats B at scale** (Round 3): under a real budget over 300 facts, C surfaces 100% of the relevant recent facts and 0 noise; B is an unranked 200-fact firehose. C is curated by relevance, not capped by size.
 - ✅ The dogfood loop did its job three times: caught the broad-task regression, then the bounded-but-not-focused gap, each fixed cheaply before merge.
-- ⚠️ **Downstream answer-quality A/B not run** (no LLM key). The briefing-content evidence is strong, but the final "agent answers better" measurement is still open — run it when a key is available, ideally on the large profile.
+- ✅ **Downstream answer-quality A/B — RUN 2026-06-01 (see below).** Confirms the briefing produces visibly better agent answers, not just better-curated content.
+
+## Answer-quality A/B (2026-06-01)
+Ran the real briefing arms (A none / B dump / C briefing) for *"Help me plan what to work on this
+week"* through **3 consumers via Vercel AI Gateway** (GPT-5.5, Claude Opus 4.8, Gemini 3.1 Pro;
+one `VERCEL_AI_GATEWAY_API_KEY`). Driver: `compound_spike/ab_briefing.py`; blind-scored, then
+unblinded. Full scores: `out/ab_scores.md`. Arm means (useful/specific/assumptions/no-halluc, 1–5):
+**A 1.0/1.0/3.0/5.0 · B 4.3/5.0/4.3/5.0 · C 5.0/5.0/5.0/5.0**.
+
+- **C/B ≫ A, decisively.** All 3 cold answers refuse to plan and ask for a brain dump (useless from
+  msg 1). Both context arms produce specific on-domain sprint plans.
+- **C > B on judgment + personalization.** C led with the highest-leverage move (validate compound
+  memory before sinking time into Phase 16 — the seeded high-salience goal) in **3/3**; B in only
+  **1/3** (the other two defaulted to "Phase 16 first" — the flat dump's "Next up: Phase 16" bullet
+  reads as a directive). C used the name "Santiago" (peer card) in **2/3**; B in **0/3**.
+- **0 hallucinations** across all 9 answers — fact-fidelity held.
+- **Honest margin caveat:** at 20 facts B≈C in raw content (everything fits), so same-model Claude
+  scored B≈C. The decisive C≫B remains the **scale** behavior (300-fact firehose) from Round 3. This
+  A/B proves the small-profile case: equal facts, C still wins on prioritization + personalization
+  and never regresses below B. A large-profile re-run (where the budget bites) would show a wider gap.
 
 ## Recommended follow-ups (not done here)
 1. **Scale test:** seed 200–500 facts and re-run the dogfood so the budget forces selection — this is the test that actually proves C > B.
 2. **Relevance under budget:** when the budget bites at scale, lexical FTS boosting may still mis-rank; that's the trigger for the spec's deferred **pgvector/semantic** escalation.
 3. **Category vocabulary:** reconcile the consent `scope_to_categories` names with the categories the compiler actually emits (the empty-sections bug stemmed from this mismatch); needed before per-agent consent scoping is un-deferred.
-4. **LLM answer-quality A/B** once a key is available, ideally on the large profile.
+4. ~~**LLM answer-quality A/B**~~ ✅ done 2026-06-01 (above). Remaining: re-run on a **large/real
+   profile** where the token budget actually bites, to quantify the wider C≫B gap.
