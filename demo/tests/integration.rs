@@ -846,3 +846,24 @@ async fn fetch_recent_thread_texts_returns_newest_first() {
     assert_eq!(texts[0], "postgres migration");
     assert!(texts.contains(&"hello rust".to_string()));
 }
+
+#[tokio::test]
+async fn briefing_peer_card_gated_by_identity_scope() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_pc");
+    let agent = unique_addr("pcs_pc_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Name is Dana", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "procedural", "pattern", "Works in sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+
+    // Per-agent grant of ONLY the patterns scope — no identity.
+    briefing::grant_scopes(&pool, &user, &agent, &["patterns".to_string()], ConsentLevel::Full).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_pc", ConsentLevel::Standard).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.contains_key("pattern"), "granted patterns scope sees pattern facts");
+    assert!(!sections.contains_key("fact"), "no identity scope → identity 'fact' excluded");
+    assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "",
+        "peer card must be empty when the identity scope is not granted");
+}

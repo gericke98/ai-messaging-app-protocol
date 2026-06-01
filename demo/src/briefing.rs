@@ -289,15 +289,18 @@ pub async fn generate_briefing(
     let kept_idx = retrieval::pack_to_budget(ranked, BRIEFING_CHAR_BUDGET, BRIEFING_MIN_SCORE);
     let nodes: Vec<graph::NodeRow> = kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
 
-    // 4) Peer card from identity facts (separate query, unchanged behavior).
-    // Peer card draws from the identity scope's real categories (fact, relationship).
-    // The compiler never emits a literal "identity" category — querying it returned nothing.
-    let identity_cats: Vec<&str> = scope_to_categories("identity");
-    let identity_nodes = graph::query_nodes(
-        db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
-    ).await.unwrap_or_default();
-    let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
-    let peer_card = retrieval::build_peer_card(&identity_labels, 400);
+    // 4) Peer card from identity facts — gated by the identity scope (full consent enforcement).
+    // Categories fact/relationship; the compiler never emits a literal "identity" category.
+    let peer_card = if scopes.iter().any(|s| s.as_str() == "identity") {
+        let identity_cats: Vec<&str> = scope_to_categories("identity");
+        let identity_nodes = graph::query_nodes(
+            db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
+        ).await.unwrap_or_default();
+        let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
+        retrieval::build_peer_card(&identity_labels, 400)
+    } else {
+        String::new()
+    };
     let char_budget_used: usize = nodes.iter().map(|n| n.label.len()).sum();
 
     // Keep a reference to all_nodes for graph_snapshot and briefing_log (unchanged logic below).
