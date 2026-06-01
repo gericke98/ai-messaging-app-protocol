@@ -222,19 +222,56 @@ pub async fn generate_briefing(
     let (scopes, consent_level) =
         resolve_scopes(db, user_addr, agent_addr, default_consent).await?;
 
-    // --- hybrid retrieval: query as BOOST, not filter ---
+    // Consent enforcement: an agent sees only the categories its resolved scopes permit.
+    let mut allowed: Vec<&str> = scopes
+        .iter()
+        .flat_map(|s| scope_to_categories(s))
+        .collect();
+    allowed.sort_unstable();
+    allowed.dedup();
 
-    // 1) Broad candidate set: ALL current facts for the user (no category filter —
-    //    per-agent consent scoping is deferred for this MVP).
+    // Granted nothing → see nothing. graph::query_nodes treats Some(&[]) as "no filter"
+    // (it would return ALL categories), so we must short-circuit rather than pass an empty slice.
+    if allowed.is_empty() {
+        let _ = sqlx::query(
+            "INSERT INTO briefing_log (user_addr, agent_addr, thread_id, scope, consent_level, node_count) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(user_addr)
+        .bind(agent_addr)
+        .bind(thread_id)
+        .bind("none")
+        .bind(consent_level.as_str())
+        .bind(0i32)
+        .execute(db)
+        .await;
+
+        return Ok(serde_json::json!({
+            "briefing_id": briefing_id,
+            "thread_id": thread_id,
+            "user_identity": user_addr,
+            "generated_at": protocol::now_rfc3339(),
+            "scope": "none",
+            "consent_level": consent_level.as_str(),
+            "sections": serde_json::Map::<String, serde_json::Value>::new(),
+            "graph_snapshot": serde_json::Value::Null,
+            "peer_card": "",
+            "char_budget_used": 0,
+        }));
+    }
+
+    // --- hybrid retrieval: query as BOOST, not filter (within the consent-allowed categories) ---
+
+    // 1) Broad candidate set: all CURRENT facts within the allowed categories.
     let candidates = graph::query_nodes(
-        db, user_addr, None, None, None, "current", 0.0, 200,
+        db, user_addr, None, None, Some(allowed.as_slice()), "current", 0.0, 200,
     ).await.map_err(|e| AppError::Storage(e))?;
 
     // 2) Query-matched ids (used as a ranking BOOST, not a filter).
     let recent = graph::fetch_recent_thread_texts(db, thread_id, 8).await.unwrap_or_default();
     let query = retrieval::build_query_string(&recent);
     let matched_ids: std::collections::HashSet<uuid::Uuid> = match query.as_deref() {
-        Some(q) => graph::query_nodes(db, user_addr, Some(q), None, None, "current", 0.0, 200)
+        Some(q) => graph::query_nodes(db, user_addr, Some(q), None, Some(allowed.as_slice()), "current", 0.0, 200)
             .await.unwrap_or_default().into_iter().map(|n| n.id).collect(),
         None => std::collections::HashSet::new(),
     };
@@ -252,15 +289,18 @@ pub async fn generate_briefing(
     let kept_idx = retrieval::pack_to_budget(ranked, BRIEFING_CHAR_BUDGET, BRIEFING_MIN_SCORE);
     let nodes: Vec<graph::NodeRow> = kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
 
-    // 4) Peer card from identity facts (separate query, unchanged behavior).
-    // Peer card draws from the identity scope's real categories (fact, relationship).
-    // The compiler never emits a literal "identity" category — querying it returned nothing.
-    let identity_cats: Vec<&str> = scope_to_categories("identity");
-    let identity_nodes = graph::query_nodes(
-        db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
-    ).await.unwrap_or_default();
-    let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
-    let peer_card = retrieval::build_peer_card(&identity_labels, 400);
+    // 4) Peer card from identity facts — gated by the identity scope (full consent enforcement).
+    // Categories fact/relationship; the compiler never emits a literal "identity" category.
+    let peer_card = if scopes.iter().any(|s| s.as_str() == "identity") {
+        let identity_cats: Vec<&str> = scope_to_categories("identity");
+        let identity_nodes = graph::query_nodes(
+            db, user_addr, None, None, Some(&identity_cats), "current", 0.0, 20,
+        ).await.unwrap_or_default();
+        let identity_labels: Vec<String> = identity_nodes.iter().map(|n| n.label.clone()).collect();
+        retrieval::build_peer_card(&identity_labels, 400)
+    } else {
+        String::new()
+    };
     let char_budget_used: usize = nodes.iter().map(|n| n.label.len()).sum();
 
     // Keep a reference to all_nodes for graph_snapshot and briefing_log (unchanged logic below).

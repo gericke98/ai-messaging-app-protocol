@@ -348,8 +348,14 @@ async fn test_briefing_minimal_consent() {
         .await.unwrap();
 
     let sections = briefing.get("sections").unwrap().as_object().unwrap();
-    // Minimal consent only shares identity (fact category) — not skills
-    assert!(!sections.contains_key("expertise"));
+    // Minimal consent shares only the identity scope's categories (fact/relationship) —
+    // the seeded 'skill' (expertise scope) is excluded under enforcement.
+    assert!(sections.contains_key("fact"), "identity 'fact' present at minimal: {sections:?}");
+    assert!(!sections.contains_key("skill"), "expertise 'skill' excluded at minimal");
+    // Identity scope is in Minimal, so the peer card must populate (green-path guard:
+    // catches a regression that always returns an empty peer card).
+    assert!(!briefing.get("peer_card").unwrap().as_str().unwrap().is_empty(),
+        "identity scope must produce a non-empty peer card");
 }
 
 // ── Compiler: Full Pipeline ───────────────────────────────────────────────
@@ -747,6 +753,91 @@ async fn dogfood_scale_test() {
     assert!(!c_blob.contains("Random trivia fact number 250"), "stale noise must be excluded from C");
 }
 
+// ── Briefing: Consent scoping enforcement ─────────────────────────────────
+
+#[tokio::test]
+async fn briefing_minimal_scope_shows_only_identity_categories() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_min");
+    let agent = unique_addr("pcs_min_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Name is Dana", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "semantic", "skill", "Expert in Rust", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "procedural", "pattern", "Works in sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_min", ConsentLevel::Minimal).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.contains_key("fact"), "identity 'fact' must be present at minimal: {sections:?}");
+    assert!(!sections.contains_key("skill"), "expertise 'skill' must be excluded at minimal");
+    assert!(!sections.contains_key("pattern"), "'pattern' must be excluded at minimal");
+}
+
+#[tokio::test]
+async fn briefing_standard_scope_excludes_history_and_patterns() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_std");
+    let agent = unique_addr("pcs_std_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Founder", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "semantic", "preference", "Likes Rust", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "episodic", "decision", "Chose Axum", &serde_json::json!({}), 0.88, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "episodic", "outcome", "Shipped v1", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "procedural", "pattern", "Sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_std", ConsentLevel::Standard).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.contains_key("fact"), "standard includes fact");
+    assert!(sections.contains_key("preference"), "standard includes preference");
+    assert!(sections.contains_key("decision"), "standard includes decision (goals)");
+    assert!(!sections.contains_key("outcome"), "outcome is history-only, excluded at standard");
+    assert!(!sections.contains_key("pattern"), "pattern is patterns-only, excluded at standard");
+
+    // Belt-and-suspenders: excluded facts must not leak via graph_snapshot either.
+    let snapshot_str = serde_json::to_string(b.get("graph_snapshot").unwrap()).unwrap();
+    assert!(!snapshot_str.contains("Shipped v1"), "history-only fact must not leak via graph_snapshot: {snapshot_str}");
+    assert!(!snapshot_str.contains("Sprints"), "patterns-only fact must not leak via graph_snapshot: {snapshot_str}");
+}
+
+#[tokio::test]
+async fn briefing_full_scope_shows_all_categories() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_full");
+    let agent = unique_addr("pcs_full_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Founder", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "episodic", "outcome", "Shipped v1", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "procedural", "pattern", "Sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_full", ConsentLevel::Full).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.contains_key("fact") && sections.contains_key("outcome") && sections.contains_key("pattern"),
+        "full consent surfaces every category: {sections:?}");
+}
+
+#[tokio::test]
+async fn briefing_unmapped_scope_returns_empty_without_leak() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_empty");
+    let agent = unique_addr("pcs_empty_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Secret name", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+
+    // A non-empty grant whose scope maps to NO categories (resolve_scopes returns it verbatim
+    // because it's non-empty; scope_to_categories("bogus") = vec![] → allowed is empty).
+    briefing::grant_scopes(&pool, &user, &agent, &["bogus".to_string()], ConsentLevel::Minimal).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_empty", ConsentLevel::Standard).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.is_empty(), "no category granted → empty sections (no leak): {sections:?}");
+    assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "", "no peer card when nothing granted");
+    let blob = serde_json::to_string(&b).unwrap();
+    assert!(!blob.contains("Secret name"), "no out-of-scope fact may leak into the briefing");
+}
+
 // ── Graph: Thread Message Texts ───────────────────────────────────────────
 
 #[tokio::test]
@@ -765,4 +856,25 @@ async fn fetch_recent_thread_texts_returns_newest_first() {
     assert_eq!(texts.len(), 2);
     assert_eq!(texts[0], "postgres migration");
     assert!(texts.contains(&"hello rust".to_string()));
+}
+
+#[tokio::test]
+async fn briefing_peer_card_gated_by_identity_scope() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("pcs_pc");
+    let agent = unique_addr("pcs_pc_agent");
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    graph::insert_node(&pool, &user, "semantic", "fact", "Name is Dana", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(&pool, &user, "procedural", "pattern", "Works in sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+
+    // Per-agent grant of ONLY the patterns scope — no identity.
+    briefing::grant_scopes(&pool, &user, &agent, &["patterns".to_string()], ConsentLevel::Full).await.unwrap();
+
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_pc", ConsentLevel::Standard).await.unwrap();
+    let sections = b.get("sections").unwrap().as_object().unwrap();
+    assert!(sections.contains_key("pattern"), "granted patterns scope sees pattern facts");
+    assert!(!sections.contains_key("fact"), "no identity scope → identity 'fact' excluded");
+    assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "",
+        "peer card must be empty when the identity scope is not granted");
 }
