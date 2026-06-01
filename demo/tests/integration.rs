@@ -511,11 +511,11 @@ async fn briefing_is_query_conditioned_and_has_peer_card() {
         .execute(&pool).await.unwrap();
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preference",
         "Prefers Rust for backend services", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "identity",
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "fact",
         "Name is Santiago", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preference",
         "Enjoys hiking on weekends", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
 
     let briefing = ainm_demo::briefing::generate_briefing(
@@ -543,7 +543,7 @@ async fn briefing_includes_salient_unmatched_facts() {
         .execute(&pool).await.unwrap();
     let prov = serde_json::json!({}); let tags = serde_json::json!([]);
     // high-confidence fact with NO lexical overlap with "plan/week"
-    ainm_demo::graph::insert_node(&pool,&user,"semantic","projects",
+    ainm_demo::graph::insert_node(&pool,&user,"semantic","fact",
         "Next milestone is connector auth hardening Phase 16",&serde_json::json!({}),0.9,&prov,&tags).await.unwrap();
     let b = ainm_demo::briefing::generate_briefing(&pool,&user,"agent@x",&thread,
         ainm_demo::briefing::ConsentLevel::Standard).await.unwrap();
@@ -573,26 +573,26 @@ async fn dogfood_emit_briefings() {
 
     // ~20 realistic facts: (category, label, confidence)
     let facts: Vec<(&str, &str, f32)> = vec![
-        ("identity", "Name is Santiago Gericke", 0.98),
-        ("identity", "Founder and engineer at TechTorch", 0.95),
-        ("identity", "Works primarily in Rust, Swift, and TypeScript", 0.90),
-        ("preferences", "Prefers Rust for backend services", 0.92),
-        ("preferences", "Prefers native SwiftUI over React Native for iOS", 0.90),
-        ("preferences", "Values production-grade implementations over demos", 0.93),
-        ("preferences", "Prefers terse, direct, critical feedback", 0.88),
-        ("preferences", "Defaults to test-driven development", 0.85),
-        ("projects", "Building AINM, an AI-native messaging app for chatting with many agents", 0.95),
-        ("projects", "Current milestone is v3.3 Universal Agent Client", 0.90),
-        ("projects", "Building a compound-memory capture layer that compiles conversations into a user profile", 0.92),
-        ("projects", "Shipped the v3.2 iOS reference client", 0.90),
-        ("decisions", "Chose a server-first hybrid architecture for memory compute", 0.85),
-        ("decisions", "Retired the GSD workflow in favor of superpowers skills", 0.85),
-        ("decisions", "Treats portable, user-owned memory as the core moat", 0.90),
-        ("decisions", "Decided hosted runtime is the consent-enforcement boundary", 0.82),
-        ("patterns", "Works in focused sprints and pivots based on research", 0.80),
-        ("patterns", "Often acts as a critic to pressure-test scope before building", 0.82),
-        ("projects", "Wants to validate whether compound memory makes new agents better before investing further", 0.88),
-        ("projects", "Next up: connector auth hardening (Phase 16)", 0.80),
+        ("fact", "Name is Santiago Gericke", 0.98),
+        ("fact", "Founder and engineer at TechTorch", 0.95),
+        ("fact", "Works primarily in Rust, Swift, and TypeScript", 0.90),
+        ("preference", "Prefers Rust for backend services", 0.92),
+        ("preference", "Prefers native SwiftUI over React Native for iOS", 0.90),
+        ("preference", "Values production-grade implementations over demos", 0.93),
+        ("preference", "Prefers terse, direct, critical feedback", 0.88),
+        ("preference", "Defaults to test-driven development", 0.85),
+        ("fact", "Building AINM, an AI-native messaging app for chatting with many agents", 0.95),
+        ("fact", "Current milestone is v3.3 Universal Agent Client", 0.90),
+        ("fact", "Building a compound-memory capture layer that compiles conversations into a user profile", 0.92),
+        ("fact", "Shipped the v3.2 iOS reference client", 0.90),
+        ("decision", "Chose a server-first hybrid architecture for memory compute", 0.85),
+        ("decision", "Retired the GSD workflow in favor of superpowers skills", 0.85),
+        ("decision", "Treats portable, user-owned memory as the core moat", 0.90),
+        ("decision", "Decided hosted runtime is the consent-enforcement boundary", 0.82),
+        ("pattern", "Works in focused sprints and pivots based on research", 0.80),
+        ("pattern", "Often acts as a critic to pressure-test scope before building", 0.82),
+        ("fact", "Wants to validate whether compound memory makes new agents better before investing further", 0.88),
+        ("fact", "Next up: connector auth hardening (Phase 16)", 0.80),
     ];
     let prov = serde_json::json!({"source": "dogfood-seed"});
     let tags = serde_json::json!([]);
@@ -647,16 +647,16 @@ async fn dogfood_scale_test() {
     let prov = serde_json::json!({"source": "dogfood-scale-seed"});
     let tags = serde_json::json!([]);
     let important: Vec<(&str, &str, f32)> = vec![
-        ("projects", "[IMP1] Current milestone is v3.3 Universal Agent Client", 0.95),
-        ("projects", "[IMP2] Next up: connector auth hardening Phase 16", 0.9),
-        ("projects", "[IMP3] Building the compound-memory capture layer this sprint", 0.95),
-        ("projects", "[IMP4] Wants to validate compound memory before investing further", 0.9),
-        ("decisions", "[IMP5] Decided to run a scale test of memory briefing", 0.88),
-        ("preferences", "[IMP6] Prefers to plan the week around highest-leverage AINM work", 0.9),
-        ("projects", "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress", 0.9),
-        ("patterns", "[IMP8] Works in focused sprints", 0.85),
-        ("projects", "[IMP9] Needs to decide what to build after the memory layer", 0.9),
-        ("identity", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
+        ("fact", "[IMP1] Current milestone is v3.3 Universal Agent Client", 0.95),
+        ("fact", "[IMP2] Next up: connector auth hardening Phase 16", 0.9),
+        ("fact", "[IMP3] Building the compound-memory capture layer this sprint", 0.95),
+        ("fact", "[IMP4] Wants to validate compound memory before investing further", 0.9),
+        ("decision", "[IMP5] Decided to run a scale test of memory briefing", 0.88),
+        ("preference", "[IMP6] Prefers to plan the week around highest-leverage AINM work", 0.9),
+        ("fact", "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress", 0.9),
+        ("pattern", "[IMP8] Works in focused sprints", 0.85),
+        ("fact", "[IMP9] Needs to decide what to build after the memory layer", 0.9),
+        ("fact", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
     ];
     for (cat, label, conf) in &important {
         ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
