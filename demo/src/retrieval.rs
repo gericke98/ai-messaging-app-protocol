@@ -36,6 +36,28 @@ pub fn score_node(valid_from: DateTime<Utc>, now: DateTime<Utc>, confidence: f32
     (confidence as f64 * recency) as f32
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RankedItem {
+    pub id: i64,
+    pub score: f32,
+    pub char_len: usize,
+}
+
+/// Greedy budget fill: sort by score desc, keep while cumulative char_len <= budget.
+/// Returns kept ids in score order.
+pub fn pack_to_budget(mut items: Vec<RankedItem>, budget_chars: usize) -> Vec<i64> {
+    items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    let mut used = 0usize;
+    let mut kept = Vec::new();
+    for it in items {
+        if used + it.char_len <= budget_chars {
+            used += it.char_len;
+            kept.push(it.id);
+        }
+    }
+    kept
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +96,27 @@ mod tests {
     fn build_query_string_none_when_no_terms() {
         assert!(build_query_string(&["a an the".to_string()]).is_none());
         assert!(build_query_string(&[]).is_none());
+    }
+
+    #[test]
+    fn pack_to_budget_keeps_highest_scores_within_budget() {
+        let items = vec![
+            RankedItem { id: 1, score: 0.2, char_len: 50 },
+            RankedItem { id: 2, score: 0.9, char_len: 50 },
+            RankedItem { id: 3, score: 0.5, char_len: 50 },
+        ];
+        let kept = pack_to_budget(items, 100);
+        assert_eq!(kept, vec![2, 3]);
+    }
+
+    #[test]
+    fn pack_to_budget_skips_overflow_keeps_later_smaller() {
+        let items = vec![
+            RankedItem { id: 1, score: 0.9, char_len: 80 },
+            RankedItem { id: 2, score: 0.8, char_len: 50 },
+            RankedItem { id: 3, score: 0.7, char_len: 15 },
+        ];
+        let kept = pack_to_budget(items, 100);
+        assert_eq!(kept, vec![1, 3]);
     }
 }
