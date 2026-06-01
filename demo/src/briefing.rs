@@ -240,7 +240,7 @@ pub async fn generate_briefing(
         .bind(user_addr)
         .bind(agent_addr)
         .bind(thread_id)
-        .bind("minimal")
+        .bind("none")
         .bind(consent_level.as_str())
         .bind(0i32)
         .execute(db)
@@ -251,7 +251,7 @@ pub async fn generate_briefing(
             "thread_id": thread_id,
             "user_identity": user_addr,
             "generated_at": protocol::now_rfc3339(),
-            "scope": "minimal",
+            "scope": "none",
             "consent_level": consent_level.as_str(),
             "sections": serde_json::Map::<String, serde_json::Value>::new(),
             "graph_snapshot": serde_json::Value::Null,
