@@ -1,5 +1,6 @@
 mod agent;
 mod briefing;
+mod categories;
 mod compiler;
 mod config;
 mod db;

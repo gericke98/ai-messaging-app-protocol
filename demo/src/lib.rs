@@ -1,4 +1,5 @@
 pub mod briefing;
+pub mod categories;
 pub mod compiler;
 pub mod config;
 pub mod db;
