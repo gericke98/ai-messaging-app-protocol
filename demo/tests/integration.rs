@@ -793,6 +793,11 @@ async fn briefing_standard_scope_excludes_history_and_patterns() {
     assert!(sections.contains_key("decision"), "standard includes decision (goals)");
     assert!(!sections.contains_key("outcome"), "outcome is history-only, excluded at standard");
     assert!(!sections.contains_key("pattern"), "pattern is patterns-only, excluded at standard");
+
+    // Belt-and-suspenders: excluded facts must not leak via graph_snapshot either.
+    let snapshot_str = serde_json::to_string(b.get("graph_snapshot").unwrap()).unwrap();
+    assert!(!snapshot_str.contains("Shipped v1"), "history-only fact must not leak via graph_snapshot: {snapshot_str}");
+    assert!(!snapshot_str.contains("Sprints"), "patterns-only fact must not leak via graph_snapshot: {snapshot_str}");
 }
 
 #[tokio::test]
