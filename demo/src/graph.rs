@@ -218,7 +218,13 @@ pub async fn query_nodes(
     let ts_query_str;
     if let Some(q) = text_query {
         if !q.is_empty() {
-            ts_query_str = q.split_whitespace().collect::<Vec<_>>().join(" & ");
+            // If the caller already supplied a tsquery expression (contains | or &),
+            // pass it through verbatim; otherwise AND-join space-separated terms.
+            ts_query_str = if q.contains('|') || q.contains('&') {
+                q.to_string()
+            } else {
+                q.split_whitespace().collect::<Vec<_>>().join(" & ")
+            };
             sql.push_str(&format!(" AND search_vector @@ to_tsquery('english', ${param_idx})"));
             let _ = param_idx; // consumed by the format above
         } else {

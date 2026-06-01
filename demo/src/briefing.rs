@@ -7,6 +7,7 @@
 use crate::error::AppError;
 use crate::graph;
 use crate::protocol;
+use crate::retrieval;
 use sqlx::PgPool;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -224,19 +225,63 @@ pub async fn generate_briefing(
     allowed_categories.sort();
     allowed_categories.dedup();
 
-    // Query nodes matching the allowed categories
-    let all_nodes = graph::query_nodes(
+    // --- query-conditioned retrieval (MVP) ---
+    let recent = graph::fetch_recent_thread_texts(db, thread_id, 8).await.unwrap_or_default();
+    let query = retrieval::build_query_string(&recent);
+
+    // When a FTS query is available, search broadly (no category filter) so
+    // query-relevant facts surface regardless of how the caller labelled them.
+    // On empty query fall back to the consent-scoped category filter (no regression).
+    let candidates = graph::query_nodes(
         db,
         user_addr,
+        query.as_deref(),
         None,
-        None,
-        Some(&allowed_categories),
+        if query.is_some() { None } else { Some(&allowed_categories) },
         "current",
         0.0,
-        200, // generous limit for briefing assembly
+        200,
     )
     .await
     .map_err(|e| AppError::Storage(e))?;
+
+    let now = chrono::Utc::now();
+    let ranked: Vec<retrieval::RankedItem> = candidates.iter().enumerate().map(|(i, n)| {
+        retrieval::RankedItem {
+            id: i as i64,
+            score: retrieval::score_node(n.valid_from, now, n.confidence),
+            char_len: n.label.len(),
+        }
+    }).collect();
+    const BRIEFING_CHAR_BUDGET: usize = 4000;
+    let kept_idx = retrieval::pack_to_budget(ranked, BRIEFING_CHAR_BUDGET);
+    let nodes: Vec<graph::NodeRow> =
+        kept_idx.iter().map(|&i| candidates[i as usize].clone()).collect();
+
+    // Peer card: identity facts from a dedicated query so they are always
+    // present regardless of consent-scope category mapping or budget cuts.
+    let identity_candidates = graph::query_nodes(
+        db, user_addr, None, None,
+        Some(&["identity"]),
+        "current", 0.0, 20,
+    ).await.unwrap_or_default();
+    let identity_labels: Vec<String> = identity_candidates
+        .iter()
+        .map(|n| n.label.clone())
+        .collect();
+    // Also include fact-category nodes from candidates (traditional identity scope).
+    let fact_labels: Vec<String> = candidates.iter()
+        .filter(|n| n.category == "fact")
+        .map(|n| n.label.clone())
+        .collect();
+    let all_identity_labels: Vec<String> = identity_labels.into_iter()
+        .chain(fact_labels)
+        .collect();
+    let peer_card = retrieval::build_peer_card(&all_identity_labels, 400);
+    let token_budget_used: usize = nodes.iter().map(|n| n.label.len()).sum();
+
+    // Keep a reference to all_nodes for graph_snapshot and briefing_log (unchanged logic below).
+    let all_nodes = nodes.clone();
 
     // Organize nodes into briefing sections
     let mut identity = serde_json::Map::new();
@@ -365,7 +410,8 @@ pub async fn generate_briefing(
         "consent_level": consent_level.as_str(),
         "sections": sections,
         "graph_snapshot": graph_snapshot,
-        "token_budget_used": estimate_tokens(&all_nodes),
+        "peer_card": peer_card,
+        "token_budget_used": token_budget_used,
     });
 
     tracing::info!(

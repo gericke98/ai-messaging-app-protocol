@@ -496,6 +496,38 @@ async fn test_compilation_dedup_updates_confidence() {
     assert!(nodes[0].confidence >= 0.9, "Confidence should be updated to >= 0.9, got {}", nodes[0].confidence);
 }
 
+// ── Briefing: Query-conditioned + Peer Card ───────────────────────────────
+
+#[tokio::test]
+async fn briefing_is_query_conditioned_and_has_peer_card() {
+    let Some(pool) = test_pool().await else { return; };
+    let user = unique_addr("bqc_user");
+    let thread = unique_addr("bqc_thread");
+    sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(&thread).bind("test.local").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
+        .bind(&thread).bind(&user).bind(serde_json::json!({"text": "help with my rust backend"}))
+        .execute(&pool).await.unwrap();
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+        "Prefers Rust for backend services", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "identity",
+        "Name is Santiago", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preferences",
+        "Enjoys hiking on weekends", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+
+    let briefing = ainm_demo::briefing::generate_briefing(
+        &pool, &user, "agent@x", &thread, ainm_demo::briefing::ConsentLevel::Standard,
+    ).await.unwrap();
+
+    let card = briefing.get("peer_card").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(card.contains("Santiago"), "peer_card should contain identity: {card}");
+    let blob = serde_json::to_string(&briefing).unwrap();
+    assert!(blob.contains("Prefers Rust"), "relevant fact should be injected");
+    assert!(briefing.get("token_budget_used").is_some());
+}
+
 // ── Graph: Thread Message Texts ───────────────────────────────────────────
 
 #[tokio::test]
