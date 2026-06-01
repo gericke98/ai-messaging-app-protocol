@@ -421,6 +421,69 @@ async fn test_compilation_with_mock_llm() {
 }
 
 #[tokio::test]
+async fn test_compilation_rejects_off_list_categories() {
+    let Some(pool) = test_pool().await else { return };
+    let user = unique_addr("offlist");
+
+    // Three candidate nodes: a valid `fact`, a casing-variant `Skill` (should be
+    // normalized + stored as `skill`), and an off-list `project` (must be dropped).
+    let mock = MockLlmClient::new(vec![ExtractionResult {
+        nodes: vec![
+            CandidateNode {
+                node_type: "semantic".to_string(),
+                category: "fact".to_string(),
+                label: "Works at TechTorch".to_string(),
+                confidence: 0.9,
+                properties: serde_json::json!({}),
+                tags: vec![],
+            },
+            CandidateNode {
+                node_type: "semantic".to_string(),
+                category: "Skill".to_string(),
+                label: "Writes Rust".to_string(),
+                confidence: 0.85,
+                properties: serde_json::json!({}),
+                tags: vec![],
+            },
+            CandidateNode {
+                node_type: "semantic".to_string(),
+                category: "project".to_string(),
+                label: "Building AINM".to_string(),
+                confidence: 0.8,
+                properties: serde_json::json!({}),
+                tags: vec![],
+            },
+        ],
+        edges: vec![],
+    }]);
+
+    let req = CompileRequest {
+        user_addr: user.clone(),
+        thread_id: "offlist-thread".to_string(),
+        messages: vec![
+            ConversationMessage { from: user.clone(), content: "I work at TechTorch writing Rust on the AINM project".to_string(), timestamp: "2026-01-01T00:00:00Z".to_string() },
+            ConversationMessage { from: "agent@test".to_string(), content: "Sounds like an interesting systems project".to_string(), timestamp: "2026-01-01T00:01:00Z".to_string() },
+        ],
+    };
+
+    let result = compiler::run_compilation(pool.clone(), Arc::new(mock), req)
+        .await.expect("compilation failed");
+
+    // Only the two valid nodes are persisted; the off-list `project` node is dropped.
+    assert_eq!(result.nodes_created, 2, "off-list node must not be persisted");
+
+    let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10).await.unwrap();
+    let labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
+    assert!(labels.contains(&"Works at TechTorch"), "valid fact node should be stored");
+    assert!(labels.contains(&"Writes Rust"), "casing-variant node should be stored");
+    assert!(!labels.contains(&"Building AINM"), "off-list `project` node must be absent");
+
+    // The casing-variant node is stored with its NORMALIZED canonical category.
+    let skill_node = nodes.iter().find(|n| n.label == "Writes Rust").expect("skill node missing");
+    assert_eq!(skill_node.category, "skill", "category must be normalized to canonical lowercase");
+}
+
+#[tokio::test]
 async fn test_compilation_skips_trivial() {
     let Some(pool) = test_pool().await else { return };
     let user = unique_addr("trivial");
