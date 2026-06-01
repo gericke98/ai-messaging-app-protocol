@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod briefing;
 pub mod categories;
 pub mod compiler;
