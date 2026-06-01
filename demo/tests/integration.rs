@@ -989,3 +989,26 @@ async fn test_account_repo_roundtrip() {
     let found = accounts::find_account_by_address(&pool, &acct.address).await.unwrap().unwrap();
     assert_eq!(found.status, "active");
 }
+
+#[tokio::test]
+async fn test_otp_verify_flow() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::email;
+    let eh = format!("eh_{:x}", uuid::Uuid::new_v4().as_fields().0);
+
+    let code = "424242";
+    email::store_verification(&pool, &eh, &email::hash_code(code), "signup").await.unwrap();
+
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code("000000")).await.unwrap(),
+        email::VerifyOutcome::WrongCode
+    );
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::VerifyOutcome::Ok
+    );
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::VerifyOutcome::NotFound
+    );
+}

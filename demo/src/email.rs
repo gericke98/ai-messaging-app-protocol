@@ -1,6 +1,8 @@
 //! Email delivery abstraction (mirrors llm::LlmClient/MockLlmClient) + OTP helpers.
 
+use crate::error::StorageError;
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
 /// Sends a numeric verification code to an email address.
 #[async_trait::async_trait]
@@ -102,6 +104,80 @@ pub fn generate_code() -> String {
     use rand::Rng;
     let n: u32 = rand::thread_rng().gen_range(0..1_000_000);
     format!("{n:06}")
+}
+
+/// Insert a verification row (caller has already hashed code+email). 10-minute TTL.
+pub async fn store_verification(
+    pool: &PgPool,
+    email_hash: &str,
+    code_hash: &str,
+    purpose: &str,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        "INSERT INTO email_verifications (email_hash, code_hash, purpose, expires_at) \
+         VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')",
+    )
+    .bind(email_hash)
+    .bind(code_hash)
+    .bind(purpose)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Outcome of verifying a code.
+#[derive(Debug, PartialEq, Eq)]
+pub enum VerifyOutcome {
+    Ok,
+    WrongCode,
+    Expired,
+    TooManyAttempts,
+    NotFound,
+}
+
+const MAX_OTP_ATTEMPTS: i32 = 5;
+
+/// Verify the latest unconsumed code for (email_hash, purpose). On success, marks it consumed.
+/// On a wrong code, increments attempts; past MAX_OTP_ATTEMPTS returns TooManyAttempts.
+pub async fn verify_code(
+    pool: &PgPool,
+    email_hash: &str,
+    purpose: &str,
+    code_hash: &str,
+) -> Result<VerifyOutcome, StorageError> {
+    // Newest unconsumed row for this email+purpose.
+    let row: Option<(uuid::Uuid, String, i32, bool)> = sqlx::query_as(
+        "SELECT id, code_hash, attempts, (expires_at < NOW()) AS expired \
+         FROM email_verifications \
+         WHERE email_hash = $1 AND purpose = $2 AND consumed_at IS NULL \
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(email_hash)
+    .bind(purpose)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((id, stored_hash, attempts, expired)) = row else {
+        return Ok(VerifyOutcome::NotFound);
+    };
+    if attempts >= MAX_OTP_ATTEMPTS {
+        return Ok(VerifyOutcome::TooManyAttempts);
+    }
+    if expired {
+        return Ok(VerifyOutcome::Expired);
+    }
+    if stored_hash != code_hash {
+        sqlx::query("UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        return Ok(VerifyOutcome::WrongCode);
+    }
+    sqlx::query("UPDATE email_verifications SET consumed_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(VerifyOutcome::Ok)
 }
 
 #[cfg(test)]
