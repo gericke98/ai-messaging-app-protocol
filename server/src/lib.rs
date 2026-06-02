@@ -17,5 +17,6 @@ pub mod protocol;
 pub mod repository;
 pub mod retrieval;
 pub mod signing;
+pub mod runtime;
 pub mod tools;
 pub mod tools_memory;
