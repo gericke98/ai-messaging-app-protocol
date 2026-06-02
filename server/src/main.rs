@@ -37,6 +37,13 @@ use base64::Engine;
 use clap::Parser;
 use std::sync::Arc;
 
+/// (hosted agent, its LLM client, curated MCP tool providers) built at startup.
+type HostedAgentBuild = (
+    Option<std::sync::Arc<hosted_agent::HostedAgent>>,
+    Option<std::sync::Arc<dyn llm::LlmClient>>,
+    std::sync::Arc<Vec<std::sync::Arc<dyn tools::ToolProvider>>>,
+);
+
 #[derive(Parser)]
 #[command(name = "ainm-server", about = "AINM Protocol Server")]
 struct Cli {
@@ -497,11 +504,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 7e. Provision the hosted agent + its LLM client + curated MCP providers (B-8).
     //     Requires a DB (the agent signer + prompt live in hosted_agents). The LLM client
     //     is independent of the compilation worker's (different lifecycle / sharing).
-    let (hosted_agent, hosted_llm, mcp_providers): (
-        Option<std::sync::Arc<hosted_agent::HostedAgent>>,
-        Option<std::sync::Arc<dyn llm::LlmClient>>,
-        std::sync::Arc<Vec<std::sync::Arc<dyn tools::ToolProvider>>>,
-    ) = if let Some(ref pool) = db_pool {
+    let (hosted_agent, hosted_llm, mcp_providers): HostedAgentBuild = if let Some(ref pool) = db_pool {
         let agent = hosted_agent::provision(pool, server_id).await
             .map(std::sync::Arc::new)
             .map_err(|e| tracing::warn!("[hosted-agent] provisioning failed: {e}"))

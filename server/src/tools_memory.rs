@@ -126,6 +126,11 @@ impl ToolProvider for MemoryToolProvider {
             "query_memory" => {
                 let q = args["query"].as_str().unwrap_or("");
                 let cats = granted_categories(scopes);
+                if cats.is_empty() {
+                    // No granted categories → nothing is visible. Short-circuit so the
+                    // visibility guarantee doesn't depend on the downstream SQL filter.
+                    return ToolResult::ok(serde_json::json!({"results": []}).to_string());
+                }
                 let cat_refs: Vec<&str> = cats.to_vec();
                 match crate::graph::query_nodes(
                     &self.db,
