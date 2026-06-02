@@ -490,6 +490,9 @@ mod seccomp {
 }
 
 /// Is `bwrap` present and executable on PATH? (Probe used by `launcher_for` for fail-closed.)
+///
+/// `pub` (not `pub(crate)`) so integration tests and diagnostics can branch on host
+/// sandbox capability; it is a side-effect-free PATH lookup exposing no secrets.
 pub fn bwrap_available() -> bool {
     which_on_path(BWRAP_BIN).is_some()
 }
