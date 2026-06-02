@@ -1170,3 +1170,23 @@ async fn test_account_lifecycle_e2e() {
     let recovered = escrow::client_finalize_and_open(pin, &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
     assert_eq!(recovered, secret);
 }
+
+#[tokio::test]
+async fn test_well_known_identity() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, identity};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("wk{uniq}");
+    let address = format!("{username}@test.ainm.local");
+    let key = identity::generate_keypair(&address).unwrap();
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key.public_key_bytes), None).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    let active = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    assert_eq!(active.public_key, b64.encode(&key.public_key_bytes));
+}

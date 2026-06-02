@@ -436,6 +436,41 @@ pub async fn escrow_fetch_handler(
     }
 }
 
+/// `GET /.well-known/ainm-identity/{username}` — identity resolution endpoint.
+///
+/// Resolves a local username to its full AINM address and active public key(s).
+/// Federation-ready: a server-signed attestation MAY be attached so remote servers
+/// can verify the binding without a live connection. Cross-server resolution is
+/// NOT exercised in v1.
+pub async fn well_known_identity_handler(
+    State(state): State<ServerState>,
+    Path(username): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let address = format!("{username}@{}", state.server_domain);
+    let acct = crate::accounts::find_account_by_address(pool, &address).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "unknown account".into()))?;
+    let key = crate::accounts::find_active_key(pool, acct.id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let public_keys: Vec<String> = key.map(|k| vec![k.public_key]).unwrap_or_default();
+
+    let body = serde_json::json!({
+        "address": address,
+        "public_keys": public_keys,
+    });
+
+    // TODO(B): sign attestation once the server key is exposed in ServerState.
+    // The server's Ed25519 keypair currently lives only in federation::FederationState
+    // (built in main.rs) and is not threaded into ServerState; cross-server resolution
+    // is untested in v1, so the attestation is omitted rather than wired through all
+    // three router builders + main.rs construction sites.
+
+    Ok(Json(body))
+}
+
 /// Start the Axum WebSocket server on a random available port (legacy mode).
 /// Returns the bound address and the server task handle.
 pub async fn start(
@@ -474,6 +509,7 @@ pub async fn start(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -534,6 +570,7 @@ pub async fn start_with_port(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
@@ -595,6 +632,7 @@ pub async fn start_federation(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
