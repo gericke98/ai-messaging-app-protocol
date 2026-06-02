@@ -26,10 +26,10 @@ async fn bootstrap_is_idempotent() {
         eprintln!("no DB; skipping");
         return;
     };
-    let domain = "ainm.local";
+    let domain = format!("ainm-{:x}.local", uuid::Uuid::new_v4().as_u128());
 
-    let a1 = hosted_agent::provision(&pool, domain).await.expect("provision 1");
-    let a2 = hosted_agent::provision(&pool, domain).await.expect("provision 2");
+    let a1 = hosted_agent::provision(&pool, &domain).await.expect("provision 1");
+    let a2 = hosted_agent::provision(&pool, &domain).await.expect("provision 2");
 
     assert_eq!(a1.address, format!("assistant@{domain}"));
     assert_eq!(a1.public_key_bytes, a2.public_key_bytes);
@@ -54,6 +54,7 @@ async fn consent_gate_hides_ungranted_tools() {
     let offered = ainm_server::tools_memory::offered_tool_names(&minimal);
     assert!(offered.contains(&"query_memory".to_string()));
     assert!(!offered.contains(&"store_fact".to_string()));
+    assert_eq!(offered.len(), 2, "identity scope must offer exactly retrieve_briefing + query_memory");
 
     let none: Vec<String> = vec![];
     assert!(ainm_server::tools_memory::offered_tool_names(&none).is_empty());
@@ -176,4 +177,6 @@ async fn loop_stops_at_cap_integration() {
     let out = run_loop(&llm, &reg, "sys", &["identity".to_string()], vec![], "go", 3).await;
     assert_eq!(out.tool_rounds, 3);
     assert!(out.stopped_early);
+    assert!(!out.final_text.is_empty(), "cap exit must produce a user-facing message");
+    assert!(!out.final_text.contains("error contacting"), "must be the cap branch, not the LLM-error branch");
 }
