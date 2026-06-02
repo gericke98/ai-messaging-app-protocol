@@ -133,8 +133,6 @@ impl Launcher for LocalLauncher {
 /// Apply §4 always-on hardening to a (possibly already `bwrap`-wrapped) command:
 /// constructed env (no inherited parent env), rlimits via `pre_exec`, new process group.
 pub(crate) fn apply_hardening(cmd: &mut tokio::process::Command, cfg: &McpServerConfig) {
-    use std::os::unix::process::CommandExt;
-
     // Env scrub: clear, then set only the allowlist (passed through from our own env if present)
     // plus the server's explicitly declared env. This closes the AINM_* secret leak.
     cmd.env_clear();
@@ -236,10 +234,12 @@ mod hardening_tests {
 
     #[test]
     fn rlimit_set_maps_mb_to_bytes() {
-        let mut limits = SandboxLimits::default();
-        limits.max_memory_mb = 256;
-        limits.max_fsize_mb = 64;
-        limits.max_cpu_secs = 30;
+        let limits = SandboxLimits {
+            max_memory_mb: 256,
+            max_fsize_mb: 64,
+            max_cpu_secs: 30,
+            ..SandboxLimits::default()
+        };
         let set = rlimit_set(&limits);
         assert_eq!(set[0].0, libc::RLIMIT_AS);
         assert_eq!(set[0].1, 256 * 1024 * 1024);

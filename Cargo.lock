@@ -57,6 +57,7 @@ dependencies = [
  "hkdf",
  "hyper",
  "hyper-util",
+ "libc",
  "rand 0.8.6",
  "redb",
  "reqwest",
@@ -75,9 +76,11 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite 0.26.2",
+ "toml",
  "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
