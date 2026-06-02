@@ -427,7 +427,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 7b. Initialize PostgreSQL if configured
     let app_config = config::load().unwrap_or_else(|e| {
         tracing::warn!("[config] Failed to load config: {e}, using defaults");
-        config::AppConfig { database: config::DatabaseConfig::default() }
+        config::AppConfig { database: config::DatabaseConfig::default(), mcp_servers: vec![] }
     });
     let db_pool = if app_config.database.url.is_some() {
         match db::init_pool(&app_config.database).await {

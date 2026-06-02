@@ -11,6 +11,26 @@ use serde::Deserialize;
 pub struct AppConfig {
     #[serde(default)]
     pub database: DatabaseConfig,
+
+    /// Curated MCP servers the hosted agent runtime may connect to. Empty by default.
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+/// A single curated (config-defined, trusted) MCP server the hosted agent may use.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct McpServerConfig {
+    pub name: String,
+    /// "stdio" or "http"
+    pub transport: String,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The consent capability/scope a requester must hold to be offered this server's tools.
+    pub required_capability: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

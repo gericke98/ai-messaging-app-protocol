@@ -9,3 +9,11 @@ min_connections = 2
 acquire_timeout_secs = 5
 idle_timeout_secs = 600
 # url is loaded from AINM_DATABASE__URL env var (never in config files)
+
+# Curated MCP servers the hosted agent may use. Empty by default.
+# [[mcp_servers]]
+# name = "time"
+# transport = "stdio"
+# command = "uvx"
+# args = ["mcp-server-time"]
+# required_capability = "patterns"
