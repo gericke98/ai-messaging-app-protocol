@@ -138,9 +138,28 @@ impl McpClientHandle {
         let mut params = CallToolRequestParams::new(name.to_string());
         params.arguments = args.as_object().cloned();
         let result = self.inner.call_tool(params).await?;
-        // Return the structured content payload as JSON text for the model.
-        let text = serde_json::to_string(&result.content).unwrap_or_default();
+        let text = extract_content_text(&result.content);
+        if result.is_error == Some(true) {
+            return Err(anyhow::anyhow!("MCP tool reported an error: {text}"));
+        }
         Ok(text)
+    }
+}
+
+/// Extract human-/model-readable text from MCP content blocks.
+///
+/// `Content` is `Annotated<RawContent>`; text blocks expose their string via
+/// `content.raw.as_text()` (`RawContent::as_text -> Option<&RawTextContent>`).
+fn extract_content_text(content: &[rmcp::model::Content]) -> String {
+    let texts: Vec<&str> = content
+        .iter()
+        .filter_map(|c| c.raw.as_text().map(|t| t.text.as_str()))
+        .collect();
+    if texts.is_empty() {
+        // Fallback: no text blocks (e.g. image/resource) — give the model the JSON so it isn't blind.
+        serde_json::to_string(content).unwrap_or_default()
+    } else {
+        texts.join("\n")
     }
 }
 
