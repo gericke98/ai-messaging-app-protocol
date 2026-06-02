@@ -436,6 +436,37 @@ pub async fn escrow_fetch_handler(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct RecoverParamsReq { pub recovery_token: String }
+#[derive(serde::Serialize)]
+pub struct RecoverParamsResp { pub kdf_params: crate::escrow::KdfParams }
+
+/// `POST /accounts/recover/params` — return the Argon2 kdf_params (salt) for a recovering
+/// account WITHOUT consuming a guess. On a fresh device the client needs the salt to blind a
+/// PIN before it can fetch; doing that via `/escrow/fetch` would waste an attempt. This is
+/// recovery-token authenticated, read-only, and never touches `eval_attempts`.
+pub async fn recover_params_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<RecoverParamsReq>,
+) -> Result<Json<RecoverParamsResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let aid = state.token_signer
+        .verify(&req.recovery_token, "recovery", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&aid)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    match crate::escrow::get_kdf_params(pool, account_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    {
+        Some((_, true)) => Err((StatusCode::GONE, "recovery blob destroyed".into())),
+        Some((kdf, false)) => Ok(Json(RecoverParamsResp { kdf_params: kdf })),
+        None => Err((StatusCode::NOT_FOUND, "no escrow".into())),
+    }
+}
+
 /// `GET /.well-known/ainm-identity/{username}` — identity resolution endpoint.
 ///
 /// Resolves a local username to its full AINM address and active public key(s).
@@ -509,6 +540,7 @@ pub async fn start(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -570,6 +602,7 @@ pub async fn start_with_port(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -634,6 +667,7 @@ pub async fn start_federation(
         .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 

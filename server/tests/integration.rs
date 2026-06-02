@@ -1190,3 +1190,26 @@ async fn test_well_known_identity() {
     let active = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
     assert_eq!(active.public_key, b64.encode(&key.public_key_bytes));
 }
+
+#[tokio::test]
+async fn test_recover_params_is_free() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_server::{accounts, escrow};
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("rp{uniq}");
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    let enrolled = escrow::enroll(&[1u8;32], "246802").unwrap();
+    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+
+    // get_kdf_params returns the same salt, twice, without consuming attempts.
+    let (k1, d1) = escrow::get_kdf_params(&pool, acct.id).await.unwrap().unwrap();
+    let (k2, _) = escrow::get_kdf_params(&pool, acct.id).await.unwrap().unwrap();
+    assert_eq!(k1.salt, enrolled.kdf_params.salt);
+    assert_eq!(k1.salt, k2.salt);
+    assert!(!d1);
+    // A real fetch still works afterward (attempts were not pre-consumed): correct PIN recovers.
+    let blind = escrow::client_blind("246802", &k1).unwrap();
+    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.unwrap();
+    let secret = escrow::client_finalize_and_open("246802", &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
+    assert_eq!(secret, [1u8;32]);
+}

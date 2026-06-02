@@ -68,6 +68,9 @@ actor AccountService {
     struct RecoverVerifyReq: Encodable { let email: String; let code: String }
     struct RecoverVerifyResp: Decodable { let recovery_token: String }
 
+    struct RecoverParamsReq: Encodable { let recovery_token: String }
+    struct RecoverParamsResp: Decodable { let kdf_params: KdfParams }
+
     struct EscrowFetchReq: Encodable {
         let recovery_token: String
         let blinded_point: String
@@ -149,6 +152,14 @@ actor AccountService {
     func recoverVerify(email: String, code: String) async throws -> String {
         let r: RecoverVerifyResp = try await post("accounts/recover/verify", RecoverVerifyReq(email: email, code: code))
         return r.recovery_token
+    }
+
+    /// `POST /accounts/recover/params` → returns the Argon2 `kdf_params` (salt) for a
+    /// recovering account WITHOUT consuming a guess. On a fresh device the client needs the
+    /// salt to blind a PIN before it can call ``escrowFetch(recoveryToken:blindedPoint:)``.
+    func recoverParams(recoveryToken: String) async throws -> KdfParams {
+        let r: RecoverParamsResp = try await post("accounts/recover/params", RecoverParamsReq(recovery_token: recoveryToken))
+        return r.kdf_params
     }
 
     /// `POST /accounts/escrow/fetch` → returns the OPRF-evaluated escrow material.

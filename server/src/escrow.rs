@@ -37,6 +37,28 @@ pub async fn store_escrow(
     Ok(())
 }
 
+/// Read kdf_params without touching eval_attempts (lets the client blind before guessing).
+/// Returns (params, destroyed). None if no escrow row.
+pub async fn get_kdf_params(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+) -> Result<Option<(KdfParams, bool)>, StorageError> {
+    let row: Option<(serde_json::Value, bool)> = sqlx::query_as(
+        "SELECT kdf_params, destroyed FROM key_escrow WHERE account_id = $1",
+    )
+    .bind(account_id)
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        Some((json, destroyed)) => {
+            let kdf: KdfParams =
+                serde_json::from_value(json).map_err(|e| StorageError::Duplicate(e.to_string()))?;
+            Ok(Some((kdf, destroyed)))
+        }
+        None => Ok(None),
+    }
+}
+
 pub struct EscrowFetch {
     pub evaluated_b64: String,
     pub ciphertext: Vec<u8>,
