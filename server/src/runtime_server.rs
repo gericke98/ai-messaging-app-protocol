@@ -85,7 +85,10 @@ async fn fetch_history_as_chat(
     .bind(thread_id)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| {
+        tracing::warn!("[runtime] failed to load thread history for {thread_id}: {e}");
+        Vec::new()
+    });
 
     rows.into_iter().map(|(from, content)| {
         let text = content_to_text(&content);
@@ -137,17 +140,28 @@ async fn stream_reply(state: &ServerState, agent: &crate::hosted_agent::HostedAg
     });
     state.human_registry.send_to_thread(thread_id, &end.to_string()).await;
 
-    // Final signed message envelope.
-    let mut envelope = serde_json::json!({
+    // Build the inner message in the same shape the server uses for normal sends
+    // (`id`, `from`, `thread_id`, `content`, `timestamp`), sign it, then wrap it in the
+    // standard `ainm.message.deliver` envelope (`params = {message, verified}`) so the
+    // iOS/human client can correlate and render it like any other delivered message.
+    let mut message = serde_json::json!({
+        "id": uuid::Uuid::now_v7().to_string(),
+        "from": agent.address,
+        "thread_id": thread_id,
+        "content": [{"type": "text", "text": text}],
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    // Sign the complete message — this MUST be the last mutation before delivery.
+    if let Err(e) = crate::signing::sign_envelope(&agent.key_pair, &mut message) {
+        tracing::warn!("[runtime] failed to sign agent message: {e}");
+    }
+
+    let envelope = serde_json::json!({
         "jsonrpc": "2.0", "method": "ainm.message.deliver",
         "params": {
-            "from": agent.address,
-            "thread_id": thread_id,
-            "content": [{"type": "text", "text": text}],
+            "message": message,
+            "verified": true,
         }
     });
-    if let Err(e) = crate::signing::sign_envelope(&agent.key_pair, &mut envelope) {
-        tracing::warn!("[runtime] failed to sign agent envelope: {e}");
-    }
     state.human_registry.send_to_thread(thread_id, &envelope.to_string()).await;
 }
