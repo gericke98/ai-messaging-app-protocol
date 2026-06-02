@@ -83,6 +83,60 @@ struct KeyManagerTests {
         #expect(isValid)
     }
 
+    // MARK: - Export / Import Round-Trip (escrow + recovery)
+
+    @Test("Export then import on a fresh manager restores the same keypair")
+    func testExportImportRoundTrip() async throws {
+        // Original device: generate a keypair and export its private seed.
+        let originalStorage = KeyManager.InMemoryStorage()
+        let originalManager = KeyManager(storage: originalStorage)
+        let original = try await originalManager.getOrCreateKeypair()
+        let exported = try await originalManager.exportPrivateKeyBytes()
+
+        #expect(exported.count == 32)
+
+        // Recovery device: fresh manager with empty storage, import the recovered bytes.
+        let recoveredStorage = KeyManager.InMemoryStorage()
+        let recoveredManager = KeyManager(storage: recoveredStorage)
+        try await recoveredManager.importKeypair(from: exported)
+
+        let restored = try await recoveredManager.getOrCreateKeypair()
+        #expect(restored.publicKeyBase64url == original.publicKeyBase64url)
+        #expect(restored.privateKey.rawRepresentation == original.privateKey.rawRepresentation)
+    }
+
+    @Test("Import overwrites an existing stored key (recovery replaces device key)")
+    func testImportOverwritesExistingKey() async throws {
+        let storage = KeyManager.InMemoryStorage()
+        let manager = KeyManager(storage: storage)
+
+        // Device already has a key.
+        let existing = try await manager.getOrCreateKeypair()
+
+        // Generate a different keypair to recover from.
+        let donorStorage = KeyManager.InMemoryStorage()
+        let donor = KeyManager(storage: donorStorage)
+        let recovered = try await donor.exportPrivateKeyBytes()
+        #expect(recovered != existing.privateKey.rawRepresentation)
+
+        // Import must replace the existing device key.
+        try await manager.importKeypair(from: recovered)
+        let afterImport = try await manager.getOrCreateKeypair()
+
+        #expect(afterImport.privateKey.rawRepresentation == recovered)
+        #expect(afterImport.publicKeyBase64url != existing.publicKeyBase64url)
+    }
+
+    @Test("Import rejects invalid (wrong-length) key bytes")
+    func testImportRejectsInvalidBytes() async throws {
+        let storage = KeyManager.InMemoryStorage()
+        let manager = KeyManager(storage: storage)
+
+        await #expect(throws: Error.self) {
+            try await manager.importKeypair(from: Data([0x01, 0x02, 0x03]))
+        }
+    }
+
     // MARK: - Invalid Data Handling
 
     @Test("Invalid stored key data throws error")

@@ -1,0 +1,22 @@
+[package]
+name = "ainm-escrow-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "ainm_escrow_ffi"
+
+[dependencies]
+ainm-escrow = { path = "../ainm-escrow" }
+uniffi = { version = "0.31", features = ["cli"] }
+base64 = "0.22"
+serde_json = "1"
+thiserror = "1"
+
+[build-dependencies]
+uniffi = { version = "0.31", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

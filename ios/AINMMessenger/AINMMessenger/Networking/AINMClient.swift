@@ -128,6 +128,7 @@ actor AINMClient {
         let initParams = InitializeParams(
             protocolVersion: "0.1.0",
             identity: identity,
+            timestamp: timestamp,
             signature: initSignature,
             capabilities: ClientCapabilities(
                 streaming: true,

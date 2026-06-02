@@ -5,12 +5,14 @@ import Foundation
 struct InitializeParams: Codable, Sendable {
     let protocolVersion: String   // "0.1.0"
     let identity: String          // AINM address
+    let timestamp: String         // RFC3339; server reconstructs "{identity}|{timestamp}" to verify the signature
     let signature: String         // base64url init signature
     let capabilities: ClientCapabilities
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocolVersion"
         case identity
+        case timestamp
         case signature
         case capabilities
     }

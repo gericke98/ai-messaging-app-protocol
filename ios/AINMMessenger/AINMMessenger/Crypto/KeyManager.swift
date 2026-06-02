@@ -162,6 +162,27 @@ actor KeyManager {
         return makeInfo(privateKey)
     }
 
+    /// The 32-byte Ed25519 private seed, for sealing under the PIN-derived escrow key.
+    ///
+    /// Returns the existing key's raw representation. Called during enrollment, immediately
+    /// after the keypair has been generated, so `getOrCreateKeypair()` returns the existing key
+    /// rather than creating a new one.
+    func exportPrivateKeyBytes() throws -> Data {
+        let kp = try getOrCreateKeypair()
+        return kp.privateKey.rawRepresentation // 32 bytes
+    }
+
+    /// Restore a keypair from 32 recovered bytes, persisting it to the Keychain (recovery path).
+    ///
+    /// Validates the input by constructing the key (throws if not a valid 32-byte Ed25519 seed),
+    /// then overwrites any existing stored key. Both `KeychainStorage.save` (delete-before-add) and
+    /// `InMemoryStorage.save` (direct overwrite) replace existing data, so recovery correctly
+    /// replaces the device key.
+    func importKeypair(from rawPrivateKey: Data) throws {
+        _ = try Curve25519.Signing.PrivateKey(rawRepresentation: rawPrivateKey)
+        try storage.save(rawPrivateKey)
+    }
+
     /// Delete stored keypair (for key rotation or testing).
     func deleteKeypair() throws {
         try storage.delete()
