@@ -12,6 +12,7 @@ pub mod graph;
 pub mod hosted_agent;
 pub mod identity;
 pub mod llm;
+pub mod mcp;
 pub mod persistence;
 pub mod protocol;
 pub mod repository;

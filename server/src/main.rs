@@ -11,8 +11,10 @@ mod error;
 mod escrow;
 mod federation;
 mod graph;
+mod hosted_agent;
 mod llm;
 mod identity;
+mod mcp;
 mod persistence;
 mod protocol;
 mod relay;
@@ -20,9 +22,13 @@ mod render;
 mod repl;
 mod repository;
 mod retrieval;
+mod runtime;
+mod runtime_server;
 mod server;
 mod signing;
 mod streaming;
+mod tools;
+mod tools_memory;
 mod tls;
 
 use anyhow::Result;
@@ -488,6 +494,32 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
             }
         };
 
+    // 7e. Provision the hosted agent + its LLM client + curated MCP providers (B-8).
+    //     Requires a DB (the agent signer + prompt live in hosted_agents). The LLM client
+    //     is independent of the compilation worker's (different lifecycle / sharing).
+    let (hosted_agent, hosted_llm, mcp_providers): (
+        Option<std::sync::Arc<hosted_agent::HostedAgent>>,
+        Option<std::sync::Arc<dyn llm::LlmClient>>,
+        std::sync::Arc<Vec<std::sync::Arc<dyn tools::ToolProvider>>>,
+    ) = if let Some(ref pool) = db_pool {
+        let agent = hosted_agent::provision(pool, server_id).await
+            .map(std::sync::Arc::new)
+            .map_err(|e| tracing::warn!("[hosted-agent] provisioning failed: {e}"))
+            .ok();
+        let llm: Option<std::sync::Arc<dyn llm::LlmClient>> = match std::env::var("AINM_LLM__API_KEY") {
+            Ok(key) => Some(std::sync::Arc::new(llm::OpenAiClient::new(
+                key,
+                std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+                std::env::var("AINM_LLM__BASE_URL").ok(),
+            ))),
+            Err(_) => None,
+        };
+        let providers = mcp::build_providers_from_config(&app_config).await;
+        (agent, llm, std::sync::Arc::new(providers))
+    } else {
+        (None, None, std::sync::Arc::new(vec![]))
+    };
+
     // 8. Create broadcast channel for local delivery
     let (local_delivery_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
@@ -526,6 +558,9 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         email_sender,
         token_signer,
         server_id.to_string(),
+        hosted_agent,
+        hosted_llm,
+        mcp_providers,
     )
     .await?;
 

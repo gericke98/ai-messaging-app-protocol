@@ -19,6 +19,27 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
+/// Does this content array mention `@<localpart>` of the agent address?
+fn content_mentions(content: &serde_json::Value, addr: &str) -> bool {
+    content_to_plain(content).contains(&format!("@{}", addr.split('@').next().unwrap_or(addr)))
+}
+
+/// Flatten a content block array to plain text (prefers `text`, then `fallback`).
+fn content_to_plain(content: &serde_json::Value) -> String {
+    if let Some(arr) = content.as_array() {
+        arr.iter()
+            .filter_map(|b| {
+                b.get("text")
+                    .or_else(|| b.get("fallback"))
+                    .and_then(|t| t.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        content.as_str().unwrap_or("").to_string()
+    }
+}
+
 /// Federation-aware routing context.
 ///
 /// When present, the server routes messages through federation relay
@@ -230,6 +251,12 @@ pub struct ServerState {
     pub token_signer: crate::auth_token::TokenSigner,
     /// This server's domain (used to build account addresses).
     pub server_domain: String,
+    /// The provisioned hosted agent (signer + prompt), if a DB-backed agent exists.
+    pub hosted_agent: Option<std::sync::Arc<crate::hosted_agent::HostedAgent>>,
+    /// LLM client for the hosted agent loop.
+    pub llm_client: Option<std::sync::Arc<dyn crate::llm::LlmClient>>,
+    /// Curated MCP tool providers (built at startup), shared across turns.
+    pub mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
 }
 
 // --- Account REST handlers (signup / verify / bind-key) ---
@@ -525,6 +552,9 @@ pub async fn start(
         email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
         token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
         server_domain: "ainm.local".to_string(),
+        hosted_agent: None,
+        llm_client: None,
+        mcp_providers: std::sync::Arc::new(vec![]),
     };
 
     let app = Router::new()
@@ -585,6 +615,9 @@ pub async fn start_with_port(
         email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
         token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
         server_domain: "ainm.local".to_string(),
+        hosted_agent: None,
+        llm_client: None,
+        mcp_providers: std::sync::Arc::new(vec![]),
     };
 
     let app = Router::new()
@@ -631,6 +664,9 @@ pub async fn start_federation(
     email_sender: std::sync::Arc<dyn crate::email::EmailSender>,
     token_signer: crate::auth_token::TokenSigner,
     server_domain: String,
+    hosted_agent: Option<std::sync::Arc<crate::hosted_agent::HostedAgent>>,
+    llm_client: Option<std::sync::Arc<dyn crate::llm::LlmClient>>,
+    mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -649,6 +685,9 @@ pub async fn start_federation(
         email_sender,
         token_signer,
         server_domain,
+        hosted_agent,
+        llm_client,
+        mcp_providers,
     };
 
     let app = Router::new()
@@ -2173,6 +2212,31 @@ async fn handle_human_connection(
                                     false, // don't trigger compilation on human messages
                                 )
                                 .await;
+                            }
+
+                            // Hosted agent: if provisioned + enabled and this thread/message
+                            // targets it, run the loop in the background (streams its reply
+                            // back to thread participants).
+                            if let Some(agent) = state.hosted_agent.clone() {
+                                if agent.enabled {
+                                    let content = params
+                                        .get("content")
+                                        .cloned()
+                                        .unwrap_or(serde_json::json!([]));
+                                    let targets_agent = msg_thread_id.contains("assistant@")
+                                        || params.get("to").and_then(|t| t.as_str())
+                                            .map(|t| t == agent.address).unwrap_or(false)
+                                        || content_mentions(&content, &agent.address);
+                                    if targets_agent {
+                                        let state2 = state.clone();
+                                        let tid = msg_thread_id.to_string();
+                                        let requester = from.to_string();
+                                        let user_text = content_to_plain(&content);
+                                        tokio::spawn(async move {
+                                            crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
