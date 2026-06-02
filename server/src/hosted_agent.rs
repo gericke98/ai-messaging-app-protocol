@@ -5,7 +5,11 @@
 //! zero-knowledge human key escrow. Never log the private key bytes.
 
 use crate::error::StorageError;
+use base64::Engine;
+use ring::rand::SystemRandom;
+use ring::signature::{Ed25519KeyPair, KeyPair};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct HostedAgentRow {
@@ -60,9 +64,113 @@ pub async fn insert(
     Ok(row)
 }
 
+/// The live, in-process hosted agent: identity + signer + prompt.
+#[derive(Clone)]
+pub struct HostedAgent {
+    pub address: String,
+    pub key_pair: Arc<Ed25519KeyPair>,
+    pub public_key_bytes: Vec<u8>,
+    pub system_prompt: String,
+}
+
+const DEFAULT_SYSTEM_PROMPT: &str = "You are the AINM assistant, a helpful first-party agent. \
+You may use the available tools to recall what you are permitted to know about the person you are \
+talking with, and to take actions on their behalf. Only use information returned by your tools. \
+Be concise and useful.";
+
+/// Idempotently provision the hosted agent for `server_domain`.
+/// Safe to call on every startup; creates rows only when missing.
+pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent, StorageError> {
+    let address = format!("assistant@{server_domain}");
+
+    // (1) ensure active, verified account row
+    sqlx::query(
+        "INSERT INTO accounts (username, domain, address, email_hash, email_verified, status) \
+         VALUES ('assistant', $1, $2, $3, true, 'active') \
+         ON CONFLICT (address) DO NOTHING",
+    )
+    .bind(server_domain)
+    .bind(&address)
+    // email_hash is UNIQUE NOT NULL; derive a stable non-email sentinel for the agent.
+    .bind(format!("hosted-agent:{address}"))
+    .execute(pool)
+    .await?;
+
+    let account = crate::accounts::find_account_by_address(pool, &address)
+        .await?
+        .ok_or_else(|| StorageError::NotFound {
+            entity: "hosted agent account",
+            id: address.clone(),
+        })?;
+
+    // (3 first, so we can reuse its key for (2)) ensure hosted_agents row
+    let row = match find_by_address(pool, &address).await? {
+        Some(existing) => existing,
+        None => {
+            let rng = SystemRandom::new();
+            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng)
+                .map_err(|e| StorageError::Internal(format!("keygen failed: {e}")))?;
+            let kp = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+                .map_err(|e| StorageError::Internal(format!("keypair load failed: {e}")))?;
+            let pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(kp.public_key().as_ref());
+            insert(pool, &address, &pk_b64, pkcs8.as_ref(), DEFAULT_SYSTEM_PROMPT).await?
+        }
+    };
+
+    // (2) ensure an active account_keys row for the agent's public key
+    if crate::accounts::find_active_key(pool, account.id).await?.is_none() {
+        crate::accounts::insert_account_key(pool, account.id, &row.public_key, Some("hosted-agent"))
+            .await?;
+    }
+
+    // Build the live signer from stored PKCS#8 bytes.
+    let key_pair = Ed25519KeyPair::from_pkcs8(&row.private_key)
+        .map_err(|e| StorageError::Internal(format!("stored keypair load failed: {e}")))?;
+    let public_key_bytes = key_pair.public_key().as_ref().to_vec();
+
+    tracing::info!("[hosted-agent] provisioned {} (enabled={})", address, row.enabled);
+
+    Ok(HostedAgent {
+        address,
+        key_pair: Arc::new(key_pair),
+        public_key_bytes,
+        system_prompt: row.system_prompt,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keypair_roundtrips_through_pkcs8_and_signs() {
+        use ring::rand::SystemRandom;
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+
+        let rng = SystemRandom::new();
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        let pkcs8_bytes = pkcs8.as_ref().to_vec();
+
+        // Reconstruct (as provisioning does on restart from stored bytes).
+        let kp = Ed25519KeyPair::from_pkcs8(&pkcs8_bytes).unwrap();
+        let pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(kp.public_key().as_ref());
+
+        let agent = HostedAgent {
+            address: "assistant@ainm.local".to_string(),
+            key_pair: std::sync::Arc::new(kp),
+            public_key_bytes: base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(&pk_b64).unwrap(),
+            system_prompt: "be helpful".to_string(),
+        };
+
+        // Signs an envelope and sets a signature field.
+        let mut env = serde_json::json!({ "method": "ainm.message.send", "params": {} });
+        let sig = crate::signing::sign_envelope(&agent.key_pair, &mut env).unwrap();
+        assert!(!sig.is_empty());
+        assert_eq!(env["signature"].as_str().unwrap(), sig);
+    }
 
     #[test]
     fn hosted_agent_row_exposes_fields() {
