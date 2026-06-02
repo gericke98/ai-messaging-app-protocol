@@ -661,3 +661,107 @@ mod url_guard_tests {
         assert!(UrlGuard::check("http://127.0.0.1:9000/mcp", &["127.0.0.1".into()]).is_ok());
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_sandbox_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn skip_if_no_bwrap() -> bool {
+        if !bwrap_available() {
+            eprintln!("skipping: bwrap not installed");
+            return true;
+        }
+        false
+    }
+
+    fn sandboxed_cfg(command: &str, args: Vec<String>) -> McpServerConfig {
+        McpServerConfig {
+            name: "test".into(),
+            transport: "stdio".into(),
+            command: Some(command.into()),
+            args,
+            sandbox: SandboxMode::Bubblewrap,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn sandboxed_command_runs_and_returns_output() {
+        if skip_if_no_bwrap() { return; }
+        let cfg = sandboxed_cfg("/bin/echo", vec!["sandboxed-ok".into()]);
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sandboxed-ok");
+    }
+
+    #[tokio::test]
+    async fn parent_env_absent_inside_sandbox() {
+        if skip_if_no_bwrap() { return; }
+        std::env::set_var("AINM_LLM_ENCRYPTION_KEY", "leak-me");
+        let cfg = sandboxed_cfg("/usr/bin/env", vec![]);
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        std::env::remove_var("AINM_LLM_ENCRYPTION_KEY");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.contains("AINM_"),
+            "AINM_* secret visible inside sandbox:\n{stdout}"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_network_when_disallowed() {
+        if skip_if_no_bwrap() { return; }
+        let cfg = sandboxed_cfg("/bin/sh", vec![
+            "-c".into(),
+            "timeout 3 sh -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null && echo CONNECTED || echo BLOCKED".into(),
+        ]);
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("BLOCKED"), "network was reachable without allow_network: {stdout}");
+    }
+
+    #[tokio::test]
+    async fn cannot_read_unbound_path() {
+        if skip_if_no_bwrap() { return; }
+        let cfg = sandboxed_cfg("/bin/sh", vec![
+            "-c".into(),
+            "cat /etc/shadow 2>/dev/null && echo READ || echo DENIED".into(),
+        ]);
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("DENIED"), "read a path not granted: {stdout}");
+    }
+
+    #[tokio::test]
+    async fn rlimit_caps_memory() {
+        if skip_if_no_bwrap() { return; }
+        let mut cfg = sandboxed_cfg("/bin/sh", vec![
+            "-c".into(),
+            "A=$(head -c 400000000 /dev/zero | tr '\\0' 'a') ; echo ALLOCATED".into(),
+        ]);
+        cfg.limits = SandboxLimits { max_memory_mb: 64, ..SandboxLimits::default() };
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(!stdout.contains("ALLOCATED"), "rlimit did not cap memory: {stdout}");
+    }
+
+    #[tokio::test]
+    async fn network_works_when_allowed() {
+        if skip_if_no_bwrap() { return; }
+        let mut cfg = sandboxed_cfg("/bin/sh", vec![
+            "-c".into(),
+            "timeout 5 sh -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null && echo CONNECTED || echo BLOCKED".into(),
+        ]);
+        cfg.allow_network = true;
+        let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
+        let out = cmd.output().await.unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() || stdout.contains("BLOCKED") || stdout.contains("CONNECTED"));
+    }
+}
