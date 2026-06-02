@@ -22,12 +22,14 @@ async fn pool_or_skip() -> Option<sqlx::PgPool> {
 
 /// Create a throwaway active account, return (id, address).
 async fn make_account(pool: &sqlx::PgPool, tag: &str) -> (uuid::Uuid, String) {
-    let address = format!("c-{tag}-{:x}@ainm.local", uuid::Uuid::new_v4().as_u128());
+    let suffix = format!("{:x}", uuid::Uuid::new_v4().as_u128());
+    let username = format!("c-{tag}-{suffix}");
+    let address = format!("{username}@ainm.local");
     let id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO accounts (username, domain, address, email_hash, email_verified, status) \
          VALUES ($1, 'ainm.local', $2, $3, true, 'active') RETURNING id",
     )
-    .bind(format!("c-{tag}"))
+    .bind(&username)
     .bind(&address)
     .bind(format!("hash-{address}"))
     .fetch_one(pool)
