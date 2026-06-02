@@ -88,7 +88,6 @@ pub fn resolve_credential(cipher: Option<&CredCipher>, settings: Option<&Account
 
 /// Fetch an account's settings row, if present.
 // consumed in C-8/C-9
-#[allow(dead_code)]
 pub async fn get_settings(pool: &PgPool, account_id: Uuid) -> Result<Option<AccountLlmSettings>, StorageError> {
     let row = sqlx::query_as::<_, AccountLlmSettings>(
         "SELECT api_key_ciphertext, api_key_nonce, model, base_url, monthly_token_budget \
@@ -102,7 +101,6 @@ pub async fn get_settings(pool: &PgPool, account_id: Uuid) -> Result<Option<Acco
 
 /// Upsert the BYO key (and optional model/base_url), preserving any existing budget override.
 // consumed in C-8/C-9
-#[allow(dead_code)]
 pub async fn upsert_byo_key(
     pool: &PgPool, account_id: Uuid, ciphertext: &[u8], nonce: &[u8],
     model: Option<&str>, base_url: Option<&str>,
@@ -122,7 +120,6 @@ pub async fn upsert_byo_key(
 
 /// Clear the BYO key (NULL the cipher columns), keeping any budget override.
 // consumed in C-8/C-9
-#[allow(dead_code)]
 pub async fn clear_byo_key(pool: &PgPool, account_id: Uuid) -> Result<(), StorageError> {
     sqlx::query(
         "UPDATE account_llm_settings \
