@@ -103,6 +103,20 @@ pub async fn find_account_by_address(
     Ok(row)
 }
 
+pub async fn find_account_by_id(
+    pool: &PgPool,
+    id: uuid::Uuid,
+) -> Result<Option<AccountRow>, StorageError> {
+    let row = sqlx::query_as::<_, AccountRow>(
+        "SELECT id, username, domain, address, email_hash, email_verified, status \
+         FROM accounts WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 pub async fn find_account_by_email_hash(
     pool: &PgPool,
     email_hash: &str,
