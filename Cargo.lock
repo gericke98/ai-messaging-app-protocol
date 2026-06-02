@@ -58,6 +58,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "nix 0.29.0",
  "rand 0.8.6",
  "redb",
  "reqwest",
@@ -66,6 +67,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustyline",
+ "seccompiler",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
@@ -2479,6 +2481,15 @@ dependencies = [
  "generic-array",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

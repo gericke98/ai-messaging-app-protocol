@@ -259,6 +259,352 @@ mod hardening_tests {
     }
 }
 
+use crate::config::SandboxMode;
+
+/// Linux bubblewrap launcher: namespaces + seccomp + deny-all fs/net + explicit grants.
+pub struct BubblewrapLauncher;
+
+/// Name of the bubblewrap binary.
+const BWRAP_BIN: &str = "bwrap";
+
+impl BubblewrapLauncher {
+    /// Build the `bwrap` argument vector (everything after the `bwrap` program name),
+    /// ending with `-- <command> <args...>`. Pure and platform-independent so it can be
+    /// unit-tested on macOS. The seccomp fd argument is appended separately by
+    /// `build_command` (it requires a live fd), so it is NOT part of this vector.
+    pub(crate) fn bwrap_args(cfg: &McpServerConfig) -> anyhow::Result<Vec<String>> {
+        let command = cfg
+            .command
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("stdio MCP server '{}' missing command", cfg.name))?;
+        let mut a: Vec<String> = Vec::new();
+        let mut push = |s: &str| a.push(s.to_string());
+
+        push("--unshare-all");
+        if cfg.allow_network {
+            push("--share-net");
+        }
+        push("--die-with-parent");
+        push("--new-session");
+        push("--clearenv");
+        push("--proc");
+        push("/proc");
+        push("--dev");
+        push("/dev");
+        push("--tmpfs");
+        push("/tmp");
+
+        for p in ["/usr", "/lib", "/lib64", "/bin", "/sbin"] {
+            a.push("--ro-bind-try".to_string());
+            a.push(p.to_string());
+            a.push(p.to_string());
+        }
+        if cfg.allow_network {
+            a.push("--ro-bind-try".to_string());
+            a.push("/etc/ssl".to_string());
+            a.push("/etc/ssl".to_string());
+            a.push("--ro-bind-try".to_string());
+            a.push("/etc/resolv.conf".to_string());
+            a.push("/etc/resolv.conf".to_string());
+        }
+        for p in &cfg.allow_read {
+            a.push("--ro-bind".to_string());
+            a.push(p.clone());
+            a.push(p.clone());
+        }
+        for p in &cfg.allow_write {
+            a.push("--bind".to_string());
+            a.push(p.clone());
+            a.push(p.clone());
+        }
+
+        a.push("--".to_string());
+        a.push(command);
+        for arg in &cfg.args {
+            a.push(arg.clone());
+        }
+        Ok(a)
+    }
+}
+
+impl Launcher for BubblewrapLauncher {
+    fn build_command(&self, cfg: &McpServerConfig) -> anyhow::Result<tokio::process::Command> {
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut bwrap_args = BubblewrapLauncher::bwrap_args(cfg)?;
+        let mut cmd = tokio::process::Command::new(BWRAP_BIN);
+
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(fd) = seccomp::install_seccomp_fd()? {
+                let dd = bwrap_args
+                    .iter()
+                    .position(|a| a == "--")
+                    .unwrap_or(bwrap_args.len());
+                bwrap_args.insert(dd, fd.to_string());
+                bwrap_args.insert(dd, "--seccomp".to_string());
+            }
+        }
+
+        cmd.args(&bwrap_args);
+        apply_hardening(&mut cmd, cfg);
+        Ok(cmd)
+    }
+    fn name(&self) -> &'static str {
+        "bubblewrap"
+    }
+}
+
+/// Linux-only seccomp baseline denylist, compiled to BPF and passed to bwrap via a memfd.
+#[cfg(target_os = "linux")]
+mod seccomp {
+    use std::os::fd::{AsRawFd, RawFd};
+
+    /// Dangerous syscalls denied by the baseline profile (errno EPERM). Denylist
+    /// hardening floor (design §5), not a strict allowlist.
+    const DENIED: &[&str] = &[
+        "ptrace",
+        "mount",
+        "umount2",
+        "keyctl",
+        "add_key",
+        "request_key",
+        "bpf",
+        "kexec_load",
+        "kexec_file_load",
+        "init_module",
+        "finit_module",
+        "delete_module",
+        "perf_event_open",
+        "process_vm_readv",
+        "process_vm_writev",
+        "pivot_root",
+        "setns",
+        "swapon",
+        "swapoff",
+        "reboot",
+    ];
+
+    /// Compile the denylist to BPF, write to a memfd, return the raw fd for `--seccomp`.
+    /// `Ok(None)` only if the architecture is unsupported (skip seccomp, keep other layers).
+    pub(super) fn install_seccomp_fd() -> anyhow::Result<Option<RawFd>> {
+        let prog = match build_bpf()? {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let fd = write_bpf_to_memfd(&prog)?;
+        let raw = fd.as_raw_fd();
+        // Keep fd open & inherited by bwrap (leak one fd per configured bubblewrap server,
+        // for the server lifetime — bounded and intentional).
+        std::mem::forget(fd);
+        Ok(Some(raw))
+    }
+
+    /// Build a seccompiler filter denying `DENIED` (resolved via `libc::SYS_*`) with EPERM,
+    /// default Allow, for the current arch (x86_64/aarch64; else `Ok(None)`), then compile
+    /// to the BPF program (`Vec<seccompiler::sock_filter>`).
+    fn build_bpf() -> anyhow::Result<Option<seccompiler::BpfProgram>> {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+        use std::collections::BTreeMap;
+
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => TargetArch::x86_64,
+            "aarch64" => TargetArch::aarch64,
+            _ => return Ok(None),
+        };
+
+        let mut rules: BTreeMap<i64, Vec<seccompiler::SeccompRule>> = BTreeMap::new();
+        for name in DENIED {
+            if let Some(num) = resolve_syscall(name) {
+                // Empty rule vec = unconditional match on this syscall number.
+                rules.insert(num, vec![]);
+            }
+        }
+
+        // SeccompFilter::new(rules, mismatch_action, match_action, arch):
+        // mismatch_action is the default when a syscall is NOT in `rules` (Allow), and
+        // match_action fires for syscalls in `rules` (Errno EPERM). Denylist semantics.
+        let filter = SeccompFilter::new(
+            rules,
+            SeccompAction::Allow,
+            SeccompAction::Errno(libc::EPERM as u32),
+            arch,
+        )
+        .map_err(|e| anyhow::anyhow!("seccomp filter build failed: {e}"))?;
+
+        let prog: BpfProgram = filter
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("seccomp BPF compile failed: {e}"))?;
+        Ok(Some(prog))
+    }
+
+    /// Resolve a syscall name to its number on the current architecture via `libc::SYS_*`.
+    fn resolve_syscall(name: &str) -> Option<i64> {
+        let n = match name {
+            "ptrace" => libc::SYS_ptrace,
+            "mount" => libc::SYS_mount,
+            "umount2" => libc::SYS_umount2,
+            "keyctl" => libc::SYS_keyctl,
+            "add_key" => libc::SYS_add_key,
+            "request_key" => libc::SYS_request_key,
+            "bpf" => libc::SYS_bpf,
+            "kexec_load" => libc::SYS_kexec_load,
+            "kexec_file_load" => libc::SYS_kexec_file_load,
+            "init_module" => libc::SYS_init_module,
+            "finit_module" => libc::SYS_finit_module,
+            "delete_module" => libc::SYS_delete_module,
+            "perf_event_open" => libc::SYS_perf_event_open,
+            "process_vm_readv" => libc::SYS_process_vm_readv,
+            "process_vm_writev" => libc::SYS_process_vm_writev,
+            "pivot_root" => libc::SYS_pivot_root,
+            "setns" => libc::SYS_setns,
+            "swapon" => libc::SYS_swapon,
+            "swapoff" => libc::SYS_swapoff,
+            "reboot" => libc::SYS_reboot,
+            _ => return None,
+        };
+        Some(n as i64)
+    }
+
+    /// Serialize the compiled BPF program to a non-cloexec memfd so `bwrap` inherits it.
+    /// `seccompiler::sock_filter` is `#[repr(C)]` with the kernel's exact 8-byte layout
+    /// (u16 code; u8 jt; u8 jf; u32 k), so a raw byte reinterpret is correct.
+    fn write_bpf_to_memfd(prog: &[seccompiler::sock_filter]) -> anyhow::Result<std::fs::File> {
+        use nix::sys::memfd::{memfd_create, MemFdCreateFlag};
+        use std::io::{Seek, SeekFrom, Write};
+
+        // SAFETY: `sock_filter` is `#[repr(C)]` POD; reading its bytes is well-defined and
+        // the slice borrow outlives this view.
+        let bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(prog.as_ptr() as *const u8, std::mem::size_of_val(prog))
+        };
+        // No MFD_CLOEXEC: the fd must survive exec so the bwrap child inherits it.
+        let owned = memfd_create(c"ainm-seccomp", MemFdCreateFlag::empty())
+            .map_err(|e| anyhow::anyhow!("memfd_create failed: {e}"))?;
+        let mut file = std::fs::File::from(owned);
+        file.write_all(bytes)
+            .map_err(|e| anyhow::anyhow!("writing seccomp BPF to memfd failed: {e}"))?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| anyhow::anyhow!("seeking seccomp memfd failed: {e}"))?;
+        Ok(file)
+    }
+}
+
+/// Is `bwrap` present and executable on PATH? (Probe used by `launcher_for` for fail-closed.)
+pub(crate) fn bwrap_available() -> bool {
+    which_on_path(BWRAP_BIN).is_some()
+}
+
+/// Minimal PATH search (avoids a `which` crate dependency).
+fn which_on_path(bin: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Select the launcher for a server, fail-closed: a `bubblewrap` server on a host
+/// without `bwrap` returns `Err` (caller skips the server — never runs it unsandboxed).
+pub fn launcher_for(cfg: &McpServerConfig) -> anyhow::Result<Box<dyn Launcher>> {
+    match cfg.sandbox {
+        SandboxMode::None => Ok(Box::new(LocalLauncher)),
+        SandboxMode::Bubblewrap => {
+            if !cfg!(target_os = "linux") {
+                anyhow::bail!(
+                    "MCP server '{}' requests sandbox=bubblewrap, unsupported on this OS (Linux only)",
+                    cfg.name
+                );
+            }
+            if !bwrap_available() {
+                anyhow::bail!(
+                    "MCP server '{}' requests sandbox=bubblewrap but `bwrap` is not on PATH \
+                     (fail-closed: refusing to run unsandboxed)",
+                    cfg.name
+                );
+            }
+            Ok(Box::new(BubblewrapLauncher))
+        }
+    }
+}
+
+#[cfg(test)]
+mod bwrap_tests {
+    use super::*;
+
+    fn base_cfg() -> McpServerConfig {
+        McpServerConfig {
+            name: "weather".into(),
+            transport: "stdio".into(),
+            command: Some("mcp-weather".into()),
+            args: vec!["--port".into(), "0".into()],
+            sandbox: SandboxMode::Bubblewrap,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn deny_all_by_default() {
+        let args = BubblewrapLauncher::bwrap_args(&base_cfg()).unwrap();
+        assert!(args.contains(&"--unshare-all".to_string()));
+        assert!(args.contains(&"--die-with-parent".to_string()));
+        assert!(args.contains(&"--new-session".to_string()));
+        assert!(args.contains(&"--clearenv".to_string()));
+        assert!(args.iter().any(|a| a == "--tmpfs"));
+        assert!(!args.contains(&"--share-net".to_string()));
+        assert!(!args.iter().any(|a| a == "/etc/ssl"));
+        let dd = args.iter().position(|a| a == "--").unwrap();
+        assert_eq!(args[dd + 1], "mcp-weather");
+        assert_eq!(args[dd + 2], "--port");
+        assert_eq!(args[dd + 3], "0");
+    }
+
+    #[test]
+    fn allow_network_adds_share_net_and_tls() {
+        let mut cfg = base_cfg();
+        cfg.allow_network = true;
+        let args = BubblewrapLauncher::bwrap_args(&cfg).unwrap();
+        assert!(args.contains(&"--share-net".to_string()));
+        assert!(args.iter().any(|a| a == "/etc/ssl"));
+    }
+
+    #[test]
+    fn allow_read_write_add_binds() {
+        let mut cfg = base_cfg();
+        cfg.allow_read = vec!["/opt/data".into()];
+        cfg.allow_write = vec!["/var/cache/weather".into()];
+        let args = BubblewrapLauncher::bwrap_args(&cfg).unwrap();
+        assert!(args.windows(3).any(|w| w == ["--ro-bind", "/opt/data", "/opt/data"]));
+        assert!(args
+            .windows(3)
+            .any(|w| w == ["--bind", "/var/cache/weather", "/var/cache/weather"]));
+    }
+
+    #[test]
+    fn launcher_for_none_is_local() {
+        let cfg = McpServerConfig {
+            name: "x".into(),
+            transport: "stdio".into(),
+            command: Some("echo".into()),
+            ..Default::default()
+        };
+        assert_eq!(launcher_for(&cfg).unwrap().name(), "local");
+    }
+
+    #[test]
+    fn launcher_for_bubblewrap_fail_closed_when_unavailable() {
+        let cfg = base_cfg();
+        let result = launcher_for(&cfg);
+        if !bwrap_available() || !cfg!(target_os = "linux") {
+            assert!(result.is_err(), "bubblewrap must fail-closed when unavailable");
+        } else {
+            assert_eq!(result.unwrap().name(), "bubblewrap");
+        }
+    }
+}
+
 #[cfg(test)]
 mod url_guard_tests {
     use super::*;
