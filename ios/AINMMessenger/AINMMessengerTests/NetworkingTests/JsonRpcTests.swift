@@ -60,7 +60,7 @@ struct JsonRpcTests {
             "id": 1,
             "result": {
                 "protocolVersion": "0.1.0",
-                "serverInfo": {"name": "ainm-demo", "version": "0.1.0"},
+                "serverInfo": {"name": "ainm-server", "version": "0.1.0"},
                 "capabilities": {"streaming": true},
                 "nonce": "abc123"
             }

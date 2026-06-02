@@ -15,7 +15,7 @@ struct AINMMessengerApp: App {
                     case .connected:
                         ConversationListView(appState: appState)
                     default:
-                        OnboardingView(appState: appState)
+                        OnboardingFlowView(appState: appState)
                     }
                 }
             }
