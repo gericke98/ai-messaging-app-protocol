@@ -71,6 +71,7 @@ pub struct HostedAgent {
     pub key_pair: Arc<Ed25519KeyPair>,
     pub public_key_bytes: Vec<u8>,
     pub system_prompt: String,
+    pub enabled: bool,
 }
 
 const DEFAULT_SYSTEM_PROMPT: &str = "You are the AINM assistant, a helpful first-party agent. \
@@ -118,10 +119,24 @@ pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent
         }
     };
 
-    // (2) ensure an active account_keys row for the agent's public key
-    if crate::accounts::find_active_key(pool, account.id).await?.is_none() {
-        crate::accounts::insert_account_key(pool, account.id, &row.public_key, Some("hosted-agent"))
-            .await?;
+    // (2) ensure an active account_keys row binding the CURRENT agent public key
+    match crate::accounts::find_active_key(pool, account.id).await? {
+        Some(existing) if existing.public_key == row.public_key => {
+            // Already bound and current — nothing to do.
+        }
+        Some(_) => {
+            // The hosted_agents key and the registered handshake key are out of sync
+            // (e.g. the hosted_agents row was manually rotated). v1 does not auto-rotate;
+            // surface it loudly so an operator can intervene rather than silently failing auth.
+            tracing::warn!(
+                "[hosted-agent] account_keys public key for {address} does not match hosted_agents key — \
+                 manual key rotation required; the agent may fail the handshake gate"
+            );
+        }
+        None => {
+            crate::accounts::insert_account_key(pool, account.id, &row.public_key, Some("hosted-agent"))
+                .await?;
+        }
     }
 
     // Build the live signer from stored PKCS#8 bytes.
@@ -136,6 +151,7 @@ pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent
         key_pair: Arc::new(key_pair),
         public_key_bytes,
         system_prompt: row.system_prompt,
+        enabled: row.enabled,
     })
 }
 
@@ -163,6 +179,7 @@ mod tests {
             public_key_bytes: base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(&pk_b64).unwrap(),
             system_prompt: "be helpful".to_string(),
+            enabled: true,
         };
 
         // Signs an envelope and sets a signature field.
