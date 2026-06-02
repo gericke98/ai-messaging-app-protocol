@@ -15,13 +15,13 @@ jobs:
       - name: Select Xcode 16
         run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
 
-      - name: Cache cargo registry + demo target
+      - name: Cache cargo registry + server target
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
-            demo/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('demo/Cargo.lock') }}
+            server/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.lock') }}
 
       - name: Resolve SPM dependencies
         working-directory: ios/AINMMessenger

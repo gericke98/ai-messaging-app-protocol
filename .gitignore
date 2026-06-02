@@ -1,5 +1,5 @@
 # Rust build artifacts
-demo/target/
+server/target/
 
 # Node.js
 node_modules/

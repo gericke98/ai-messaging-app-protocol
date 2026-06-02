@@ -14,7 +14,7 @@
 #
 # Prerequisites:
 #   - Docker and docker-compose installed
-#   - Run from the demo/ directory
+#   - Run from the server/ directory
 #
 # Manual alternative (no Docker):
 #   Terminal 1: cargo run -- --mode human --identity server-a.local --cert certs/server-a.pem --key certs/server-a-key.pem --ca-cert certs/ca.pem --federation-port 8443 --remote server-b.local:9443 --data-dir ./data-a

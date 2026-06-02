@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ainm-demo"
+name = "ainm-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -1,14 +1,14 @@
 [package]
-name = "ainm-demo"
+name = "ainm-server"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "ainm_demo"
+name = "ainm_server"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ainm-demo"
+name = "ainm-server"
 path = "src/main.rs"
 
 [dependencies]
