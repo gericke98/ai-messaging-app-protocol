@@ -524,7 +524,7 @@ pub async fn start(
         compile_notify_tx: None,
         email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
         token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
-        server_domain: "demo.ainm.local".to_string(),
+        server_domain: "ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -584,7 +584,7 @@ pub async fn start_with_port(
         compile_notify_tx: None,
         email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
         token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
-        server_domain: "demo.ainm.local".to_string(),
+        server_domain: "ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -821,7 +821,7 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
         serde_json::json!({
             "protocolVersion": "0.1.0",
             "serverInfo": {
-                "name": "demo.ainm.local",
+                "name": "ainm.local",
                 "version": "0.1.0"
             },
             "capabilities": {
@@ -1693,7 +1693,7 @@ async fn handle_agent_connection(
                                             "recent_messages": [
                                                 {
                                                     "id": msg_id,
-                                                    "from": "alice@demo.ainm.local",
+                                                    "from": "alice@ainm.local",
                                                     "timestamp": now,
                                                     "summary": "User requested memory demo"
                                                 }
@@ -1704,8 +1704,8 @@ async fn handle_agent_connection(
                                         "conversation_summary": "Demo thread exercising memory operations.",
                                         "archival_facts": archival_facts,
                                         "participants": [
-                                            { "identity": "alice@demo.ainm.local", "type": "human", "presence": "online" },
-                                            { "identity": "helper@demo.ainm.local", "type": "agent", "presence": "available" }
+                                            { "identity": "alice@ainm.local", "type": "human", "presence": "online" },
+                                            { "identity": "helper@ainm.local", "type": "agent", "presence": "available" }
                                         ]
                                     }
                                 }),

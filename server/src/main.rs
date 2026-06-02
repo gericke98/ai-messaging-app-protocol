@@ -1096,8 +1096,8 @@ async fn run_legacy_demo() -> Result<()> {
         .init();
 
     // 1. Generate Ed25519 key pairs for human and agent
-    let human_identity = identity::generate_keypair("alice@demo.ainm.local")?;
-    let agent_identity = identity::generate_keypair("helper@demo.ainm.local")?;
+    let human_identity = identity::generate_keypair("alice@ainm.local")?;
+    let agent_identity = identity::generate_keypair("helper@ainm.local")?;
 
     // 2. Build identity store and register both participants
     let identity_store = identity::IdentityStore::new();
@@ -1120,11 +1120,11 @@ async fn run_legacy_demo() -> Result<()> {
         Some("http://127.0.0.1:0/.well-known/ainm/helper/agent-card.json".to_string()),
     );
 
-    // 3. Build Agent Card for helper@demo.ainm.local
+    // 3. Build Agent Card for helper@ainm.local
     let agent_card = serde_json::json!({
         "name": "AINM Demo Helper",
         "description": "A demo agent showcasing the AI-Native Messaging Protocol",
-        "url": "https://demo.ainm.local",
+        "url": "https://ainm.local",
         "version": "0.1.0",
         "protocolVersion": "0.1.0",
         "capabilities": {
@@ -1140,7 +1140,7 @@ async fn run_legacy_demo() -> Result<()> {
         ],
         "ainm": {
             "protocolVersion": "0.1.0",
-            "address": "helper@demo.ainm.local",
+            "address": "helper@ainm.local",
             "type": "agent",
             "contentTypes": ["text", "code", "button", "form", "approval"],
             "streaming": {

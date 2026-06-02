@@ -559,7 +559,7 @@ async fn handle_bridge(
                 "type": "text",
                 "version": "1.0",
                 "source": "agent",
-                "text": "MCP Bridge Agent Card:\n  Name: MCP Code Tools Bridge\n  Bridge Type: mcp\n  Bridge Target: mcp-code-tools://localhost:3001\n  Identity: mcp-code-tools@demo.ainm.local",
+                "text": "MCP Bridge Agent Card:\n  Name: MCP Code Tools Bridge\n  Bridge Type: mcp\n  Bridge Target: mcp-code-tools://localhost:3001\n  Identity: mcp-code-tools@ainm.local",
                 "fallback": "[MCP Bridge Agent Card]"
             }
         ]
@@ -667,7 +667,7 @@ async fn handle_bridge(
                 "type": "text",
                 "version": "1.0",
                 "source": "agent",
-                "text": "A2A Bridge: Simulating task delegation to external A2A agent.\n  Bridge Identity: a2a-research@demo.ainm.local\n  A2A Agent URL: https://research.example.com/.well-known/agent.json",
+                "text": "A2A Bridge: Simulating task delegation to external A2A agent.\n  Bridge Identity: a2a-research@ainm.local\n  A2A Agent URL: https://research.example.com/.well-known/agent.json",
                 "fallback": "[A2A Bridge info]"
             }
         ]
@@ -703,7 +703,7 @@ async fn handle_bridge(
     let presence_update = protocol::new_notification(
         "ainm.presence.update",
         serde_json::json!({
-            "identity": "a2a-research@demo.ainm.local",
+            "identity": "a2a-research@ainm.local",
             "status": "processing",
             "detail": "A2A task working: Researching topic...",
             "thread_id": thread_id
