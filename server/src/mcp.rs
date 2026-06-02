@@ -28,7 +28,9 @@ pub async fn build_providers_from_config(config: &AppConfig) -> Vec<Arc<dyn Tool
                 );
                 providers.push(Arc::new(p));
             }
-            Err(e) => tracing::warn!("[mcp] failed to connect '{}': {e}", cfg.name),
+            Err(e) => {
+                tracing::warn!("[mcp] skipping server '{}' (not started): {e}", cfg.name)
+            }
         }
     }
     providers
@@ -76,7 +78,7 @@ impl ToolProvider for McpToolProvider {
                 self.cfg.name
             ));
         }
-        match self.client.call_tool(name, args).await {
+        match self.client.call_tool(name, args, &self.cfg.limits).await {
             Ok(text) => ToolResult::ok(text),
             Err(e) => ToolResult::error(format!("MCP call failed: {e}")),
         }
@@ -93,17 +95,16 @@ impl McpClientHandle {
         use rmcp::ServiceExt;
         let inner = match cfg.transport.as_str() {
             "stdio" => {
-                use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
-                let command = cfg.command.clone().ok_or_else(|| {
-                    anyhow::anyhow!("stdio MCP server '{}' missing command", cfg.name)
-                })?;
-                let args = cfg.args.clone();
-                let transport = TokioChildProcess::new(tokio::process::Command::new(command)
-                    .configure(|c| {
-                        for a in &args {
-                            c.arg(a);
-                        }
-                    }))?;
+                use rmcp::transport::TokioChildProcess;
+                // sub-project D: build a hardened (and possibly bubblewrap-wrapped) command.
+                let launcher = crate::sandbox::launcher_for(cfg)?;
+                let command = launcher.build_command(cfg)?;
+                tracing::debug!(
+                    "[mcp] launching '{}' via {} launcher",
+                    cfg.name,
+                    launcher.name()
+                );
+                let transport = TokioChildProcess::new(command)?;
                 ().serve(transport).await?
             }
             "http" => {
@@ -111,6 +112,8 @@ impl McpClientHandle {
                 let url = cfg.url.clone().ok_or_else(|| {
                     anyhow::anyhow!("http MCP server '{}' missing url", cfg.name)
                 })?;
+                // sub-project D: anti-SSRF connect-time check.
+                crate::sandbox::UrlGuard::check(&url, &cfg.allowed_hosts)?;
                 let transport = StreamableHttpClientTransport::from_uri(url);
                 ().serve(transport).await?
             }
@@ -132,18 +135,44 @@ impl McpClientHandle {
             .collect())
     }
 
-    async fn call_tool(&self, name: &str, args: &serde_json::Value) -> anyhow::Result<String> {
+    async fn call_tool(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        limits: &crate::config::SandboxLimits,
+    ) -> anyhow::Result<String> {
         use rmcp::model::CallToolRequestParams;
         // `CallToolRequestParams` is `#[non_exhaustive]`; build via the constructor then set args.
         let mut params = CallToolRequestParams::new(name.to_string());
         params.arguments = args.as_object().cloned();
-        let result = self.inner.call_tool(params).await?;
+
+        let fut = self.inner.call_tool(params);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(limits.wall_timeout_secs),
+            fut,
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("MCP tool '{name}' timed out after {}s", limits.wall_timeout_secs))??;
+
         let text = extract_content_text(&result.content);
         if result.is_error == Some(true) {
             return Err(anyhow::anyhow!("MCP tool reported an error: {text}"));
         }
-        Ok(text)
+        Ok(cap_output(&text, limits.max_output_bytes))
     }
+}
+
+/// Truncate tool output to at most `max_bytes`, appending a marker if truncated.
+/// Truncation respects UTF-8 char boundaries (never splits a multibyte char).
+fn cap_output(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…[truncated]", &text[..end])
 }
 
 /// Extract human-/model-readable text from MCP content blocks.
@@ -181,5 +210,34 @@ mod tests {
         assert!(server_is_permitted(&cfg, &["patterns".to_string()]));
         assert!(!server_is_permitted(&cfg, &["identity".to_string()]));
         assert!(!server_is_permitted(&cfg, &[]));
+    }
+
+    #[test]
+    fn output_cap_truncates_with_marker() {
+        let capped = super::cap_output("hello world", 5);
+        assert!(capped.starts_with("hello"));
+        assert!(capped.ends_with("…[truncated]"));
+        assert_eq!(super::cap_output("hi", 100), "hi");
+    }
+
+    #[tokio::test]
+    async fn build_providers_skips_bubblewrap_without_bwrap() {
+        let config = crate::config::AppConfig {
+            database: Default::default(),
+            mcp_servers: vec![crate::config::McpServerConfig {
+                name: "needs-sandbox".into(),
+                transport: "stdio".into(),
+                command: Some("echo".into()),
+                args: vec![],
+                required_capability: "patterns".into(),
+                sandbox: crate::config::SandboxMode::Bubblewrap,
+                ..Default::default()
+            }],
+            quota: Default::default(),
+        };
+        if !crate::sandbox::bwrap_available() || !cfg!(target_os = "linux") {
+            let providers = build_providers_from_config(&config).await;
+            assert!(providers.is_empty(), "unsandboxed bubblewrap server must be skipped");
+        }
     }
 }
