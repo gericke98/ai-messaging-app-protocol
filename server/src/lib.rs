@@ -17,3 +17,4 @@ pub mod protocol;
 pub mod repository;
 pub mod retrieval;
 pub mod signing;
+pub mod tools;
