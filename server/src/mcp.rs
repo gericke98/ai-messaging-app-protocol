@@ -146,6 +146,11 @@ impl McpClientHandle {
         let mut params = CallToolRequestParams::new(name.to_string());
         params.arguments = args.as_object().cloned();
 
+        // Per-call wall-clock timeout. On elapse the rmcp call future is dropped and we
+        // return an error, but the stdio MCP server process (owned by the long-lived
+        // `inner` RunningService and shared across calls) is intentionally NOT killed —
+        // doing so would break every subsequent call. Process-group teardown (killpg) is
+        // a lifecycle concern handled by the hardening in `sandbox::apply_hardening`.
         let fut = self.inner.call_tool(params);
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(limits.wall_timeout_secs),
