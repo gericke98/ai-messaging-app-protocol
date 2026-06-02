@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Root observable state for the AINM Messenger app.
 /// Drives UI with connection lifecycle, server capabilities, and error state.
@@ -12,6 +15,9 @@ final class AppState {
     var displayName: String = ""
     var serverCapabilities: ServerCapabilities?
     var errorMessage: String?
+    /// Error surfaced by the account onboarding / recovery flows (separate from the
+    /// connection `errorMessage` so the onboarding UI can present it independently).
+    var onboardingError: String?
     var connectedIdentity: String?
     var selectedThreadId: String?
     var showNewThreadComposer: Bool = false
@@ -68,12 +74,20 @@ final class AppState {
     private var client: AINMClient?
     var appDatabase: AppDatabase?
 
+    /// The single Ed25519 key manager shared between onboarding (bind/escrow/recover)
+    /// and the protocol client's handshake. Sharing one instance guarantees the key
+    /// bound to the account on the server is the exact key the WebSocket handshake signs
+    /// with — a mismatch would cause the enforced server to reject the connection.
+    /// (Both instances would back onto the same Keychain regardless, but injecting the
+    /// same object makes the invariant explicit.)
+    let keyManager = KeyManager()
+
     /// Initialize the database and protocol client.
     /// Call once at app launch before any network operations.
     func setup() throws {
         let db = try AppDatabase.makeDefault()
         self.appDatabase = db
-        let client = AINMClient(appDatabase: db)
+        let client = AINMClient(keyManager: keyManager, appDatabase: db)
         self.client = client
 
         // Wire streaming callbacks from AINMClient to StreamingViewModel
@@ -166,6 +180,145 @@ final class AppState {
         } catch {
             connectionState = .error
             errorMessage = mapErrorMessage(error)
+        }
+    }
+
+    // MARK: - Account Onboarding & Recovery
+
+    /// Outcome of a recovery attempt, surfaced to the UI for tailored messaging.
+    enum RecoveryOutcome: Sendable {
+        case connected
+        case wrongPin
+        case destroyed
+        case failed
+    }
+
+    /// Derive the REST base URL from the stored WebSocket `serverURL`.
+    ///
+    /// `AccountService` needs an HTTP origin (e.g. `http://localhost:8080`) and only
+    /// appends `accounts/...` paths. We map ws→http / wss→https and strip a trailing
+    /// `/ws` path so the account endpoints resolve at the server root.
+    private func restBaseURL(from serverURL: String) -> URL? {
+        guard var comps = URLComponents(string: serverURL) else { return nil }
+        switch comps.scheme {
+        case "ws": comps.scheme = "http"
+        case "wss": comps.scheme = "https"
+        default: break
+        }
+        if comps.path == "/ws" || comps.path == "/ws/" { comps.path = "" }
+        return comps.url
+    }
+
+    /// A human-readable label for the bound device key. Optional metadata for the server.
+    private func deviceLabelString() -> String? {
+        #if canImport(UIKit)
+        return UIDevice.current.name
+        #else
+        return "AINM Messenger"
+        #endif
+    }
+
+    /// Normalize any thrown error into a user-facing string for `onboardingError`.
+    private func onboardingMessage(for error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? "\(error)"
+    }
+
+    /// Trigger the signup email (sends the verification code). Separate from
+    /// ``completeSignup(serverURL:email:username:code:pin:)`` so the UI can advance to the
+    /// code-entry step before the user has a code.
+    func startSignup(serverURL: String, email: String, username: String) async -> Bool {
+        guard let base = restBaseURL(from: serverURL) else {
+            onboardingError = "Enter a valid server URL."
+            return false
+        }
+        onboardingError = nil
+        do {
+            _ = try await AccountService(baseURL: base).signup(email: email, username: username)
+            return true
+        } catch {
+            onboardingError = onboardingMessage(for: error)
+            return false
+        }
+    }
+
+    /// Complete signup: verify the email code → bind the device key → enroll the PIN escrow →
+    /// connect. The bound key and the handshake key are the same (shared `keyManager`), and
+    /// the identity becomes `username@host` because `connect()` reads `displayName`/`serverURL`,
+    /// which we set here. Returns `true` once the enforced handshake succeeds.
+    func completeSignup(serverURL: String, email: String, username: String, code: String, pin: String) async -> Bool {
+        guard let base = restBaseURL(from: serverURL) else {
+            onboardingError = "Enter a valid server URL."
+            return false
+        }
+        onboardingError = nil
+        let account = AccountService(baseURL: base)
+        do {
+            let token = try await account.verify(email: email, code: code)
+            let kp = try await keyManager.getOrCreateKeypair()
+            try await account.bindKey(
+                enrollmentToken: token,
+                publicKeyB64: kp.publicKeyBase64url,
+                deviceLabel: deviceLabelString()
+            )
+            try await EscrowClient(account: account, keyManager: keyManager)
+                .enrollAndUpload(enrollmentToken: token, pin: pin)
+            // Identity must be username@host to match the server-bound key; set both fields
+            // so connect() builds it correctly, then handshake against the enforced server.
+            self.serverURL = serverURL
+            self.displayName = username
+            await connect()
+            return connectionState == .connected
+        } catch {
+            onboardingError = onboardingMessage(for: error)
+            return false
+        }
+    }
+
+    /// Trigger the recovery email (sends the verification code).
+    func startRecovery(serverURL: String, email: String) async -> Bool {
+        guard let base = restBaseURL(from: serverURL) else {
+            onboardingError = "Enter a valid server URL."
+            return false
+        }
+        onboardingError = nil
+        do {
+            try await AccountService(baseURL: base).recoverStart(email: email)
+            return true
+        } catch {
+            onboardingError = onboardingMessage(for: error)
+            return false
+        }
+    }
+
+    /// Complete recovery: verify the email code → recover the device key with the PIN (one
+    /// OPRF-guarded attempt) → connect. Distinguishes wrong-PIN and escrow-destroyed for UX.
+    ///
+    /// On success the recovered key is restored into the same `keyManager` the handshake uses,
+    /// so the identity (`username@host`, derived by `connect()` from `displayName`/`serverURL`)
+    /// matches the account's server-bound key.
+    func completeRecovery(serverURL: String, email: String, username: String, code: String, pin: String) async -> RecoveryOutcome {
+        guard let base = restBaseURL(from: serverURL) else {
+            onboardingError = "Enter a valid server URL."
+            return .failed
+        }
+        onboardingError = nil
+        let account = AccountService(baseURL: base)
+        do {
+            let token = try await account.recoverVerify(email: email, code: code)
+            try await EscrowClient(account: account, keyManager: keyManager)
+                .recover(recoveryToken: token, pin: pin)
+            self.serverURL = serverURL
+            self.displayName = username
+            await connect()
+            return connectionState == .connected ? .connected : .failed
+        } catch EscrowClient.RecoverError.wrongPin {
+            return .wrongPin
+        } catch EscrowClient.RecoverError.destroyed {
+            onboardingError = "Recovery is no longer possible (too many attempts)."
+            return .destroyed
+        } catch {
+            onboardingError = onboardingMessage(for: error)
+            return .failed
         }
     }
 
