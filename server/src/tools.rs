@@ -21,6 +21,8 @@ impl ToolResult {
 /// A source of tools. Implementations: memory tools (in-process), MCP bridge.
 #[async_trait::async_trait]
 pub trait ToolProvider: Send + Sync {
+    /// A short provider name for diagnostics/logging. Defaults to "provider".
+    fn name(&self) -> &'static str { "provider" }
     /// Tools this provider offers GIVEN the requester's granted scopes (already consent-filtered).
     async fn list_tools(&self, scopes: &[String]) -> Vec<ToolSchema>;
     /// Execute a tool. Implementations MUST re-check consent and refuse disallowed calls
@@ -36,11 +38,23 @@ pub struct ToolRegistry {
 impl ToolRegistry {
     pub fn new(providers: Vec<Box<dyn ToolProvider>>) -> Self { Self { providers } }
 
-    /// The union of all providers' consent-filtered tools.
+    /// The union of all providers' consent-filtered tools, deduplicated by name.
+    /// First provider to offer a given name wins (consistent with `call` dispatch);
+    /// later duplicates are dropped with a warning, since the LLM API rejects
+    /// duplicate function names.
     pub async fn list_tools(&self, scopes: &[String]) -> Vec<ToolSchema> {
-        let mut out = Vec::new();
+        let mut out: Vec<ToolSchema> = Vec::new();
         for p in &self.providers {
-            out.extend(p.list_tools(scopes).await);
+            for tool in p.list_tools(scopes).await {
+                if out.iter().any(|t| t.name == tool.name) {
+                    tracing::warn!(
+                        "[tools] duplicate tool name '{}' from provider '{}' dropped (already offered)",
+                        tool.name, p.name()
+                    );
+                    continue;
+                }
+                out.push(tool);
+            }
         }
         out
     }
@@ -95,5 +109,28 @@ mod tests {
 
         let missing = reg.call("nope", &serde_json::json!({}), &scopes).await;
         assert!(missing.is_error);
+    }
+
+    struct DupProvider(&'static str);
+    #[async_trait::async_trait]
+    impl ToolProvider for DupProvider {
+        fn name(&self) -> &'static str { self.0 }
+        async fn list_tools(&self, _scopes: &[String]) -> Vec<crate::llm::ToolSchema> {
+            vec![crate::llm::ToolSchema { name: "dup".into(), description: self.0.into(), parameters: serde_json::json!({"type":"object"}) }]
+        }
+        async fn call(&self, _name: &str, _args: &serde_json::Value, _scopes: &[String]) -> ToolResult {
+            ToolResult::ok(self.0)
+        }
+    }
+
+    #[tokio::test]
+    async fn registry_dedups_tool_names_first_wins() {
+        let reg = ToolRegistry::new(vec![Box::new(DupProvider("a")), Box::new(DupProvider("b"))]);
+        let tools = reg.list_tools(&["identity".to_string()]).await;
+        assert_eq!(tools.len(), 1, "duplicate tool name should be deduped");
+        assert_eq!(tools[0].description, "a", "first provider wins");
+        // dispatch also goes to the first provider
+        let res = reg.call("dup", &serde_json::json!({}), &["identity".to_string()]).await;
+        assert_eq!(res.content, "a");
     }
 }
