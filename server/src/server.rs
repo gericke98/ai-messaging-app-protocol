@@ -353,6 +353,84 @@ pub async fn bind_key_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Resolve the calling account from the `Authorization: Bearer <enrollment-token>` header.
+fn account_from_bearer(state: &ServerState, headers: &HeaderMap) -> Result<uuid::Uuid, (StatusCode, String)> {
+    let raw = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or((StatusCode::UNAUTHORIZED, "missing Authorization header".into()))?;
+    let token = raw.strip_prefix("Bearer ").ok_or((StatusCode::UNAUTHORIZED, "expected Bearer token".into()))?;
+    let acct = state
+        .token_signer
+        .verify(token, "enrollment", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    uuid::Uuid::parse_str(&acct).map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))
+}
+
+#[derive(serde::Deserialize)]
+pub struct LlmCredentialReq {
+    pub api_key: String,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+}
+
+pub async fn llm_credential_put_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(req): Json<LlmCredentialReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account_id = account_from_bearer(&state, &headers)?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let cipher = state
+        .cred_cipher
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "byo_not_configured".into()))?;
+    let (ct, nonce) = cipher.encrypt(&req.api_key).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::credentials::upsert_byo_key(&pool, account_id, &ct, &nonce, req.model.as_deref(), req.base_url.as_deref())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn llm_credential_delete_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account_id = account_from_bearer(&state, &headers)?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    crate::credentials::clear_byo_key(&pool, account_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn usage_get_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let account_id = account_from_bearer(&state, &headers)?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let account = crate::accounts::find_account_by_id(&pool, account_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
+    let settings = crate::credentials::get_settings(&pool, account_id).await.ok().flatten();
+    let period = crate::quota::current_period(chrono::Utc::now());
+    let used = crate::quota::current_usage(&pool, &account.address, &period).await.unwrap_or(0);
+    let budget = crate::quota::resolve_budget(
+        settings.as_ref().and_then(|s| s.monthly_token_budget),
+        state.quota.monthly_token_budget,
+    );
+    let byo_key_set = settings.as_ref().map(|s| s.api_key_ciphertext.is_some()).unwrap_or(false);
+    Ok(Json(serde_json::json!({
+        "period": period,
+        "used_tokens": used,
+        "budget": budget,
+        "remaining": (budget - used).max(0),
+        "byo_key_set": byo_key_set,
+    })))
+}
+
 #[derive(serde::Deserialize)]
 pub struct StoreEscrowReq {
     pub enrollment_token: String,
@@ -575,6 +653,8 @@ pub async fn start(
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
+        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -642,6 +722,8 @@ pub async fn start_with_port(
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
+        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -717,6 +799,8 @@ pub async fn start_federation(
         .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
         .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
+        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
