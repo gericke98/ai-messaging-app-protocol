@@ -39,6 +39,9 @@ futures-util = "0.3"
 anyhow = "1"
 rand = "0.8"
 
+# Sandboxing (sub-project D): setrlimit in a pre_exec closure (async-signal-safe)
+libc = "0.2"
+
 # Federation: HTTP client for server-to-server relay
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 
