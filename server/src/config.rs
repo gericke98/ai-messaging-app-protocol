@@ -56,7 +56,83 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     /// The consent capability/scope a requester must hold to be offered this server's tools.
     pub required_capability: String,
+
+    // --- sub-project D: sandboxing ---
+    /// Isolation backend. Defaults to `None` (backward-compat); hardening (env scrub,
+    /// rlimits, timeout, output cap) applies regardless. Non-first-party servers should
+    /// set `sandbox = "bubblewrap"`.
+    #[serde(default)]
+    pub sandbox: SandboxMode,
+    /// Allow the sandboxed process network access (bubblewrap: adds `--share-net`).
+    #[serde(default)]
+    pub allow_network: bool,
+    /// Read-only bind mounts granted to the sandbox.
+    #[serde(default)]
+    pub allow_read: Vec<String>,
+    /// Read-write bind mounts granted to the sandbox.
+    #[serde(default)]
+    pub allow_write: Vec<String>,
+    /// Explicit child environment (TOML inline table: `env = { KEY = "val" }`).
+    /// The child NEVER inherits the server's environment; only these + a minimal allowlist.
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    /// HTTP transport only: SSRF allowlist of hostnames exempt from `UrlGuard` private-IP rejection.
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
+    /// Resource limits applied via setrlimit + per-call caps.
+    #[serde(default)]
+    pub limits: SandboxLimits,
 }
+
+/// Isolation backend for an MCP server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxMode {
+    /// Hardening-only (env scrub + rlimits + timeout + output cap), no namespace isolation.
+    #[default]
+    None,
+    /// Linux bubblewrap: namespaces + seccomp + deny-all fs/net + explicit grants.
+    Bubblewrap,
+}
+
+/// Resource limits for a sandboxed MCP server.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SandboxLimits {
+    #[serde(default = "default_max_memory_mb")]
+    pub max_memory_mb: u64, // RLIMIT_AS
+    #[serde(default = "default_max_cpu_secs")]
+    pub max_cpu_secs: u64, // RLIMIT_CPU
+    #[serde(default = "default_max_procs")]
+    pub max_procs: u64, // RLIMIT_NPROC
+    #[serde(default = "default_max_nofile")]
+    pub max_nofile: u64, // RLIMIT_NOFILE
+    #[serde(default = "default_max_fsize_mb")]
+    pub max_fsize_mb: u64, // RLIMIT_FSIZE
+    #[serde(default = "default_max_output_bytes")]
+    pub max_output_bytes: usize, // per-call output cap
+    #[serde(default = "default_wall_timeout_secs")]
+    pub wall_timeout_secs: u64, // per-call wall-clock timeout
+}
+impl Default for SandboxLimits {
+    fn default() -> Self {
+        Self {
+            max_memory_mb: default_max_memory_mb(),
+            max_cpu_secs: default_max_cpu_secs(),
+            max_procs: default_max_procs(),
+            max_nofile: default_max_nofile(),
+            max_fsize_mb: default_max_fsize_mb(),
+            max_output_bytes: default_max_output_bytes(),
+            wall_timeout_secs: default_wall_timeout_secs(),
+        }
+    }
+}
+fn default_max_memory_mb() -> u64 { 512 }
+fn default_max_cpu_secs() -> u64 { 30 }
+fn default_max_procs() -> u64 { 64 }
+fn default_max_nofile() -> u64 { 256 }
+fn default_max_fsize_mb() -> u64 { 64 }
+fn default_max_output_bytes() -> usize { 1_048_576 }
+fn default_wall_timeout_secs() -> u64 { 60 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
@@ -101,4 +177,61 @@ pub fn load() -> Result<AppConfig, figment::Error> {
         .merge(Toml::file("config/default.toml"))
         .merge(Env::prefixed("AINM_").split("__"))
         .extract()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_server_config_d_fields_default() {
+        let toml = r#"
+            name = "weather"
+            transport = "stdio"
+            required_capability = "patterns"
+        "#;
+        let cfg: McpServerConfig = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.sandbox, SandboxMode::None);
+        assert!(!cfg.allow_network);
+        assert!(cfg.allow_read.is_empty());
+        assert!(cfg.allow_write.is_empty());
+        assert!(cfg.env.is_empty());
+        assert!(cfg.allowed_hosts.is_empty());
+        assert_eq!(cfg.limits.max_memory_mb, 512);
+        assert_eq!(cfg.limits.max_cpu_secs, 30);
+        assert_eq!(cfg.limits.max_procs, 64);
+        assert_eq!(cfg.limits.max_nofile, 256);
+        assert_eq!(cfg.limits.max_fsize_mb, 64);
+        assert_eq!(cfg.limits.max_output_bytes, 1_048_576);
+        assert_eq!(cfg.limits.wall_timeout_secs, 60);
+    }
+
+    #[test]
+    fn mcp_server_config_d_fields_parse() {
+        let toml = r#"
+            name = "weather"
+            transport = "stdio"
+            command = "uvx"
+            args = ["mcp-weather"]
+            required_capability = "patterns"
+            sandbox = "bubblewrap"
+            allow_network = true
+            allow_read = ["/opt/data"]
+            allowed_hosts = ["api.weather.example"]
+            env = { WEATHER_UNITS = "metric" }
+
+            [limits]
+            max_memory_mb = 256
+            wall_timeout_secs = 15
+        "#;
+        let cfg: McpServerConfig = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.sandbox, SandboxMode::Bubblewrap);
+        assert!(cfg.allow_network);
+        assert_eq!(cfg.allow_read, vec!["/opt/data".to_string()]);
+        assert_eq!(cfg.allowed_hosts, vec!["api.weather.example".to_string()]);
+        assert_eq!(cfg.env.get("WEATHER_UNITS").map(String::as_str), Some("metric"));
+        assert_eq!(cfg.limits.max_memory_mb, 256);
+        assert_eq!(cfg.limits.wall_timeout_secs, 15);
+        assert_eq!(cfg.limits.max_cpu_secs, 30);
+    }
 }

@@ -176,6 +176,7 @@ mod tests {
             args: vec![],
             url: Some("http://localhost:9000/mcp".into()),
             required_capability: "patterns".into(),
+            ..Default::default()
         };
         assert!(server_is_permitted(&cfg, &["patterns".to_string()]));
         assert!(!server_is_permitted(&cfg, &["identity".to_string()]));
