@@ -50,7 +50,13 @@ pub async fn insert(
     .bind(private_key)
     .bind(system_prompt)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            StorageError::Duplicate(format!("hosted agent {address}"))
+        }
+        _ => StorageError::Query(e),
+    })?;
     Ok(row)
 }
 
