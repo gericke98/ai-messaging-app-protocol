@@ -358,6 +358,50 @@ impl LlmClient for OpenAiClient {
     }
 }
 
+// ── QuotaStore seam + MeteredLlmClient decorator ──────────────────────────
+
+/// Minimal usage-store seam so MeteredLlmClient is unit-testable without a DB.
+#[async_trait::async_trait]
+pub trait QuotaStore: Send + Sync {
+    async fn current_used(&self) -> i64;
+    async fn debit(&self, tokens: i64);
+}
+
+/// Decorator that enforces a token budget (server-key path) and meters usage.
+pub struct MeteredLlmClient {
+    pub inner: std::sync::Arc<dyn LlmClient>,
+    pub store: std::sync::Arc<dyn QuotaStore>,
+    pub budget: i64,
+    pub enforce: bool,
+    pub missing_usage_fallback: u32,
+}
+
+#[async_trait::async_trait]
+impl LlmClient for MeteredLlmClient {
+    async fn extract(&self, messages: &[ConversationMessage]) -> Result<ExtractionResult, AppError> {
+        self.inner.extract(messages).await
+    }
+
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolSchema],
+    ) -> Result<ChatResponse, AppError> {
+        if self.enforce && self.store.current_used().await >= self.budget {
+            return Ok(ChatResponse {
+                turn: AssistantTurn::Text(
+                    "You've reached your monthly usage limit. It resets at the start of next month.".into(),
+                ),
+                usage: None,
+            });
+        }
+        let resp = self.inner.chat_with_tools(messages, tools).await?;
+        let spent = resp.usage.as_ref().map(|u| u.total_tokens).unwrap_or(self.missing_usage_fallback);
+        self.store.debit(spent as i64).await;
+        Ok(resp)
+    }
+}
+
 // ── Mock client for tests ──────────────────────────────────────────────────
 
 pub struct MockLlmClient {
@@ -550,6 +594,61 @@ fn parse_edges(json: &serde_json::Value) -> Vec<CandidateEdge> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    struct FakeStore { used: StdMutex<i64>, debited: StdMutex<i64> }
+    #[async_trait::async_trait]
+    impl QuotaStore for FakeStore {
+        async fn current_used(&self) -> i64 { *self.used.lock().unwrap() }
+        async fn debit(&self, tokens: i64) { *self.debited.lock().unwrap() += tokens; }
+    }
+
+    struct OneTurnInner(StdMutex<u32>); // counts how many times inner was called
+    #[async_trait::async_trait]
+    impl LlmClient for OneTurnInner {
+        async fn extract(&self, _m: &[ConversationMessage]) -> Result<ExtractionResult, AppError> {
+            Ok(ExtractionResult { nodes: vec![], edges: vec![] })
+        }
+        async fn chat_with_tools(&self, _m: &[ChatMessage], _t: &[ToolSchema]) -> Result<ChatResponse, AppError> {
+            *self.0.lock().unwrap() += 1;
+            Ok(ChatResponse { turn: AssistantTurn::Text("ok".into()), usage: Some(TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }) })
+        }
+    }
+
+    #[tokio::test]
+    async fn under_budget_passes_through_and_debits() {
+        let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
+        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(0), debited: StdMutex::new(0) });
+        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: true, missing_usage_fallback: 1000 };
+        let r = m.chat_with_tools(&[], &[]).await.unwrap();
+        assert!(matches!(r.turn, AssistantTurn::Text(_)));
+        assert_eq!(*inner.0.lock().unwrap(), 1);            // inner WAS called
+        assert_eq!(*store.debited.lock().unwrap(), 15);     // actual usage debited
+    }
+
+    #[tokio::test]
+    async fn over_budget_returns_limit_text_and_skips_inner() {
+        let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
+        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(5000), debited: StdMutex::new(0) });
+        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: true, missing_usage_fallback: 1000 };
+        let r = m.chat_with_tools(&[], &[]).await.unwrap();
+        match r.turn { AssistantTurn::Text(s) => assert!(s.to_lowercase().contains("limit")), _ => panic!("expected limit text") }
+        assert_eq!(*inner.0.lock().unwrap(), 0);            // inner was NOT called
+        assert_eq!(*store.debited.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn byo_path_never_blocks_but_meters() {
+        let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
+        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(999_999), debited: StdMutex::new(0) });
+        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: false, missing_usage_fallback: 1000 };
+        let r = m.chat_with_tools(&[], &[]).await.unwrap();
+        assert!(matches!(r.turn, AssistantTurn::Text(_)));  // not blocked despite "over budget"
+        assert_eq!(*inner.0.lock().unwrap(), 1);
+        assert_eq!(*store.debited.lock().unwrap(), 15);     // still metered
+    }
+
+
 
     #[test]
     fn chat_message_serializes_openai_shape() {
