@@ -18,3 +18,4 @@ pub mod repository;
 pub mod retrieval;
 pub mod signing;
 pub mod tools;
+pub mod tools_memory;
