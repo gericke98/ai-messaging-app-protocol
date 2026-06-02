@@ -76,6 +76,14 @@ fn is_blocked_ip(ip: &IpAddr) -> bool {
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64)
         }
         IpAddr::V6(v6) => {
+            // Canonicalize IPv4-mapped (::ffff:a.b.c.d) addresses back to v4 and re-run
+            // the v4 checks — otherwise a mapped loopback/metadata address (e.g.
+            // ::ffff:127.0.0.1, ::ffff:169.254.169.254) would slip past the v6 masks.
+            // `to_ipv4_mapped` (not `to_ipv4`) leaves `::1` / `::` to the v6 checks below
+            // rather than mis-mapping loopback to 0.0.0.1.
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(&IpAddr::V4(mapped));
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 // link-local fe80::/10
@@ -120,6 +128,14 @@ mod url_guard_tests {
     fn accepts_public_ip() {
         assert!(check("https://1.1.1.1/mcp").is_ok());
         assert!(check("http://93.184.216.34/mcp").is_ok()); // example.com literal
+    }
+
+    #[test]
+    fn rejects_ipv4_mapped_v6() {
+        // IPv4-mapped IPv6 must not bypass the v4 SSRF checks.
+        assert!(check("http://[::ffff:127.0.0.1]:9000/mcp").is_err()); // mapped loopback
+        assert!(check("http://[::ffff:169.254.169.254]/meta").is_err()); // mapped metadata
+        assert!(check("http://[::ffff:10.0.0.1]/mcp").is_err()); // mapped RFC1918
     }
 
     #[test]
