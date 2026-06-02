@@ -51,7 +51,7 @@ impl CredCipher {
 }
 
 /// One row of account_llm_settings (all fields optional).
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 pub struct AccountLlmSettings {
     pub api_key_ciphertext: Option<Vec<u8>>,
     pub api_key_nonce: Option<Vec<u8>>,

@@ -56,10 +56,22 @@ pub async fn handle_turn(
     let history = fetch_history_as_chat(db, thread_id, &agent.address).await;
 
     // C: resolve the requester's account, credential, and budget.
-    let account = crate::accounts::find_account_by_address(db, requester).await.ok().flatten();
+    let account = match crate::accounts::find_account_by_address(db, requester).await {
+        Ok(opt) => opt,
+        Err(e) => {
+            tracing::error!("[runtime] accounts lookup failed for {requester}: {e}; aborting turn");
+            return;
+        }
+    };
     let account_id = account.as_ref().map(|a| a.id);
     let settings = match account_id {
-        Some(id) => crate::credentials::get_settings(db, id).await.ok().flatten(),
+        Some(id) => match crate::credentials::get_settings(db, id).await {
+            Ok(opt) => opt,
+            Err(e) => {
+                tracing::error!("[runtime] llm-settings lookup failed for account {id}: {e}; aborting turn");
+                return;
+            }
+        },
         None => None,
     };
     let credential = crate::credentials::resolve_credential(state.cred_cipher.as_deref(), settings.as_ref());
@@ -67,6 +79,8 @@ pub async fn handle_turn(
     // Build the inner client: BYO key (fresh OpenAiClient) or the server default.
     let default_model = std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
     let (inner, is_byo): (std::sync::Arc<dyn crate::llm::LlmClient>, bool) = match credential {
+        // NOTE(C-follow-up): builds a fresh reqwest-backed client per BYO turn; acceptable at v1
+        // low concurrency. Cache a client per (account/base_url) before BYO sees production load.
         crate::credentials::Credential::ByoKey { api_key, model, base_url } => (
             std::sync::Arc::new(crate::llm::OpenAiClient::new(
                 api_key, model.unwrap_or(default_model), base_url,
