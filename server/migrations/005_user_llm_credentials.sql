@@ -13,7 +13,7 @@ CREATE TABLE account_llm_settings (
 -- Per-requester monthly token usage meter. New month = new row (automatic reset).
 CREATE TABLE llm_usage (
     requester_address TEXT   NOT NULL,
-    period            TEXT   NOT NULL,           -- 'YYYY-MM' (UTC)
+    period            TEXT   NOT NULL CHECK (period ~ '^\d{4}-\d{2}$'),   -- 'YYYY-MM' (UTC)
     account_id        UUID   REFERENCES accounts(id) ON DELETE SET NULL,
     used_tokens       BIGINT NOT NULL DEFAULT 0,
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
