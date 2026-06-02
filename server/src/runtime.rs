@@ -49,8 +49,8 @@ pub async fn run_loop(
             AssistantTurn::ToolCalls(calls) => {
                 if rounds >= max_tool_rounds {
                     return TurnOutcome {
-                        final_text: "I gathered some information but stopped early to avoid running too long. \
-                                     Could you narrow the request?".into(),
+                        final_text: "I wasn't able to reach a final answer within my allowed number of \
+                                     tool-use steps. Please try rephrasing or narrowing your question.".into(),
                         tool_rounds: rounds,
                         stopped_early: true,
                     };
