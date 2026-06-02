@@ -5,6 +5,7 @@ mod briefing;
 mod categories;
 mod compiler;
 mod config;
+mod credentials;
 mod db;
 mod email;
 mod error;
@@ -17,6 +18,7 @@ mod identity;
 mod mcp;
 mod persistence;
 mod protocol;
+mod quota;
 mod relay;
 mod render;
 mod repl;
@@ -434,7 +436,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 7b. Initialize PostgreSQL if configured
     let app_config = config::load().unwrap_or_else(|e| {
         tracing::warn!("[config] Failed to load config: {e}, using defaults");
-        config::AppConfig { database: config::DatabaseConfig::default(), mcp_servers: vec![] }
+        config::AppConfig { database: config::DatabaseConfig::default(), mcp_servers: vec![], quota: config::QuotaConfig::default() }
     });
     let db_pool = if app_config.database.url.is_some() {
         match db::init_pool(&app_config.database).await {
@@ -523,6 +525,23 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         (None, None, std::sync::Arc::new(vec![]))
     };
 
+    // C: BYO-key cipher (None if AINM_LLM_ENCRYPTION_KEY unset → BYO disabled, fail-safe) + quota config.
+    let cred_cipher: Option<std::sync::Arc<credentials::CredCipher>> =
+        match std::env::var("AINM_LLM_ENCRYPTION_KEY") {
+            Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+                Ok(key) => Some(std::sync::Arc::new(credentials::CredCipher::new(&key))),
+                Err(e) => {
+                    tracing::warn!("[cred] AINM_LLM_ENCRYPTION_KEY not valid base64 ({e}); BYO keys disabled");
+                    None
+                }
+            },
+            Err(_) => {
+                tracing::info!("[cred] AINM_LLM_ENCRYPTION_KEY unset; BYO LLM keys disabled");
+                None
+            }
+        };
+    let quota_config = app_config.quota.clone();
+
     // 8. Create broadcast channel for local delivery
     let (local_delivery_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
@@ -564,6 +583,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         hosted_agent,
         hosted_llm,
         mcp_providers,
+        cred_cipher,
+        quota_config,
     )
     .await?;
 

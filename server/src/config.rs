@@ -15,7 +15,32 @@ pub struct AppConfig {
     /// Curated MCP servers the hosted agent runtime may connect to. Empty by default.
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+
+    #[serde(default)]
+    pub quota: QuotaConfig,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct QuotaConfig {
+    #[serde(default = "default_quota_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_monthly_token_budget")]
+    pub monthly_token_budget: i64,
+    #[serde(default = "default_missing_usage_fallback")]
+    pub missing_usage_fallback_tokens: u32,
+}
+impl Default for QuotaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_quota_enabled(),
+            monthly_token_budget: default_monthly_token_budget(),
+            missing_usage_fallback_tokens: default_missing_usage_fallback(),
+        }
+    }
+}
+fn default_quota_enabled() -> bool { true }
+fn default_monthly_token_budget() -> i64 { 200_000 }
+fn default_missing_usage_fallback() -> u32 { 1000 }
 
 /// A single curated (config-defined, trusted) MCP server the hosted agent may use.
 #[derive(Debug, Clone, Deserialize, Default)]

@@ -257,6 +257,8 @@ pub struct ServerState {
     pub llm_client: Option<std::sync::Arc<dyn crate::llm::LlmClient>>,
     /// Curated MCP tool providers (built at startup), shared across turns.
     pub mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
+    pub cred_cipher: Option<std::sync::Arc<crate::credentials::CredCipher>>,
+    pub quota: crate::config::QuotaConfig,
 }
 
 // --- Account REST handlers (signup / verify / bind-key) ---
@@ -555,6 +557,8 @@ pub async fn start(
         hosted_agent: None,
         llm_client: None,
         mcp_providers: std::sync::Arc::new(vec![]),
+        cred_cipher: None,
+        quota: crate::config::QuotaConfig::default(),
     };
 
     let app = Router::new()
@@ -618,6 +622,8 @@ pub async fn start_with_port(
         hosted_agent: None,
         llm_client: None,
         mcp_providers: std::sync::Arc::new(vec![]),
+        cred_cipher: None,
+        quota: crate::config::QuotaConfig::default(),
     };
 
     let app = Router::new()
@@ -667,6 +673,8 @@ pub async fn start_federation(
     hosted_agent: Option<std::sync::Arc<crate::hosted_agent::HostedAgent>>,
     llm_client: Option<std::sync::Arc<dyn crate::llm::LlmClient>>,
     mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
+    cred_cipher: Option<std::sync::Arc<crate::credentials::CredCipher>>,
+    quota: crate::config::QuotaConfig,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -688,6 +696,8 @@ pub async fn start_federation(
         hosted_agent,
         llm_client,
         mcp_providers,
+        cred_cipher,
+        quota,
     };
 
     let app = Router::new()
