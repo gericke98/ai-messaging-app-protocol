@@ -346,12 +346,15 @@ impl LlmClient for OpenAiClient {
 pub struct MockLlmClient {
     /// Pre-configured extraction results returned in order.
     pub results: std::sync::Mutex<Vec<ExtractionResult>>,
+    /// Pre-configured chat_with_tools turns returned in order.
+    pub turns: std::sync::Mutex<Vec<AssistantTurn>>,
 }
 
 impl MockLlmClient {
     pub fn new(results: Vec<ExtractionResult>) -> Self {
         Self {
             results: std::sync::Mutex::new(results),
+            turns: std::sync::Mutex::new(vec![]),
         }
     }
 
@@ -361,6 +364,14 @@ impl MockLlmClient {
             nodes: vec![],
             edges: vec![],
         }])
+    }
+
+    /// Build a mock that scripts chat_with_tools turns (FIFO).
+    pub fn with_turns(turns: Vec<AssistantTurn>) -> Self {
+        Self {
+            results: std::sync::Mutex::new(vec![]),
+            turns: std::sync::Mutex::new(turns),
+        }
     }
 }
 
@@ -378,6 +389,19 @@ impl LlmClient for MockLlmClient {
             })
         } else {
             Ok(results.remove(0))
+        }
+    }
+
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: &[ToolSchema],
+    ) -> Result<AssistantTurn, AppError> {
+        let mut turns = self.turns.lock().unwrap();
+        if turns.is_empty() {
+            Ok(AssistantTurn::Text(String::new()))
+        } else {
+            Ok(turns.remove(0))
         }
     }
 }
@@ -536,6 +560,22 @@ mod tests {
             id: "c".into(), name: "n".into(), arguments: serde_json::json!({}),
         }]);
         assert!(matches!(calls, AssistantTurn::ToolCalls(_)));
+    }
+
+    #[tokio::test]
+    async fn mock_scripts_multi_turn_tool_use() {
+        let mock = MockLlmClient::with_turns(vec![
+            AssistantTurn::ToolCalls(vec![ToolCall {
+                id: "call_1".into(), name: "query_memory".into(),
+                arguments: serde_json::json!({"q": "prefs"}),
+            }]),
+            AssistantTurn::Text("Based on your prefs, done.".into()),
+        ]);
+
+        let t1 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
+        assert!(matches!(t1, AssistantTurn::ToolCalls(_)));
+        let t2 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
+        match t2 { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
     }
 
     #[test]
