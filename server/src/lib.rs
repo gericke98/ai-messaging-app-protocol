@@ -16,6 +16,7 @@ pub mod llm;
 pub mod mcp;
 pub mod persistence;
 pub mod protocol;
+pub mod quota;
 pub mod repository;
 pub mod retrieval;
 pub mod signing;
