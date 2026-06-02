@@ -63,7 +63,7 @@ pub fn build_mtls_server_config(
 /// The client certificate and key identify this server to the remote.
 ///
 /// Uses a manually-configured rustls ClientConfig with webpki verification
-/// (not rustls-platform-verifier) so that our demo CA cert is sufficient
+/// (not rustls-platform-verifier) so that our local CA cert is sufficient
 /// without being added to the macOS system trust store.
 pub fn build_mtls_client(
     ca_cert_path: &str,

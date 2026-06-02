@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - JSON-RPC 2.0 Types
-// Matches demo/src/protocol.rs JSON-RPC types
+// Matches server/src/protocol.rs JSON-RPC types
 
 /// JSON-RPC 2.0 request (client -> server).
 struct JsonRpcRequest: Codable, Sendable {

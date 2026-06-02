@@ -687,7 +687,7 @@ async fn handle_backfill(
 /// D-09: Server-level signature verification only (Layer 2).
 /// No per-message signatures needed -- this is a server-to-server operation.
 /// Layer 2 verification is performed before the method dispatch match in relay_handler
-/// for ainm.relay, but context-push arrives at the same endpoint. For demo purposes,
+/// for ainm.relay, but context-push arrives at the same endpoint. In this implementation,
 /// the mTLS + FAUT-02 fingerprint check at the TLS acceptor level provides Layer 1,
 /// and we trust the authenticated server identity.
 ///
