@@ -45,7 +45,7 @@ pub struct ToolSchema {
 }
 
 /// A tool call requested by the model.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -321,10 +321,19 @@ impl LlmClient for OpenAiClient {
                     let id = tc["id"].as_str()?.to_string();
                     let name = tc["function"]["name"].as_str()?.to_string();
                     let raw = tc["function"]["arguments"].as_str().unwrap_or("{}");
-                    let arguments = serde_json::from_str(raw).unwrap_or(serde_json::json!({}));
+                    let arguments = serde_json::from_str(raw).unwrap_or_else(|e| {
+                        tracing::warn!("[llm] tool_call {id} has unparseable arguments: {e}");
+                        serde_json::json!({})
+                    });
                     Some(ToolCall { id, name, arguments })
                 }).collect::<Vec<_>>();
-                return Ok(AssistantTurn::ToolCalls(calls));
+                if !calls.is_empty() {
+                    return Ok(AssistantTurn::ToolCalls(calls));
+                }
+                tracing::warn!(
+                    "[llm] tool_calls array had {} entries but all were malformed; treating as text",
+                    tcs.len()
+                );
             }
         }
         let text = message["content"].as_str().unwrap_or("").to_string();
