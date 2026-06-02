@@ -81,10 +81,11 @@ fn schema_for(name: &str) -> ToolSchema {
 }
 
 pub struct MemoryToolProvider {
-    pub db: PgPool,
-    pub user_addr: String,
-    pub agent_addr: String,
-    pub default_consent: ConsentLevel,
+    pub(crate) db: PgPool,
+    pub(crate) user_addr: String,
+    pub(crate) agent_addr: String,
+    pub(crate) thread_id: String,
+    pub(crate) default_consent: ConsentLevel,
 }
 
 #[async_trait::async_trait]
@@ -113,7 +114,7 @@ impl ToolProvider for MemoryToolProvider {
                     &self.db,
                     &self.user_addr,
                     &self.agent_addr,
-                    "",
+                    &self.thread_id,
                     self.default_consent,
                 )
                 .await
@@ -161,6 +162,9 @@ impl ToolProvider for MemoryToolProvider {
                 let value = args["value"].as_str().unwrap_or("");
                 if label.is_empty() {
                     return ToolResult::error("label is required".to_string());
+                }
+                if value.is_empty() {
+                    return ToolResult::error("value is required".to_string());
                 }
                 let props = serde_json::json!({"value": value});
                 let prov = serde_json::json!({"source": "hosted-agent", "agent": self.agent_addr});
