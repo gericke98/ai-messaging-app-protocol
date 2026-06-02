@@ -9,6 +9,7 @@ pub mod email;
 pub mod error;
 pub mod escrow;
 pub mod graph;
+pub mod hosted_agent;
 pub mod identity;
 pub mod llm;
 pub mod persistence;
