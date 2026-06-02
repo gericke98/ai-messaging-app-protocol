@@ -26,6 +26,7 @@ mod repository;
 mod retrieval;
 mod runtime;
 mod runtime_server;
+mod sandbox;
 mod server;
 mod signing;
 mod streaming;

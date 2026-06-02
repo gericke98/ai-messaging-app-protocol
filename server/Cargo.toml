@@ -39,6 +39,12 @@ futures-util = "0.3"
 anyhow = "1"
 rand = "0.8"
 
+# Sandboxing (sub-project D): setrlimit in a pre_exec closure (async-signal-safe)
+libc = "0.2"
+
+# Sandboxing (sub-project D): memfd_create for passing the seccomp BPF to bwrap
+nix = { version = "0.29", features = ["fs", "mman"] }
+
 # Federation: HTTP client for server-to-server relay
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 
@@ -82,8 +88,16 @@ hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 tower = "0.5"
 hex = "0.4"
 
+# Sandboxing (sub-project D): URL parsing for the HTTP-transport SSRF guard
+url = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Compile the baseline seccomp denylist to BPF (Firecracker's pure-Rust seccomp compiler)
+seccompiler = "0.5"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
+toml = "0.8"
 
 [[example]]
 name = "generate_vectors"

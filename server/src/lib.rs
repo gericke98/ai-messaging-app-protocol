@@ -21,5 +21,6 @@ pub mod repository;
 pub mod retrieval;
 pub mod signing;
 pub mod runtime;
+pub mod sandbox;
 pub mod tools;
 pub mod tools_memory;
