@@ -11,9 +11,13 @@ use ring::signature::{Ed25519KeyPair, KeyPair};
 use sqlx::PgPool;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 pub struct HostedAgentRow {
+    // Mapped from the `RETURNING`/`SELECT` for row completeness; provisioning consumes
+    // the other fields. `address` is the caller's own input so it's not re-read here.
+    #[allow(dead_code)]
     pub id: uuid::Uuid,
+    #[allow(dead_code)]
     pub address: String,
     pub public_key: String,
     pub private_key: Vec<u8>,
@@ -69,6 +73,9 @@ pub async fn insert(
 pub struct HostedAgent {
     pub address: String,
     pub key_pair: Arc<Ed25519KeyPair>,
+    // Read by tests today; retained for callers that need the raw verify key
+    // without re-deriving it from `key_pair`.
+    #[allow(dead_code)]
     pub public_key_bytes: Vec<u8>,
     pub system_prompt: String,
     pub enabled: bool,

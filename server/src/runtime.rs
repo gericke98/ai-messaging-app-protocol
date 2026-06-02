@@ -6,7 +6,12 @@ use crate::tools::ToolRegistry;
 /// Outcome of one full agent turn.
 pub struct TurnOutcome {
     pub final_text: String,
+    // Loop telemetry: asserted by the runtime unit tests; the delivery path only
+    // streams `final_text`. Kept on the struct so the bound/early-stop behaviour
+    // stays observable for tests and future callers.
+    #[allow(dead_code)]
     pub tool_rounds: usize,
+    #[allow(dead_code)]
     pub stopped_early: bool,
 }
 

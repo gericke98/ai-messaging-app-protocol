@@ -367,6 +367,8 @@ impl MockLlmClient {
     }
 
     /// Build a mock that scripts chat_with_tools turns (FIFO).
+    // Test-only constructor: consumed by the runtime/llm tests, not the binary.
+    #[allow(dead_code)]
     pub fn with_turns(turns: Vec<AssistantTurn>) -> Self {
         Self {
             results: std::sync::Mutex::new(vec![]),
