@@ -128,7 +128,12 @@ pub enum AssistantTurn {
 /// Token usage reported by the provider for one call.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TokenUsage {
+    // Parsed from the provider usage object and kept to document the shape /
+    // enable future per-token accounting. Only `total_tokens` is currently
+    // read by MeteredLlmClient for quota debiting.
+    #[allow(dead_code)]
     #[serde(default)] pub prompt_tokens: u32,
+    #[allow(dead_code)]
     #[serde(default)] pub completion_tokens: u32,
     #[serde(default)] pub total_tokens: u32,
 }
