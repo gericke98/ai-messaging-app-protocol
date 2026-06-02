@@ -1122,3 +1122,51 @@ async fn test_escrow_store_and_fetch() {
         Err(escrow::FetchError::Destroyed)
     ));
 }
+
+#[tokio::test]
+async fn test_account_lifecycle_e2e() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, email, escrow, signing, identity, auth_token, protocol};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("e2e{uniq}");
+    let address = format!("{username}@test.ainm.local");
+    let user_email = format!("{username}@mail.test");
+    let email_hash = email::hash_email(&user_email);
+    let signer = auth_token::TokenSigner::new(b"e2e-secret");
+
+    // signup + verify
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let code = email::generate_code();
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
+    assert_eq!(email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(), email::VerifyOutcome::Ok);
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+
+    // bind key (gated by enrollment token)
+    let key = identity::generate_keypair(&address).unwrap();
+    let etok = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
+    let aid = uuid::Uuid::parse_str(&signer.verify(&etok, "enrollment", protocol::now_unix()).unwrap()).unwrap();
+    accounts::insert_account_key(&pool, aid, &b64.encode(&key.public_key_bytes), Some("e2e")).await.unwrap();
+
+    // store escrow + activate
+    let secret = [3u8; 32];
+    let pin = "112358";
+    let enrolled = escrow::enroll(&secret, pin).unwrap();
+    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    // handshake gate accepts the bound key
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let (sig, ts) = signing::sign_init(&key.key_pair, &address).unwrap();
+    assert!(signing::verify_init(&b64.decode(&reg.public_key).unwrap(), &address, &ts, &sig, chrono::Utc::now(), 300));
+
+    // recovery restores the same secret
+    let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.unwrap();
+    let recovered = escrow::client_finalize_and_open(pin, &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
+    assert_eq!(recovered, secret);
+}
