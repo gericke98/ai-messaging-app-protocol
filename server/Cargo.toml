@@ -82,6 +82,9 @@ hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 tower = "0.5"
 hex = "0.4"
 
+# Sandboxing (sub-project D): URL parsing for the HTTP-transport SSRF guard
+url = "2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 toml = "0.8"
