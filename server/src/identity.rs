@@ -53,7 +53,7 @@ pub struct IdentityRecord {
     pub key_history: Vec<serde_json::Value>,
 }
 
-/// In-memory identity store for the demo.
+/// In-memory identity store.
 #[derive(Clone, Default)]
 pub struct IdentityStore {
     inner: Arc<Mutex<HashMap<String, IdentityRecord>>>,
@@ -208,7 +208,7 @@ impl RemoteServerCache {
     ///
     /// Used for FAUT-02 layer 1: verify that the peer certificate presented
     /// during TLS handshake matches a known server identity.
-    /// O(n) scan but n is 1-2 for the Phase 7 demo.
+    /// O(n) scan but n is 1-2 for the Phase 7 federation setup.
     pub fn find_by_fingerprint(&self, fingerprint: &str) -> Option<ServerIdentity> {
         self.inner
             .lock()

@@ -654,7 +654,7 @@ pub async fn start_federation(
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
-            // Demo: single agent -- production would look up by agent_name
+            // Reference: single agent -- production would look up by agent_name
             "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
@@ -1695,13 +1695,13 @@ async fn handle_agent_connection(
                                                     "id": msg_id,
                                                     "from": "alice@ainm.local",
                                                     "timestamp": now,
-                                                    "summary": "User requested memory demo"
+                                                    "summary": "User requested memory operations"
                                                 }
                                             ],
                                             "window_start": now,
                                             "message_count": 1
                                         },
-                                        "conversation_summary": "Demo thread exercising memory operations.",
+                                        "conversation_summary": "Thread exercising memory operations.",
                                         "archival_facts": archival_facts,
                                         "participants": [
                                             { "identity": "alice@ainm.local", "type": "human", "presence": "online" },

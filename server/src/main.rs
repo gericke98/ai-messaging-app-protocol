@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
 
     let mode = cli.mode.clone();
     match mode.as_deref() {
-        None => run_legacy_demo().await,
+        None => run_reference_scenario().await,
         Some(mode @ ("human" | "agent")) => run_federation(cli, mode.to_string()).await,
         Some(unknown) => {
             eprintln!("Unknown mode: '{}'. Valid modes: human, agent", unknown);
@@ -316,7 +316,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
             );
             agent_card = serde_json::json!({
                 "name": "AINM Federation Helper",
-                "description": "A demo agent for federated messaging",
+                "description": "A reference agent for federated messaging",
                 "url": format!("https://{}", server_id),
                 "version": "0.1.0",
                 "protocolVersion": "0.1.0",
@@ -347,7 +347,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
 
                 // Pre-seed remote participant identity (DEMO-02)
                 // Since generate_keypair is non-deterministic, we need to exchange
-                // public keys. For the demo, we fetch the remote server's participant
+                // public keys. Here we fetch the remote server's participant
                 // key via a well-known endpoint. If that fails, we log a warning --
                 // the relay handler will reject unknown senders until keys are exchanged.
                 match mode.as_str() {
@@ -705,7 +705,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 13. Print federation banner
     println!();
     println!("========================================");
-    println!("  AINM Federation Demo v0.1.0");
+    println!("  AINM Federation v0.1.0");
     println!("========================================");
     println!("  Mode:       {}", mode);
     println!("  Identity:   {}", server_id);
@@ -786,7 +786,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                             text
                                         );
 
-                                        // Parse message text for demo command keywords (D-11)
+                                        // Parse message text for scenario command keywords (D-11)
                                         let response_lower = text.trim().to_lowercase();
                                         let origin =
                                             federation::parse_origin_domain(thread_id).unwrap_or("");
@@ -844,8 +844,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                         } else if response_lower.contains("memory") || response_lower.contains("context") {
                                             // Memory store + context frame push
                                             let response_text_msg = format!(
-                                                "Memory context active for this thread. I have {} context frames available. Storing a demo fact now...",
-                                                1 // simplified for demo
+                                                "Memory context active for this thread. I have {} context frames available. Storing an example fact now...",
+                                                1 // simplified for this scenario
                                             );
 
                                             let mut store_envelope = serde_json::json!({
@@ -1088,7 +1088,7 @@ async fn participant_key_handler(
     }
 }
 
-async fn run_legacy_demo() -> Result<()> {
+async fn run_reference_scenario() -> Result<()> {
     // Initialize tracing for debug output
     tracing_subscriber::fmt()
         .with_target(false)
@@ -1122,8 +1122,8 @@ async fn run_legacy_demo() -> Result<()> {
 
     // 3. Build Agent Card for helper@ainm.local
     let agent_card = serde_json::json!({
-        "name": "AINM Demo Helper",
-        "description": "A demo agent showcasing the AI-Native Messaging Protocol",
+        "name": "AINM Helper",
+        "description": "A reference agent showcasing the AI-Native Messaging Protocol",
         "url": "https://ainm.local",
         "version": "0.1.0",
         "protocolVersion": "0.1.0",
@@ -1133,8 +1133,8 @@ async fn run_legacy_demo() -> Result<()> {
         },
         "skills": [
             {
-                "id": "demo",
-                "name": "Protocol Demo",
+                "id": "showcase",
+                "name": "Protocol Showcase",
                 "description": "Demonstrates streaming, forms, buttons, approvals, and tool calls"
             }
         ],
@@ -1198,7 +1198,7 @@ async fn run_legacy_demo() -> Result<()> {
     // 5. Print welcome banner
     println!();
     println!("========================================");
-    println!("  AINM Protocol Demo v0.1.0");
+    println!("  AINM Protocol v0.1.0");
     println!("========================================");
     println!();
     println!("  Server:  ws://{}/ws", server_addr);
@@ -1207,13 +1207,13 @@ async fn run_legacy_demo() -> Result<()> {
     println!();
     println!("  Commands:");
     println!("    hello    - Streaming text response");
-    println!("    form     - FormBlock demo");
-    println!("    approve  - ApprovalBlock demo");
-    println!("    tool     - Tool visibility demo");
-    println!("    button   - ButtonBlock demo");
+    println!("    form     - FormBlock example");
+    println!("    approve  - ApprovalBlock example");
+    println!("    tool     - Tool visibility example");
+    println!("    button   - ButtonBlock example");
     println!("    /card    - View Agent Card");
-    println!("    /memory  - Memory store, query, context frame demo");
-    println!("    /bridge  - MCP and A2A bridge compatibility demo");
+    println!("    /memory  - Memory store, query, context frame example");
+    println!("    /bridge  - MCP and A2A bridge compatibility example");
     println!("    /help    - Show commands");
     println!("    /quit    - Exit");
     println!();

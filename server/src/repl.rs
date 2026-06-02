@@ -53,7 +53,7 @@ pub async fn run(
         "ainm.thread.create",
         serde_json::json!({
             "thread_id": thread_id,
-            "title": "Demo Conversation"
+            "title": "Reference Conversation"
         }),
         serde_json::json!(3),
     );
@@ -285,17 +285,17 @@ fn run_repl_loop(
                         println!();
                         println!("  Commands:");
                         println!("    hello    - Streaming text response");
-                        println!("    form     - FormBlock demo");
-                        println!("    approve  - ApprovalBlock demo");
-                        println!("    tool     - Tool visibility demo");
-                        println!("    button   - ButtonBlock demo");
+                        println!("    form     - FormBlock example");
+                        println!("    approve  - ApprovalBlock example");
+                        println!("    tool     - Tool visibility example");
+                        println!("    button   - ButtonBlock example");
                         println!("    /card    - View Agent Card");
                         println!("    /discover agent@host:port - Discover remote agent capabilities");
-                        println!("    /memory  - Demo memory store, query, and context frame operations");
-                        println!("    /evict   - Demo memory eviction (run /memory first)");
-                        println!("    /bridge  - Demo MCP and A2A bridge compatibility mappings");
+                        println!("    /memory  - Memory store, query, and context frame operations");
+                        println!("    /evict   - Memory eviction (run /memory first)");
+                        println!("    /bridge  - MCP and A2A bridge compatibility mappings");
                         println!("    /help    - Show this help");
-                        println!("    /quit    - Exit demo");
+                        println!("    /quit    - Exit");
                         println!("    (any text) - Echo with streaming");
                         println!();
                     }
@@ -312,7 +312,7 @@ fn run_repl_loop(
                         }
                     }
                     "/memory" => {
-                        println!("  Starting memory operations demo...");
+                        println!("  Starting memory operations...");
                         // Send /memory as a message to trigger agent handler
                         let mut envelope = serde_json::json!({
                             "id": protocol::new_message_id(),
@@ -353,7 +353,7 @@ fn run_repl_loop(
                         }
                     }
                     "/bridge" => {
-                        println!("  Starting bridge compatibility demo...");
+                        println!("  Starting bridge compatibility walkthrough...");
                         // Send /bridge as a message to trigger agent handler
                         let mut envelope = serde_json::json!({
                             "id": protocol::new_message_id(),
@@ -394,7 +394,7 @@ fn run_repl_loop(
                         }
                     }
                     "/evict" => {
-                        println!("  Starting memory evict demo...");
+                        println!("  Starting memory eviction...");
                         let mut envelope = serde_json::json!({
                             "id": protocol::new_message_id(),
                             "from": identity.address,
@@ -521,7 +521,7 @@ fn run_repl_loop(
     Ok(())
 }
 
-/// Fetch a remote agent card via HTTPS, accepting self-signed certs for the demo.
+/// Fetch a remote agent card via HTTPS, accepting self-signed certs in local development.
 async fn fetch_remote_agent_card(url: &str) -> Result<serde_json::Value> {
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)

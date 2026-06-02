@@ -132,13 +132,13 @@ async fn handle_hello(
     identity: &Identity,
     thread_id: &str,
 ) -> Result<()> {
-    let text = "Welcome to AINM! I'm helper, a protocol demo agent. \
+    let text = "Welcome to AINM! I'm helper, a reference protocol agent. \
         I can demonstrate streaming, forms, buttons, approvals, and tool calls. \
         Try typing: 'form', 'approve', 'tool', 'button', or just chat with me.";
     streaming::send_streamed_response(ws_sender, identity, thread_id, text).await
 }
 
-/// Scenario 2: FormBlock demo.
+/// Scenario 2: FormBlock example.
 async fn handle_form(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -155,14 +155,14 @@ async fn handle_form(
                 "type": "text",
                 "version": "1.0",
                 "source": "agent",
-                "text": "Here's a FormBlock demo -- the protocol supports structured data input:",
-                "fallback": "Here's a FormBlock demo -- the protocol supports structured data input:"
+                "text": "Here's a FormBlock example -- the protocol supports structured data input:",
+                "fallback": "Here's a FormBlock example -- the protocol supports structured data input:"
             },
             {
                 "type": "form",
                 "version": "1.0",
                 "source": "agent",
-                "action_id": "demo-form",
+                "action_id": "showcase-form",
                 "title": "Protocol Feedback",
                 "submit_label": "Submit Feedback",
                 "fields": [
@@ -197,7 +197,7 @@ async fn handle_form(
     send_message(ws_sender, &envelope).await
 }
 
-/// Scenario 3: ApprovalBlock demo.
+/// Scenario 3: ApprovalBlock example.
 async fn handle_approval(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -221,7 +221,7 @@ async fn handle_approval(
                 "type": "approval",
                 "version": "1.0",
                 "source": "agent",
-                "action_id": "demo-approval",
+                "action_id": "showcase-approval",
                 "title": "Deploy v0.1.0 to production?",
                 "options": [
                     {"value": "approve", "label": "Approve", "style": "primary"},
@@ -237,7 +237,7 @@ async fn handle_approval(
     send_message(ws_sender, &envelope).await
 }
 
-/// Scenario 4: Tool visibility demo.
+/// Scenario 4: Tool visibility example.
 async fn handle_tool(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -338,7 +338,7 @@ async fn handle_tool(
                 "type": "text",
                 "version": "1.0",
                 "source": "agent",
-                "text": "The weather in San Francisco is 18C and partly cloudy. (This was a tool call demo -- the tool events above show the ToolCallStarted -> Progress -> Completed lifecycle.)",
+                "text": "The weather in San Francisco is 18C and partly cloudy. (This was a tool call example -- the tool events above show the ToolCallStarted -> Progress -> Completed lifecycle.)",
                 "fallback": "The weather in San Francisco is 18C and partly cloudy."
             }
         ]
@@ -347,7 +347,7 @@ async fn handle_tool(
     send_message(ws_sender, &result_msg).await
 }
 
-/// Scenario 5: ButtonBlock demo.
+/// Scenario 5: ButtonBlock example.
 async fn handle_button(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -401,7 +401,7 @@ async fn handle_button(
     send_message(ws_sender, &envelope).await
 }
 
-/// Scenario 6: Memory operations demo (store, query, context frame).
+/// Scenario 6: Memory operations example (store, query, context frame).
 async fn handle_memory(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -436,9 +436,9 @@ async fn handle_memory(
             "thread_id": thread_id,
             "tier": "archival",
             "fact": {
-                "key": "user_preference.demo",
+                "key": "user_preference.showcase",
                 "value": "Prefers streaming responses",
-                "tags": ["preference", "demo"]
+                "tags": ["preference", "showcase"]
             }
         }),
         serde_json::json!(protocol::new_message_id()),
@@ -474,7 +474,7 @@ async fn handle_memory(
     Ok(())
 }
 
-/// Scenario 8: Memory evict demo.
+/// Scenario 8: Memory evict example.
 async fn handle_evict(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -506,7 +506,7 @@ async fn handle_evict(
         serde_json::json!({
             "thread_id": thread_id,
             "tier": "archival",
-            "key": "user_preference.demo"
+            "key": "user_preference.showcase"
         }),
         serde_json::json!(protocol::new_message_id()),
     );
@@ -519,7 +519,7 @@ async fn handle_evict(
     Ok(())
 }
 
-/// Scenario 7: Bridge compatibility demo (MCP tool bridging + A2A task lifecycle).
+/// Scenario 7: Bridge compatibility example (MCP tool bridging + A2A task lifecycle).
 async fn handle_bridge(
     ws_sender: &mut WsSender,
     identity: &Identity,
@@ -751,8 +751,8 @@ async fn handle_bridge(
                 "type": "text",
                 "version": "1.0",
                 "source": "agent",
-                "text": "Bridge demo complete. Both MCP tool calls and A2A task lifecycles map cleanly to AINM message types — no new protocol methods needed.",
-                "fallback": "[Bridge demo summary]"
+                "text": "Bridge walkthrough complete. Both MCP tool calls and A2A task lifecycles map cleanly to AINM message types — no new protocol methods needed.",
+                "fallback": "[Bridge walkthrough summary]"
             }
         ]
     });

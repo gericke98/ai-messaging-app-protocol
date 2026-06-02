@@ -3,7 +3,7 @@ import Foundation
 /// WebSocket connection wrapper using URLSessionWebSocketTask.
 /// Actor-isolated for Swift 6 strict concurrency safety.
 ///
-/// Connects to the AINM demo server at the /ws path. Provides
+/// Connects to the AINM server at the /ws path. Provides
 /// async send/receive methods with an AsyncStream-based pull model
 /// for incoming messages.
 actor WebSocketConnection {
@@ -29,12 +29,12 @@ actor WebSocketConnection {
     }
 
     /// Connect to WebSocket URL.
-    /// The demo server uses /ws path (not the spec's /ainm/v1).
+    /// The server uses /ws path (not the spec's /ainm/v1).
     func connect(to urlString: String) throws {
         guard let url = URL(string: urlString) else {
             throw ConnectionError.invalidURL
         }
-        // Append /ws path for demo server if not already present
+        // Append /ws path for the server if not already present
         let wsURL: URL
         if url.path.isEmpty || url.path == "/" {
             wsURL = url.appendingPathComponent("ws")
