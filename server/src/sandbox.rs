@@ -698,6 +698,10 @@ mod linux_sandbox_tests {
     #[tokio::test]
     async fn parent_env_absent_inside_sandbox() {
         if skip_if_no_bwrap() { return; }
+        // The set/remove of this process-global var races with the parallel
+        // hardening_tests env test, but both assert *absence* of AINM_* in the child,
+        // so the race is benign: env_clear + the allowlist make the leak structurally
+        // impossible regardless of the parent var's state at spawn time.
         std::env::set_var("AINM_LLM_ENCRYPTION_KEY", "leak-me");
         let cfg = sandboxed_cfg("/usr/bin/env", vec![]);
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
@@ -713,6 +717,9 @@ mod linux_sandbox_tests {
     #[tokio::test]
     async fn no_network_when_disallowed() {
         if skip_if_no_bwrap() { return; }
+        // Correctness rests on `--unshare-all` dropping the network namespace, NOT on the
+        // `/dev/tcp` shell builtin (which is bash-only; dash would print BLOCKED anyway).
+        // The deterministic `--share-net` presence/absence is covered by `bwrap_tests`.
         let cfg = sandboxed_cfg("/bin/sh", vec![
             "-c".into(),
             "timeout 3 sh -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null && echo CONNECTED || echo BLOCKED".into(),
@@ -760,7 +767,13 @@ mod linux_sandbox_tests {
         cfg.allow_network = true;
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
         let out = cmd.output().await.unwrap();
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(out.status.success() || stdout.contains("BLOCKED") || stdout.contains("CONNECTED"));
+        // Assert the meaningful, egress-independent invariant: the `--share-net` sandbox
+        // (with TLS-root + resolv.conf binds) launches cleanly. We deliberately do NOT
+        // assert CONNECTED, since CI runners often lack outbound egress.
+        assert!(
+            out.status.success(),
+            "allow_network sandbox failed to launch: stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }
