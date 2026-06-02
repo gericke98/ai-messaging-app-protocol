@@ -399,7 +399,10 @@ impl LlmClient for MockLlmClient {
     ) -> Result<AssistantTurn, AppError> {
         let mut turns = self.turns.lock().unwrap();
         if turns.is_empty() {
-            Ok(AssistantTurn::Text(String::new()))
+            Err(AppError::Protocol {
+                code: -32099,
+                message: "MockLlmClient: chat_with_tools called but turns queue is exhausted".into(),
+            })
         } else {
             Ok(turns.remove(0))
         }
@@ -576,6 +579,9 @@ mod tests {
         assert!(matches!(t1, AssistantTurn::ToolCalls(_)));
         let t2 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
         match t2 { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
+
+        let exhausted = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await;
+        assert!(exhausted.is_err(), "exhausted turns queue should error");
     }
 
     #[test]
