@@ -12,6 +12,9 @@ pub enum StorageError {
 
     #[error("duplicate key: {0}")]
     Duplicate(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 /// Application-level errors that map to JSON-RPC error codes.
@@ -38,6 +41,7 @@ impl AppError {
             AppError::Storage(StorageError::NotFound { .. }) => -32044,
             AppError::Storage(StorageError::Duplicate(_)) => -32053,
             AppError::Storage(StorageError::Query(_)) => -32050,
+            AppError::Storage(StorageError::Internal(_)) => -32050,
             AppError::Protocol { code, .. } => *code,
             AppError::Unauthorized(_) => -32021,
             AppError::NoDB => -32050,

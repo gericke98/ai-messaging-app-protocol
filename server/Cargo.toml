@@ -66,6 +66,14 @@ tempfile = "3"
 # Async trait support for LLM client abstraction
 async-trait = "0.1"
 
+# Curated MCP bridge (B-9): connect to trusted MCP servers behind the ToolProvider trait.
+# rmcp types are confined to McpClientHandle in src/mcp.rs (the sub-project-D isolation seam).
+rmcp = { version = "1.7", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
+
 # HTTP server for federation TLS listener (low-level hyper for axum TLS integration)
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }

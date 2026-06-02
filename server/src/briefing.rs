@@ -71,7 +71,7 @@ impl ConsentLevel {
 /// (enforced by `tests::scope_map_exactly_covers_the_canonical_set`). Scopes may
 /// overlap: `goals ⊂ history` by design — `history` simply adds `outcome` and
 /// `interaction` on top of the `event`/`decision` that `goals` also grants.
-fn scope_to_categories(scope: &str) -> Vec<&'static str> {
+pub fn scope_to_categories(scope: &str) -> Vec<&'static str> {
     match scope {
         "identity" => vec!["fact", "relationship"],
         "preferences" => vec!["preference", "tool"],

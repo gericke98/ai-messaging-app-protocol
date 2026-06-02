@@ -4,6 +4,7 @@
 //! while tests use a deterministic mock.
 
 use crate::error::AppError;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 // ── Extraction types ───────────────────────────────────────────────────────
@@ -32,6 +33,98 @@ pub struct ExtractionResult {
     pub edges: Vec<CandidateEdge>,
 }
 
+// ── Tool-use types ─────────────────────────────────────────────────────────
+
+/// A tool the agent may call, advertised to the LLM (OpenAI function shape).
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolSchema {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema object for the tool's arguments.
+    pub parameters: serde_json::Value,
+}
+
+/// A tool call requested by the model.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// One message in the running chat (system/user/assistant/tool).
+#[derive(Debug, Clone)]
+pub enum ChatMessage {
+    System(String),
+    User(String),
+    AssistantText(String),
+    AssistantToolCalls(Vec<ToolCall>),
+    ToolResult { tool_call_id: String, content: String },
+}
+
+impl ChatMessage {
+    pub fn system(s: impl Into<String>) -> Self { ChatMessage::System(s.into()) }
+    pub fn user(s: impl Into<String>) -> Self { ChatMessage::User(s.into()) }
+    pub fn assistant_text(s: impl Into<String>) -> Self { ChatMessage::AssistantText(s.into()) }
+    pub fn assistant_tool_calls(calls: Vec<ToolCall>) -> Self { ChatMessage::AssistantToolCalls(calls) }
+    pub fn tool_result(id: impl Into<String>, content: impl Into<String>) -> Self {
+        ChatMessage::ToolResult { tool_call_id: id.into(), content: content.into() }
+    }
+}
+
+impl Serialize for ChatMessage {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ChatMessage::System(c) => {
+                let mut st = s.serialize_struct("m", 2)?;
+                st.serialize_field("role", "system")?;
+                st.serialize_field("content", c)?;
+                st.end()
+            }
+            ChatMessage::User(c) => {
+                let mut st = s.serialize_struct("m", 2)?;
+                st.serialize_field("role", "user")?;
+                st.serialize_field("content", c)?;
+                st.end()
+            }
+            ChatMessage::AssistantText(c) => {
+                let mut st = s.serialize_struct("m", 2)?;
+                st.serialize_field("role", "assistant")?;
+                st.serialize_field("content", c)?;
+                st.end()
+            }
+            ChatMessage::AssistantToolCalls(calls) => {
+                let tool_calls: Vec<serde_json::Value> = calls.iter().map(|c| {
+                    serde_json::json!({
+                        "id": c.id,
+                        "type": "function",
+                        "function": { "name": c.name, "arguments": c.arguments.to_string() }
+                    })
+                }).collect();
+                let mut st = s.serialize_struct("m", 3)?;
+                st.serialize_field("role", "assistant")?;
+                st.serialize_field("content", &serde_json::Value::Null)?;
+                st.serialize_field("tool_calls", &tool_calls)?;
+                st.end()
+            }
+            ChatMessage::ToolResult { tool_call_id, content } => {
+                let mut st = s.serialize_struct("m", 3)?;
+                st.serialize_field("role", "tool")?;
+                st.serialize_field("tool_call_id", tool_call_id)?;
+                st.serialize_field("content", content)?;
+                st.end()
+            }
+        }
+    }
+}
+
+/// The result of one LLM turn.
+#[derive(Debug, Clone)]
+pub enum AssistantTurn {
+    Text(String),
+    ToolCalls(Vec<ToolCall>),
+}
+
 // ── LLM Client trait ───────────────────────────────────────────────────────
 
 #[async_trait::async_trait]
@@ -41,6 +134,17 @@ pub trait LlmClient: Send + Sync {
         &self,
         messages: &[ConversationMessage],
     ) -> Result<ExtractionResult, AppError>;
+
+    /// Run one chat turn with tools available. Returns either final assistant text
+    /// or the tool calls the model wants executed. Single request/response (the runtime
+    /// loop calls this repeatedly).
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: &[ToolSchema],
+    ) -> Result<AssistantTurn, AppError> {
+        Err(AppError::Protocol { code: -32601, message: "chat_with_tools not supported".into() })
+    }
 }
 
 /// A simplified conversation message for the LLM.
@@ -161,6 +265,80 @@ impl LlmClient for OpenAiClient {
 
         Ok(ExtractionResult { nodes, edges })
     }
+
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolSchema],
+    ) -> Result<AssistantTurn, AppError> {
+        let tools_json: Vec<serde_json::Value> = tools.iter().map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": { "name": t.name, "description": t.description, "parameters": t.parameters }
+            })
+        }).collect();
+
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+        });
+        if !tools_json.is_empty() {
+            body["tools"] = serde_json::Value::Array(tools_json);
+            body["tool_choice"] = serde_json::json!("auto");
+        }
+
+        let resp = self.http
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AppError::Protocol {
+                code: -32050,
+                message: format!("LLM request failed: {e}"),
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(AppError::Protocol {
+                code: -32050,
+                message: format!("LLM returned {status}: {text}"),
+            });
+        }
+
+        let json: serde_json::Value = resp.json().await.map_err(|e| AppError::Protocol {
+            code: -32050,
+            message: format!("LLM parse failed: {e}"),
+        })?;
+
+        let message = &json["choices"][0]["message"];
+        if let Some(tcs) = message["tool_calls"].as_array() {
+            if !tcs.is_empty() {
+                let calls = tcs.iter().filter_map(|tc| {
+                    let id = tc["id"].as_str()?.to_string();
+                    let name = tc["function"]["name"].as_str()?.to_string();
+                    let raw = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                    let arguments = serde_json::from_str(raw).unwrap_or_else(|e| {
+                        tracing::warn!("[llm] tool_call {id} has unparseable arguments: {e}");
+                        serde_json::json!({})
+                    });
+                    Some(ToolCall { id, name, arguments })
+                }).collect::<Vec<_>>();
+                if !calls.is_empty() {
+                    return Ok(AssistantTurn::ToolCalls(calls));
+                }
+                tracing::warn!(
+                    "[llm] tool_calls array had {} entries but all were malformed; treating as text",
+                    tcs.len()
+                );
+            }
+        }
+        let text = message["content"].as_str().unwrap_or("").to_string();
+        Ok(AssistantTurn::Text(text))
+    }
 }
 
 // ── Mock client for tests ──────────────────────────────────────────────────
@@ -168,12 +346,15 @@ impl LlmClient for OpenAiClient {
 pub struct MockLlmClient {
     /// Pre-configured extraction results returned in order.
     pub results: std::sync::Mutex<Vec<ExtractionResult>>,
+    /// Pre-configured chat_with_tools turns returned in order.
+    pub turns: std::sync::Mutex<Vec<AssistantTurn>>,
 }
 
 impl MockLlmClient {
     pub fn new(results: Vec<ExtractionResult>) -> Self {
         Self {
             results: std::sync::Mutex::new(results),
+            turns: std::sync::Mutex::new(vec![]),
         }
     }
 
@@ -183,6 +364,16 @@ impl MockLlmClient {
             nodes: vec![],
             edges: vec![],
         }])
+    }
+
+    /// Build a mock that scripts chat_with_tools turns (FIFO).
+    // Test-only constructor: consumed by the runtime/llm tests, not the binary.
+    #[allow(dead_code)]
+    pub fn with_turns(turns: Vec<AssistantTurn>) -> Self {
+        Self {
+            results: std::sync::Mutex::new(vec![]),
+            turns: std::sync::Mutex::new(turns),
+        }
     }
 }
 
@@ -200,6 +391,22 @@ impl LlmClient for MockLlmClient {
             })
         } else {
             Ok(results.remove(0))
+        }
+    }
+
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: &[ToolSchema],
+    ) -> Result<AssistantTurn, AppError> {
+        let mut turns = self.turns.lock().unwrap();
+        if turns.is_empty() {
+            Err(AppError::Protocol {
+                code: -32099,
+                message: "MockLlmClient: chat_with_tools called but turns queue is exhausted".into(),
+            })
+        } else {
+            Ok(turns.remove(0))
         }
     }
 }
@@ -326,6 +533,58 @@ fn parse_edges(json: &serde_json::Value) -> Vec<CandidateEdge> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_message_serializes_openai_shape() {
+        let m = ChatMessage::user("hello");
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["role"], "user");
+        assert_eq!(v["content"], "hello");
+
+        let tool_call = ToolCall {
+            id: "call_1".into(),
+            name: "query_memory".into(),
+            arguments: serde_json::json!({"q": "x"}),
+        };
+        let assistant = ChatMessage::assistant_tool_calls(vec![tool_call.clone()]);
+        let av = serde_json::to_value(&assistant).unwrap();
+        assert_eq!(av["role"], "assistant");
+        assert_eq!(av["tool_calls"][0]["function"]["name"], "query_memory");
+
+        let tool_result = ChatMessage::tool_result("call_1", "the answer");
+        let tv = serde_json::to_value(&tool_result).unwrap();
+        assert_eq!(tv["role"], "tool");
+        assert_eq!(tv["tool_call_id"], "call_1");
+    }
+
+    #[test]
+    fn assistant_turn_distinguishes_text_from_tool_calls() {
+        let text = AssistantTurn::Text("done".into());
+        assert!(matches!(text, AssistantTurn::Text(_)));
+        let calls = AssistantTurn::ToolCalls(vec![ToolCall {
+            id: "c".into(), name: "n".into(), arguments: serde_json::json!({}),
+        }]);
+        assert!(matches!(calls, AssistantTurn::ToolCalls(_)));
+    }
+
+    #[tokio::test]
+    async fn mock_scripts_multi_turn_tool_use() {
+        let mock = MockLlmClient::with_turns(vec![
+            AssistantTurn::ToolCalls(vec![ToolCall {
+                id: "call_1".into(), name: "query_memory".into(),
+                arguments: serde_json::json!({"q": "prefs"}),
+            }]),
+            AssistantTurn::Text("Based on your prefs, done.".into()),
+        ]);
+
+        let t1 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
+        assert!(matches!(t1, AssistantTurn::ToolCalls(_)));
+        let t2 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
+        match t2 { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
+
+        let exhausted = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await;
+        assert!(exhausted.is_err(), "exhausted turns queue should error");
+    }
 
     #[test]
     fn extraction_prompt_is_closed_over_canonical_categories() {
