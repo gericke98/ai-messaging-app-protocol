@@ -35,8 +35,8 @@ pub async fn run_loop(
 
     let mut rounds = 0usize;
     loop {
-        let turn = match llm.chat_with_tools(&messages, &offered).await {
-            Ok(t) => t,
+        let response = match llm.chat_with_tools(&messages, &offered).await {
+            Ok(r) => r,
             Err(e) => {
                 tracing::warn!("[runtime] LLM error: {e}");
                 return TurnOutcome {
@@ -46,6 +46,7 @@ pub async fn run_loop(
                 };
             }
         };
+        let turn = response.turn;
 
         match turn {
             AssistantTurn::Text(text) => {

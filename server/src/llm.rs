@@ -125,6 +125,21 @@ pub enum AssistantTurn {
     ToolCalls(Vec<ToolCall>),
 }
 
+/// Token usage reported by the provider for one call.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TokenUsage {
+    #[serde(default)] pub prompt_tokens: u32,
+    #[serde(default)] pub completion_tokens: u32,
+    #[serde(default)] pub total_tokens: u32,
+}
+
+/// The result of one chat turn: the assistant turn plus optional usage.
+#[derive(Debug, Clone)]
+pub struct ChatResponse {
+    pub turn: AssistantTurn,
+    pub usage: Option<TokenUsage>,
+}
+
 // ── LLM Client trait ───────────────────────────────────────────────────────
 
 #[async_trait::async_trait]
@@ -142,7 +157,7 @@ pub trait LlmClient: Send + Sync {
         &self,
         _messages: &[ChatMessage],
         _tools: &[ToolSchema],
-    ) -> Result<AssistantTurn, AppError> {
+    ) -> Result<ChatResponse, AppError> {
         Err(AppError::Protocol { code: -32601, message: "chat_with_tools not supported".into() })
     }
 }
@@ -270,7 +285,7 @@ impl LlmClient for OpenAiClient {
         &self,
         messages: &[ChatMessage],
         tools: &[ToolSchema],
-    ) -> Result<AssistantTurn, AppError> {
+    ) -> Result<ChatResponse, AppError> {
         let tools_json: Vec<serde_json::Value> = tools.iter().map(|t| {
             serde_json::json!({
                 "type": "function",
@@ -314,6 +329,8 @@ impl LlmClient for OpenAiClient {
             message: format!("LLM parse failed: {e}"),
         })?;
 
+        let usage: Option<TokenUsage> = serde_json::from_value(json["usage"].clone()).ok();
+
         let message = &json["choices"][0]["message"];
         if let Some(tcs) = message["tool_calls"].as_array() {
             if !tcs.is_empty() {
@@ -328,7 +345,7 @@ impl LlmClient for OpenAiClient {
                     Some(ToolCall { id, name, arguments })
                 }).collect::<Vec<_>>();
                 if !calls.is_empty() {
-                    return Ok(AssistantTurn::ToolCalls(calls));
+                    return Ok(ChatResponse { turn: AssistantTurn::ToolCalls(calls), usage: usage.clone() });
                 }
                 tracing::warn!(
                     "[llm] tool_calls array had {} entries but all were malformed; treating as text",
@@ -337,7 +354,7 @@ impl LlmClient for OpenAiClient {
             }
         }
         let text = message["content"].as_str().unwrap_or("").to_string();
-        Ok(AssistantTurn::Text(text))
+        Ok(ChatResponse { turn: AssistantTurn::Text(text), usage })
     }
 }
 
@@ -398,7 +415,7 @@ impl LlmClient for MockLlmClient {
         &self,
         _messages: &[ChatMessage],
         _tools: &[ToolSchema],
-    ) -> Result<AssistantTurn, AppError> {
+    ) -> Result<ChatResponse, AppError> {
         let mut turns = self.turns.lock().unwrap();
         if turns.is_empty() {
             Err(AppError::Protocol {
@@ -406,7 +423,7 @@ impl LlmClient for MockLlmClient {
                 message: "MockLlmClient: chat_with_tools called but turns queue is exhausted".into(),
             })
         } else {
-            Ok(turns.remove(0))
+            Ok(ChatResponse { turn: turns.remove(0), usage: None })
         }
     }
 }
@@ -578,9 +595,9 @@ mod tests {
         ]);
 
         let t1 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
-        assert!(matches!(t1, AssistantTurn::ToolCalls(_)));
+        assert!(matches!(t1.turn, AssistantTurn::ToolCalls(_)));
         let t2 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
-        match t2 { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
+        match t2.turn { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
 
         let exhausted = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await;
         assert!(exhausted.is_err(), "exhausted turns queue should error");
