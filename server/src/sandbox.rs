@@ -490,7 +490,7 @@ mod seccomp {
 }
 
 /// Is `bwrap` present and executable on PATH? (Probe used by `launcher_for` for fail-closed.)
-pub(crate) fn bwrap_available() -> bool {
+pub fn bwrap_available() -> bool {
     which_on_path(BWRAP_BIN).is_some()
 }
 
