@@ -23,6 +23,8 @@ pub struct KdfParams {
 }
 
 impl KdfParams {
+    // Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+    #[allow(dead_code)]
     fn fresh() -> Self {
         let mut salt = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut salt);
@@ -36,6 +38,8 @@ impl KdfParams {
 }
 
 /// Argon2id(PIN, salt) -> 32-byte OPRF input.
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 fn pin_to_input(pin: &str, kdf: &KdfParams) -> Result<[u8; 32], String> {
     let salt = URL_SAFE_NO_PAD.decode(&kdf.salt).map_err(|e| e.to_string())?;
     let params = argon2::Params::new(kdf.m_cost, kdf.t_cost, kdf.p_cost, Some(32))
@@ -49,6 +53,8 @@ fn pin_to_input(pin: &str, kdf: &KdfParams) -> Result<[u8; 32], String> {
 }
 
 /// HKDF-SHA256(oprf_output) -> 32-byte wrapping key.
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 fn wrapping_key(oprf_output: &[u8]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(Some(b"ainm-escrow-v1"), oprf_output);
     let mut key = [0u8; 32];
@@ -56,6 +62,8 @@ fn wrapping_key(oprf_output: &[u8]) -> [u8; 32] {
     key
 }
 
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 pub struct Enrolled {
     pub oprf_key: Vec<u8>,
     pub ciphertext: Vec<u8>, // nonce(24) || aead ciphertext
@@ -63,6 +71,8 @@ pub struct Enrolled {
 }
 
 /// Client-side enrollment: derive the wrapping key via a local OPRF round, seal the secret.
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 pub fn enroll(secret: &[u8; 32], pin: &str) -> Result<Enrolled, String> {
     let kdf = KdfParams::fresh();
     let input = pin_to_input(pin, &kdf)?;
@@ -93,12 +103,16 @@ pub fn enroll(secret: &[u8; 32], pin: &str) -> Result<Enrolled, String> {
     })
 }
 
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 pub struct BlindState {
     pub blinded_b64: String,
     client: OprfClient<Ristretto255>,
 }
 
 /// Client step 1 of recovery: blind the PIN-derived input.
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 pub fn client_blind(pin: &str, kdf: &KdfParams) -> Result<BlindState, String> {
     let input = pin_to_input(pin, kdf)?;
     let blind = OprfClient::<Ristretto255>::blind(&input, &mut rand::thread_rng())
@@ -120,6 +134,8 @@ pub fn server_evaluate(oprf_key: &[u8], blinded_b64: &str) -> Result<String, Str
 }
 
 /// Client step 2 of recovery: finalize the OPRF, derive the wrapping key, open the ciphertext.
+// Client-side escrow: exercised by integration tests and the iOS client, not the server binary.
+#[allow(dead_code)]
 pub fn client_finalize_and_open(
     pin: &str,
     kdf: &KdfParams,

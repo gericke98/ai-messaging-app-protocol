@@ -585,6 +585,8 @@ pub async fn start_with_port(
 
 /// Start the Axum WebSocket server with federation support on a specified port.
 /// Returns the bound address and the server task handle.
+// builder takes many collaborators; v1 keeps the flat signature
+#[allow(clippy::too_many_arguments)]
 pub async fn start_federation(
     identity_store: IdentityStore,
     agent_card: serde_json::Value,

@@ -20,6 +20,8 @@ impl MockEmailSender {
         Self { sent: std::sync::Mutex::new(Vec::new()) }
     }
     /// The most recently sent code for an email+purpose, if any.
+    // Test-only helper: used by integration tests, not the server binary.
+    #[allow(dead_code)]
     pub fn last_code(&self, email: &str, purpose: &str) -> Option<String> {
         self.sent
             .lock()

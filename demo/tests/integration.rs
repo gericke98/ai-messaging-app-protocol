@@ -974,7 +974,7 @@ async fn test_account_repo_roundtrip() {
     assert_eq!(acct.address, format!("{username}@test.ainm.local"));
 
     let dup = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await;
-    assert!(matches!(dup, Err(_)), "duplicate account must be rejected");
+    assert!(dup.is_err(), "duplicate account must be rejected");
 
     accounts::set_email_verified(&pool, acct.id).await.unwrap();
     accounts::insert_account_key(&pool, acct.id, &format!("pk_{uniq}"), Some("iphone")).await.unwrap();
@@ -983,7 +983,7 @@ async fn test_account_repo_roundtrip() {
     assert_eq!(key.public_key, format!("pk_{uniq}"));
 
     let second = accounts::insert_account_key(&pool, acct.id, &format!("pk2_{uniq}"), None).await;
-    assert!(matches!(second, Err(_)), "second active key must be rejected");
+    assert!(second.is_err(), "second active key must be rejected");
 
     accounts::set_status(&pool, acct.id, "active").await.unwrap();
     let found = accounts::find_account_by_address(&pool, &acct.address).await.unwrap().unwrap();

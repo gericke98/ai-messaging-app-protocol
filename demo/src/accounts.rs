@@ -34,19 +34,28 @@ pub fn validate_username(raw: &str) -> Result<String, UsernameError> {
 #[derive(Debug, Clone, FromRow)]
 pub struct AccountRow {
     pub id: uuid::Uuid,
+    // Hydrated from the DB row; read by integration tests and the iOS client, not the server binary.
+    #[allow(dead_code)]
     pub username: String,
+    #[allow(dead_code)]
     pub domain: String,
     pub address: String,
+    #[allow(dead_code)]
     pub email_hash: String,
+    #[allow(dead_code)]
     pub email_verified: bool,
     pub status: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
 pub struct AccountKeyRow {
+    // Hydrated from the DB row; read by integration tests and the iOS client, not the server binary.
+    #[allow(dead_code)]
     pub id: uuid::Uuid,
+    #[allow(dead_code)]
     pub account_id: uuid::Uuid,
     pub public_key: String,
+    #[allow(dead_code)]
     pub device_label: Option<String>,
 }
 
