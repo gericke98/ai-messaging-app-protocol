@@ -32,7 +32,7 @@ use clap::Parser;
 use std::sync::Arc;
 
 #[derive(Parser)]
-#[command(name = "ainm-demo", about = "AINM Protocol Demo")]
+#[command(name = "ainm-server", about = "AINM Protocol Server")]
 struct Cli {
     /// Server mode: human (REPL) or agent (headless)
     #[arg(long)]
@@ -114,9 +114,9 @@ async fn run_uat(_cli: Cli) -> Result<()> {
     use tracing::Level;
 
     // 1. Logging: INFO level, file writer at tmp/uat-server.log.
-    //    CARGO_MANIFEST_DIR = demo/; parent = repo root; log path = tmp/uat-server.log.
-    //    Resolving relative to CARGO_MANIFEST_DIR normalizes both `cd demo && cargo run` and
-    //    `cargo run --manifest-path demo/Cargo.toml` invocation shapes.
+    //    CARGO_MANIFEST_DIR = server/; parent = repo root; log path = tmp/uat-server.log.
+    //    Resolving relative to CARGO_MANIFEST_DIR normalizes both `cd server && cargo run` and
+    //    `cargo run --manifest-path server/Cargo.toml` invocation shapes.
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CARGO_MANIFEST_DIR has parent");

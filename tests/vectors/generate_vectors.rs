@@ -1,11 +1,11 @@
 // Standalone Rust script for generating cross-platform test vectors.
-// Run from the demo/ directory: cargo run --example generate_vectors
+// Run from the server/ directory: cargo run --example generate_vectors
 //
 // Or compile directly:
 //   rustc generate_vectors.rs --edition 2021 (requires ring, serde_json, etc.)
 //
-// For simplicity, this is designed to run via the demo project.
-// Add to demo/Cargo.toml:
+// For simplicity, this is designed to run via the server project.
+// Add to server/Cargo.toml:
 //   [[example]]
 //   name = "generate_vectors"
 //   path = "../tests/vectors/generate_vectors.rs"

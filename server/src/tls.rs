@@ -117,7 +117,7 @@ pub fn compute_cert_fingerprint(der_bytes: &[u8]) -> String {
 ///
 /// Helper for computing fingerprints from PEM files:
 /// ```ignore
-/// let der = load_cert_der("demo/certs/server-a.pem");
+/// let der = load_cert_der("server/certs/server-a.pem");
 /// let fp = compute_cert_fingerprint(&der);
 /// ```
 pub fn load_cert_der(pem_path: &str) -> Vec<u8> {

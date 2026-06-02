@@ -8,7 +8,7 @@
 #   BKFL-04: Pagination with has_more and next_cursor
 #
 # Prerequisites: Both servers running (docker-compose up or manual)
-# Run from demo/ directory
+# Run from server/ directory
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

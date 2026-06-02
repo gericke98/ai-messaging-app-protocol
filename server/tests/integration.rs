@@ -3,13 +3,13 @@
 //! Requires PostgreSQL: set TEST_DATABASE_URL or runs against the default dev database.
 //! Tests use unique user_addr values to avoid interference.
 
-use ainm_demo::briefing::{self, ConsentLevel};
-use ainm_demo::compiler::{self, CompileRequest};
-use ainm_demo::graph;
-use ainm_demo::llm::{
+use ainm_server::briefing::{self, ConsentLevel};
+use ainm_server::compiler::{self, CompileRequest};
+use ainm_server::graph;
+use ainm_server::llm::{
     CandidateEdge, CandidateNode, ConversationMessage, ExtractionResult, MockLlmClient,
 };
-use ainm_demo::repository;
+use ainm_server::repository;
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -582,15 +582,15 @@ async fn briefing_is_query_conditioned_and_has_peer_card() {
         .execute(&pool).await.unwrap();
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preference",
+    ainm_server::graph::insert_node(&pool, &user, "semantic", "preference",
         "Prefers Rust for backend services", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "fact",
+    ainm_server::graph::insert_node(&pool, &user, "semantic", "fact",
         "Name is Santiago", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    ainm_demo::graph::insert_node(&pool, &user, "semantic", "preference",
+    ainm_server::graph::insert_node(&pool, &user, "semantic", "preference",
         "Enjoys hiking on weekends", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
 
-    let briefing = ainm_demo::briefing::generate_briefing(
-        &pool, &user, "agent@x", &thread, ainm_demo::briefing::ConsentLevel::Standard,
+    let briefing = ainm_server::briefing::generate_briefing(
+        &pool, &user, "agent@x", &thread, ainm_server::briefing::ConsentLevel::Standard,
     ).await.unwrap();
 
     let card = briefing.get("peer_card").and_then(|v| v.as_str()).unwrap_or("");
@@ -614,10 +614,10 @@ async fn briefing_includes_salient_unmatched_facts() {
         .execute(&pool).await.unwrap();
     let prov = serde_json::json!({}); let tags = serde_json::json!([]);
     // high-confidence fact with NO lexical overlap with "plan/week"
-    ainm_demo::graph::insert_node(&pool,&user,"semantic","fact",
+    ainm_server::graph::insert_node(&pool,&user,"semantic","fact",
         "Next milestone is connector auth hardening Phase 16",&serde_json::json!({}),0.9,&prov,&tags).await.unwrap();
-    let b = ainm_demo::briefing::generate_briefing(&pool,&user,"agent@x",&thread,
-        ainm_demo::briefing::ConsentLevel::Standard).await.unwrap();
+    let b = ainm_server::briefing::generate_briefing(&pool,&user,"agent@x",&thread,
+        ainm_server::briefing::ConsentLevel::Standard).await.unwrap();
     let blob = serde_json::to_string(&b).unwrap();
     assert!(blob.contains("Phase 16"), "salient unmatched fact must still be injected: {blob}");
 }
@@ -668,16 +668,16 @@ async fn dogfood_emit_briefings() {
     let prov = serde_json::json!({"source": "dogfood-seed"});
     let tags = serde_json::json!([]);
     for (cat, label, conf) in &facts {
-        ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+        ainm_server::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
     }
 
     // B: old dump — no query, no category filter, no ranking
-    let dump_nodes = ainm_demo::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let dump_nodes = ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
     let dump = dump_nodes.iter().map(|n| format!("- {}", n.label)).collect::<Vec<_>>().join("\n");
 
     // C: new briefing
-    let new_briefing = ainm_demo::briefing::generate_briefing(
-        &pool, user, "agent@x", thread, ainm_demo::briefing::ConsentLevel::Standard,
+    let new_briefing = ainm_server::briefing::generate_briefing(
+        &pool, user, "agent@x", thread, ainm_server::briefing::ConsentLevel::Standard,
     ).await.unwrap();
 
     let out = serde_json::json!({
@@ -730,7 +730,7 @@ async fn dogfood_scale_test() {
         ("fact", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
     ];
     for (cat, label, conf) in &important {
-        ainm_demo::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+        ainm_server::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
     }
 
     // 290 NOISE facts — OLD valid_from (400-700 days) + varied confidence, via raw SQL
@@ -751,13 +751,13 @@ async fn dogfood_scale_test() {
     let store_total = important.len() + 290;
 
     // Arm B (dump): no query, no filter, no ranking — the firehose.
-    let dump = ainm_demo::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let dump = ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
     let arm_b_count = dump.len();
     let arm_b_chars: usize = dump.iter().map(|n| n.label.len()).sum();
 
     // Arm C (briefing): recency x confidence ranking, query boost, budget pack.
-    let c = ainm_demo::briefing::generate_briefing(
-        &pool, user, "agent@x", thread, ainm_demo::briefing::ConsentLevel::Standard,
+    let c = ainm_server::briefing::generate_briefing(
+        &pool, user, "agent@x", thread, ainm_server::briefing::ConsentLevel::Standard,
     ).await.unwrap();
     let c_blob = serde_json::to_string(&c).unwrap();
 
@@ -917,7 +917,7 @@ async fn fetch_recent_thread_texts_returns_newest_first() {
             .bind(serde_json::json!({"text": txt}))
             .execute(&pool).await.unwrap();
     }
-    let texts = ainm_demo::graph::fetch_recent_thread_texts(&pool, &thread, 10).await.unwrap();
+    let texts = ainm_server::graph::fetch_recent_thread_texts(&pool, &thread, 10).await.unwrap();
     assert_eq!(texts.len(), 2);
     assert_eq!(texts[0], "postgres migration");
     assert!(texts.contains(&"hello rust".to_string()));
@@ -962,7 +962,7 @@ async fn test_accounts_migration_applies() {
 #[tokio::test]
 async fn test_account_repo_roundtrip() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::accounts;
+    use ainm_server::accounts;
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
     let username = format!("user_{uniq}");
     let email_hash = format!("hash_{uniq}");
@@ -993,7 +993,7 @@ async fn test_account_repo_roundtrip() {
 #[tokio::test]
 async fn test_otp_verify_flow() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::email;
+    use ainm_server::email;
     let eh = format!("eh_{:x}", uuid::Uuid::new_v4().as_fields().0);
 
     let code = "424242";
@@ -1016,7 +1016,7 @@ async fn test_otp_verify_flow() {
 #[tokio::test]
 async fn test_signup_verify_bind_key() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::{accounts, email, auth_token, protocol};
+    use ainm_server::{accounts, email, auth_token, protocol};
     use email::EmailSender;
 
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
@@ -1050,7 +1050,7 @@ async fn test_signup_verify_bind_key() {
 #[tokio::test]
 async fn test_handshake_enforcement() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::{accounts, signing, identity};
+    use ainm_server::{accounts, signing, identity};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -1086,7 +1086,7 @@ async fn test_handshake_enforcement() {
 #[tokio::test]
 async fn test_escrow_store_and_fetch() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::{accounts, escrow};
+    use ainm_server::{accounts, escrow};
 
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
     let username = format!("rec{uniq}");
@@ -1126,7 +1126,7 @@ async fn test_escrow_store_and_fetch() {
 #[tokio::test]
 async fn test_account_lifecycle_e2e() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::{accounts, email, escrow, signing, identity, auth_token, protocol};
+    use ainm_server::{accounts, email, escrow, signing, identity, auth_token, protocol};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -1174,7 +1174,7 @@ async fn test_account_lifecycle_e2e() {
 #[tokio::test]
 async fn test_well_known_identity() {
     let Some(pool) = test_pool().await else { return };
-    use ainm_demo::{accounts, identity};
+    use ainm_server::{accounts, identity};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 

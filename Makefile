@@ -21,10 +21,10 @@ uat: ## Run hermetic UAT suite (boot server, poll health, run xcodebuild test, t
 	  echo "[uat] port $(UAT_PORT) already in use. Run 'lsof -i :$(UAT_PORT)' to identify; aborting." >&2 ; exit 1 ; \
 	fi
 	@# Start server in background; capture PID so the trap can kill it.
-	@# NOTE: the echo+write must happen AFTER `cd demo` so `../$(UAT_SERVER_PID)` resolves
+	@# NOTE: the echo+write must happen AFTER `cd server` so `../$(UAT_SERVER_PID)` resolves
 	@# to the project root. Without the inner grouping, `&` splits the commands into two
 	@# separate jobs and the echo runs in the parent dir.
-	@( cd demo && ( cargo run --quiet --bin ainm-demo -- --uat > ../$(UAT_SERVER_LOG) 2>&1 & echo $$! > ../$(UAT_SERVER_PID) ) )
+	@( cd server && ( cargo run --quiet --bin ainm-server -- --uat > ../$(UAT_SERVER_LOG) 2>&1 & echo $$! > ../$(UAT_SERVER_PID) ) )
 	@trap 'echo "[uat] tearing down server (PID $$(cat $(UAT_SERVER_PID) 2>/dev/null))"; kill $$(cat $(UAT_SERVER_PID) 2>/dev/null) 2>/dev/null; rm -f $(UAT_SERVER_PID)' EXIT INT TERM ; \
 	 echo "[uat] waiting for server readiness at $(UAT_HEALTH_URL) (timeout $(UAT_HEALTH_TIMEOUT_S)s)" ; \
 	 for i in $$(seq 1 $(UAT_HEALTH_TIMEOUT_S)) ; do \
@@ -50,8 +50,8 @@ uat: ## Run hermetic UAT suite (boot server, poll health, run xcodebuild test, t
 
 uat-debug: ## Boot the UAT server and hold it until Ctrl-C (for manual inspection; no tests)
 	@mkdir -p tmp
-	@echo "[uat-debug] booting ainm-demo --uat on port $(UAT_PORT); Ctrl-C to stop"
-	@cd demo && cargo run --bin ainm-demo -- --uat
+	@echo "[uat-debug] booting ainm-server --uat on port $(UAT_PORT); Ctrl-C to stop"
+	@cd server && cargo run --bin ainm-server -- --uat
 
 uat-clean: ## Remove UAT artifacts (logs, result bundles, PID file)
 	rm -rf tmp/

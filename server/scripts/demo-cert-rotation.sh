@@ -17,7 +17,7 @@
 # Prerequisites:
 #   - Docker and docker-compose installed
 #   - OpenSSL installed
-#   - Run from the demo/ directory
+#   - Run from the server/ directory
 #
 # Manual alternative (no Docker):
 #   1. Start both servers as in DEMO-03 manual instructions
