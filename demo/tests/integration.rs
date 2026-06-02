@@ -943,3 +943,250 @@ async fn briefing_peer_card_gated_by_identity_scope() {
     assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "",
         "peer card must be empty when the identity scope is not granted");
 }
+
+#[tokio::test]
+async fn test_accounts_migration_applies() {
+    let Some(pool) = test_pool().await else { return };
+    for table in ["accounts", "account_keys", "email_verifications", "key_escrow"] {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
+        )
+        .bind(table)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists, "table {table} should exist after migration");
+    }
+}
+
+#[tokio::test]
+async fn test_account_repo_roundtrip() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::accounts;
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("user_{uniq}");
+    let email_hash = format!("hash_{uniq}");
+
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash)
+        .await
+        .expect("create");
+    assert_eq!(acct.status, "pending");
+    assert_eq!(acct.address, format!("{username}@test.ainm.local"));
+
+    let dup = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await;
+    assert!(dup.is_err(), "duplicate account must be rejected");
+
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &format!("pk_{uniq}"), Some("iphone")).await.unwrap();
+
+    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().expect("active key");
+    assert_eq!(key.public_key, format!("pk_{uniq}"));
+
+    let second = accounts::insert_account_key(&pool, acct.id, &format!("pk2_{uniq}"), None).await;
+    assert!(second.is_err(), "second active key must be rejected");
+
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+    let found = accounts::find_account_by_address(&pool, &acct.address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+}
+
+#[tokio::test]
+async fn test_otp_verify_flow() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::email;
+    let eh = format!("eh_{:x}", uuid::Uuid::new_v4().as_fields().0);
+
+    let code = "424242";
+    email::store_verification(&pool, &eh, &email::hash_code(code), "signup").await.unwrap();
+
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code("000000")).await.unwrap(),
+        email::VerifyOutcome::WrongCode
+    );
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::VerifyOutcome::Ok
+    );
+    assert_eq!(
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::VerifyOutcome::NotFound
+    );
+}
+
+#[tokio::test]
+async fn test_signup_verify_bind_key() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, email, auth_token, protocol};
+    use email::EmailSender;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("u{uniq}");
+    let user_email = format!("{username}@mail.test");
+    let email_hash = email::hash_email(&user_email);
+
+    let _acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let code = email::generate_code();
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
+    let mock = email::MockEmailSender::new();
+    mock.send_code(&user_email, &code, "signup").await.unwrap();
+    assert!(mock.last_code(&user_email, "signup").is_some());
+
+    assert_eq!(
+        email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(),
+        email::VerifyOutcome::Ok
+    );
+    let acct = accounts::find_account_by_email_hash(&pool, &email_hash).await.unwrap().unwrap();
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+
+    let signer = auth_token::TokenSigner::new(b"itest-secret");
+    let token = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
+    let aid = signer.verify(&token, "enrollment", protocol::now_unix()).unwrap();
+    accounts::insert_account_key(&pool, uuid::Uuid::parse_str(&aid).unwrap(), &format!("pk_{uniq}"), Some("test")).await.unwrap();
+
+    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().unwrap();
+    assert_eq!(key.public_key, format!("pk_{uniq}"));
+}
+
+#[tokio::test]
+async fn test_handshake_enforcement() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, signing, identity};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("alice{uniq}");
+    let address = format!("{username}@test.ainm.local");
+
+    let key_a = identity::generate_keypair(&address).unwrap();
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key_a.public_key_bytes), Some("a")).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let reg_bytes = b64.decode(&reg.public_key).unwrap();
+
+    // Correct key A signs -> accepted.
+    let (sig_a, ts_a) = signing::sign_init(&key_a.key_pair, &address).unwrap();
+    let now = chrono::Utc::now();
+    assert!(signing::verify_init(&reg_bytes, &address, &ts_a, &sig_a, now, 300), "bound key must be accepted");
+
+    // Spoof: key B signs as alice -> rejected.
+    let key_b = identity::generate_keypair(&address).unwrap();
+    let (sig_b, ts_b) = signing::sign_init(&key_b.key_pair, &address).unwrap();
+    assert!(!signing::verify_init(&reg_bytes, &address, &ts_b, &sig_b, now, 300), "spoofed key must be rejected");
+
+    // Unknown address -> no account row.
+    let unknown = format!("ghost{uniq}@test.ainm.local");
+    assert!(accounts::find_account_by_address(&pool, &unknown).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_escrow_store_and_fetch() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, escrow};
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("rec{uniq}");
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+
+    let secret = [9u8; 32];
+    let pin = "135790";
+    let enrolled = escrow::enroll(&secret, pin).unwrap();
+    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+
+    // Correct-PIN recovery round-trip via the server functions.
+    let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    let fetched = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.expect("fetch");
+    let recovered = escrow::client_finalize_and_open(pin, &fetched.kdf_params, &blind, &fetched.evaluated_b64, &fetched.ciphertext).unwrap();
+    assert_eq!(recovered, secret, "correct PIN recovers the escrowed secret");
+
+    // Exhaustion: keep guessing until Destroyed (max_attempts=5 → destroyed on the 5th request).
+    let mut destroyed = false;
+    for _ in 0..10 {
+        let b = escrow::client_blind("000000", &enrolled.kdf_params).unwrap();
+        match escrow::fetch_and_evaluate(&pool, acct.id, &b.blinded_b64).await {
+            Ok(_) => continue,
+            Err(escrow::FetchError::Destroyed) => { destroyed = true; break; }
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
+    }
+    assert!(destroyed, "escrow must be destroyed after exhausting attempts");
+
+    // Post-destruction fetch fails closed.
+    let b = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    assert!(matches!(
+        escrow::fetch_and_evaluate(&pool, acct.id, &b.blinded_b64).await,
+        Err(escrow::FetchError::Destroyed)
+    ));
+}
+
+#[tokio::test]
+async fn test_account_lifecycle_e2e() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, email, escrow, signing, identity, auth_token, protocol};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("e2e{uniq}");
+    let address = format!("{username}@test.ainm.local");
+    let user_email = format!("{username}@mail.test");
+    let email_hash = email::hash_email(&user_email);
+    let signer = auth_token::TokenSigner::new(b"e2e-secret");
+
+    // signup + verify
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let code = email::generate_code();
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
+    assert_eq!(email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(), email::VerifyOutcome::Ok);
+    accounts::set_email_verified(&pool, acct.id).await.unwrap();
+
+    // bind key (gated by enrollment token)
+    let key = identity::generate_keypair(&address).unwrap();
+    let etok = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
+    let aid = uuid::Uuid::parse_str(&signer.verify(&etok, "enrollment", protocol::now_unix()).unwrap()).unwrap();
+    accounts::insert_account_key(&pool, aid, &b64.encode(&key.public_key_bytes), Some("e2e")).await.unwrap();
+
+    // store escrow + activate
+    let secret = [3u8; 32];
+    let pin = "112358";
+    let enrolled = escrow::enroll(&secret, pin).unwrap();
+    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    // handshake gate accepts the bound key
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    assert_eq!(found.status, "active");
+    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let (sig, ts) = signing::sign_init(&key.key_pair, &address).unwrap();
+    assert!(signing::verify_init(&b64.decode(&reg.public_key).unwrap(), &address, &ts, &sig, chrono::Utc::now(), 300));
+
+    // recovery restores the same secret
+    let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
+    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.unwrap();
+    let recovered = escrow::client_finalize_and_open(pin, &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
+    assert_eq!(recovered, secret);
+}
+
+#[tokio::test]
+async fn test_well_known_identity() {
+    let Some(pool) = test_pool().await else { return };
+    use ainm_demo::{accounts, identity};
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+    let username = format!("wk{uniq}");
+    let address = format!("{username}@test.ainm.local");
+    let key = identity::generate_keypair(&address).unwrap();
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key.public_key_bytes), None).await.unwrap();
+    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+
+    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    let active = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    assert_eq!(active.public_key, b64.encode(&key.public_key_bytes));
+}

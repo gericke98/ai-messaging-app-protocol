@@ -10,7 +10,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
@@ -224,6 +224,251 @@ pub struct ServerState {
     pub compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
     /// Broadcast sender for compilation notifications (worker → human clients).
     pub compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
+    /// Email sender for account verification codes.
+    pub email_sender: std::sync::Arc<dyn crate::email::EmailSender>,
+    /// HMAC token signer for enrollment/auth tokens.
+    pub token_signer: crate::auth_token::TokenSigner,
+    /// This server's domain (used to build account addresses).
+    pub server_domain: String,
+}
+
+// --- Account REST handlers (signup / verify / bind-key) ---
+
+#[derive(serde::Deserialize)]
+pub struct SignupReq { pub email: String, pub username: String }
+#[derive(serde::Serialize)]
+pub struct SignupResp { pub address: String }
+
+pub async fn signup_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<SignupReq>,
+) -> Result<Json<SignupResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let username = crate::accounts::validate_username(&req.username)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid username: {e:?}")))?;
+    if !req.email.contains('@') {
+        return Err((StatusCode::BAD_REQUEST, "invalid email".into()));
+    }
+    let email_hash = crate::email::hash_email(&req.email);
+    let acct = crate::accounts::create_pending_account(pool, &username, &state.server_domain, &email_hash)
+        .await
+        .map_err(|e| match e {
+            crate::error::StorageError::Duplicate(_) =>
+                (StatusCode::CONFLICT, "username or email already registered".into()),
+            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+        })?;
+    let code = crate::email::generate_code();
+    crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "signup")
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    state.email_sender.send_code(&req.email, &code, "signup").await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(SignupResp { address: acct.address }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct VerifyReq { pub email: String, pub code: String }
+#[derive(serde::Serialize)]
+pub struct VerifyResp { pub enrollment_token: String }
+
+pub async fn verify_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<VerifyReq>,
+) -> Result<Json<VerifyResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    let outcome = crate::email::verify_code(pool, &email_hash, "signup", &crate::email::hash_code(&req.code))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if outcome != crate::email::VerifyOutcome::Ok {
+        return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
+    }
+    // INVARIANT: at most one account per email_hash (enforced by the unique index
+    // accounts_email_hash_idx in migration 003), so this single lookup is unambiguous.
+    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
+    crate::accounts::set_email_verified(pool, acct.id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let token = state.token_signer.issue(&acct.id.to_string(), "enrollment", crate::protocol::now_unix(), 900);
+    Ok(Json(VerifyResp { enrollment_token: token }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct BindKeyReq { pub enrollment_token: String, pub public_key: String, pub device_label: Option<String> }
+
+pub async fn bind_key_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<BindKeyReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    crate::accounts::insert_account_key(pool, account_id, &req.public_key, req.device_label.as_deref())
+        .await
+        .map_err(|e| match e {
+            crate::error::StorageError::Duplicate(_) =>
+                (StatusCode::CONFLICT, "key already bound".into()),
+            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+        })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct StoreEscrowReq {
+    pub enrollment_token: String,
+    pub ciphertext_b64: String,
+    pub kdf_params: crate::escrow::KdfParams,
+    pub oprf_key_b64: String,
+}
+
+pub async fn store_escrow_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<StoreEscrowReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    let ciphertext = b64.decode(&req.ciphertext_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let oprf_key = b64.decode(&req.oprf_key_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    crate::escrow::store_escrow(pool, account_id, &ciphertext, &req.kdf_params, &oprf_key)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::accounts::set_status(pool, account_id, "active")
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RecoverStartReq { pub email: String }
+
+pub async fn recover_start_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<RecoverStartReq>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    // Send a code only if the account exists; respond 204 either way (don't leak existence).
+    if crate::accounts::find_account_by_email_hash(pool, &email_hash).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.is_some()
+    {
+        let code = crate::email::generate_code();
+        crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "recovery")
+            .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        state.email_sender.send_code(&req.email, &code, "recovery").await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RecoverVerifyReq { pub email: String, pub code: String }
+#[derive(serde::Serialize)]
+pub struct RecoverVerifyResp { pub recovery_token: String }
+
+pub async fn recover_verify_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<RecoverVerifyReq>,
+) -> Result<Json<RecoverVerifyResp>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let email_hash = crate::email::hash_email(&req.email);
+    let outcome = crate::email::verify_code(pool, &email_hash, "recovery", &crate::email::hash_code(&req.code))
+        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if outcome != crate::email::VerifyOutcome::Ok {
+        return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
+    }
+    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
+    let token = state.token_signer.issue(&acct.id.to_string(), "recovery", crate::protocol::now_unix(), 900);
+    Ok(Json(RecoverVerifyResp { recovery_token: token }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct EscrowFetchReq { pub recovery_token: String, pub blinded_point: String }
+#[derive(serde::Serialize)]
+pub struct EscrowFetchResp { pub evaluated_point: String, pub ciphertext_b64: String, pub kdf_params: crate::escrow::KdfParams }
+
+pub async fn escrow_fetch_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<EscrowFetchReq>,
+) -> Result<Json<EscrowFetchResp>, (StatusCode, String)> {
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let account_id_str = state.token_signer
+        .verify(&req.recovery_token, "recovery", crate::protocol::now_unix())
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
+    let account_id = uuid::Uuid::parse_str(&account_id_str)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
+    match crate::escrow::fetch_and_evaluate(pool, account_id, &req.blinded_point).await {
+        Ok(f) => Ok(Json(EscrowFetchResp {
+            evaluated_point: f.evaluated_b64,
+            ciphertext_b64: b64.encode(&f.ciphertext),
+            kdf_params: f.kdf_params,
+        })),
+        Err(crate::escrow::FetchError::Destroyed) => Err((StatusCode::GONE, "recovery blob destroyed".into())),
+        Err(crate::escrow::FetchError::NotFound) => Err((StatusCode::NOT_FOUND, "no escrow".into())),
+        Err(crate::escrow::FetchError::Crypto(e)) => Err((StatusCode::BAD_REQUEST, e)),
+        Err(crate::escrow::FetchError::Db(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+/// `GET /.well-known/ainm-identity/{username}` — identity resolution endpoint.
+///
+/// Resolves a local username to its full AINM address and active public key(s).
+/// Federation-ready: a server-signed attestation MAY be attached so remote servers
+/// can verify the binding without a live connection. Cross-server resolution is
+/// NOT exercised in v1.
+pub async fn well_known_identity_handler(
+    State(state): State<ServerState>,
+    Path(username): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+    };
+    let address = format!("{username}@{}", state.server_domain);
+    let acct = crate::accounts::find_account_by_address(pool, &address).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "unknown account".into()))?;
+    let key = crate::accounts::find_active_key(pool, acct.id).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let public_keys: Vec<String> = key.map(|k| vec![k.public_key]).unwrap_or_default();
+
+    let body = serde_json::json!({
+        "address": address,
+        "public_keys": public_keys,
+    });
+
+    // TODO(B): sign attestation once the server key is exposed in ServerState.
+    // The server's Ed25519 keypair currently lives only in federation::FederationState
+    // (built in main.rs) and is not threaded into ServerState; cross-server resolution
+    // is untested in v1, so the attestation is omitted rather than wired through all
+    // three router builders + main.rs construction sites.
+
+    Ok(Json(body))
 }
 
 /// Start the Axum WebSocket server on a random available port (legacy mode).
@@ -246,6 +491,9 @@ pub async fn start(
         db: None,
         compile_tx: None,
         compile_notify_tx: None,
+        email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
+        token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
+        server_domain: "demo.ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -254,6 +502,14 @@ pub async fn start(
             "/.well-known/ainm/{agent_name}/agent-card.json",
             get(agent_card_handler),
         )
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -294,6 +550,9 @@ pub async fn start_with_port(
         db: None,
         compile_tx: None,
         compile_notify_tx: None,
+        email_sender: std::sync::Arc::new(crate::email::MockEmailSender::new()),
+        token_signer: crate::auth_token::TokenSigner::new(b"dev-insecure-secret"),
+        server_domain: "demo.ainm.local".to_string(),
     };
 
     let app = Router::new()
@@ -304,6 +563,14 @@ pub async fn start_with_port(
         )
         .route("/health", get(|| async { StatusCode::OK }))
         .route("/health/live", get(|| async { StatusCode::OK }))
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
@@ -318,6 +585,8 @@ pub async fn start_with_port(
 
 /// Start the Axum WebSocket server with federation support on a specified port.
 /// Returns the bound address and the server task handle.
+// builder takes many collaborators; v1 keeps the flat signature
+#[allow(clippy::too_many_arguments)]
 pub async fn start_federation(
     identity_store: IdentityStore,
     agent_card: serde_json::Value,
@@ -326,6 +595,9 @@ pub async fn start_federation(
     db: Option<sqlx::PgPool>,
     compile_tx: Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
     compile_notify_tx: Option<tokio::sync::broadcast::Sender<String>>,
+    email_sender: std::sync::Arc<dyn crate::email::EmailSender>,
+    token_signer: crate::auth_token::TokenSigner,
+    server_domain: String,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -341,6 +613,9 @@ pub async fn start_federation(
         db,
         compile_tx,
         compile_notify_tx,
+        email_sender,
+        token_signer,
+        server_domain,
     };
 
     let app = Router::new()
@@ -352,6 +627,14 @@ pub async fn start_federation(
         )
         .route("/health/live", get(|| async { StatusCode::OK }))
         .route("/health/ready", get(health_ready_handler))
+        .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route("/accounts/verify", axum::routing::post(verify_handler))
+        .route("/accounts/keys", axum::routing::post(bind_key_handler))
+        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
+        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
+        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
+        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
+        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
@@ -454,6 +737,49 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+
+    // --- Anti-spoof: verify the claimed address against its REGISTERED key (sub-project A) ---
+    // Only enforced when a DB is configured; in-memory / legacy mode preserves prior behavior.
+    if let Some(pool) = state.db.clone() {
+        let signature = init_req
+            .get("params").and_then(|p| p.get("signature")).and_then(|v| v.as_str())
+            .unwrap_or("");
+        let timestamp = init_req
+            .get("params").and_then(|p| p.get("timestamp")).and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // Send a JSON-RPC auth error (-32021) using the file's concrete sink, then close the
+        // connection. Inlined (vs. a helper fn) to reuse the exact send pattern used elsewhere
+        // in this handler for the "Not initialized" path.
+        macro_rules! reject_conn {
+            ($msg:expr) => {{
+                let err = protocol::new_error(req_id.clone(), -32021, $msg);
+                let mut s = ws_sender.lock().await;
+                let _ = s.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                return;
+            }};
+        }
+
+        let account = match crate::accounts::find_account_by_address(&pool, &from_addr).await {
+            Ok(Some(a)) => a,
+            _ => reject_conn!("unknown address"),
+        };
+        if account.status != "active" {
+            reject_conn!("account not active");
+        }
+        let registered_pk_b64 = match crate::accounts::find_active_key(&pool, account.id).await {
+            Ok(Some(k)) => k.public_key,
+            _ => reject_conn!("no registered key"),
+        };
+        let pk_bytes = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&registered_pk_b64) {
+            Ok(b) => b,
+            Err(_) => reject_conn!("corrupt key"),
+        };
+        if !crate::signing::verify_init(&pk_bytes, &from_addr, timestamp, signature, chrono::Utc::now(), 300) {
+            reject_conn!("signature does not match registered key");
+        }
+        tracing::info!("[handshake] verified binding for {from_addr}");
+    }
 
     // Send ainm.initialized response
     let init_response = protocol::new_response(
