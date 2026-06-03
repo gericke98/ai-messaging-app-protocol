@@ -110,6 +110,78 @@ pub fn verify_init(
     public_key.verify(payload.as_bytes(), &sig_bytes).is_ok()
 }
 
+/// Domain-separation prefix for the auth-session mint challenge. Distinct from the
+/// handshake payload (`"{identity}|{timestamp}"`) so signatures cannot be replayed
+/// across the two protocols.
+///
+/// SECURITY INVARIANT: this separator is unforgeable only because `validate_username`
+/// (accounts.rs) restricts usernames to `[a-z0-9_]` — so no identity (`username@domain`)
+/// can begin with the literal `ainm-auth-token|`. If username rules ever admit `-` or
+/// `|`, switch to a length-prefixed/structured payload to preserve domain separation.
+const AUTH_CHALLENGE_DOMAIN: &str = "ainm-auth-token";
+
+/// Sign the auth-session mint challenge: `"ainm-auth-token|{identity}|{timestamp}"`.
+/// Returns `(signature_b64url, timestamp_rfc3339)`. Reference/test helper mirroring
+/// `sign_init` — the server only ever *verifies*; signing happens on the client (iOS).
+/// Exercised by the auth-sessions integration tests; allowed-dead in the binary build.
+#[allow(dead_code)]
+pub fn sign_auth_challenge(key_pair: &Ed25519KeyPair, identity: &str) -> Result<(String, String)> {
+    let timestamp = crate::protocol::now_rfc3339();
+    let payload = format!("{AUTH_CHALLENGE_DOMAIN}|{identity}|{timestamp}");
+    let sig = key_pair.sign(payload.as_bytes());
+    Ok((URL_SAFE_NO_PAD.encode(sig.as_ref()), timestamp))
+}
+
+/// Verify an auth-session mint challenge signature against a known public key.
+/// Reconstructs `"ainm-auth-token|{identity}|{timestamp}"`, checks the Ed25519
+/// signature, and rejects timestamps outside +/- `max_skew_secs`.
+pub fn verify_auth_challenge(
+    public_key_bytes: &[u8],
+    identity: &str,
+    timestamp: &str,
+    signature_b64: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    max_skew_secs: i64,
+) -> bool {
+    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) else { return false; };
+    let skew = (now - ts.with_timezone(&chrono::Utc)).num_seconds().abs();
+    if skew > max_skew_secs { return false; }
+
+    let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(signature_b64) else { return false; };
+    let payload = format!("{AUTH_CHALLENGE_DOMAIN}|{identity}|{timestamp}");
+    let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
+    public_key.verify(payload.as_bytes(), &sig_bytes).is_ok()
+}
+
+#[cfg(test)]
+mod auth_challenge_tests {
+    use super::*;
+    use crate::identity::generate_keypair;
+
+    #[test]
+    fn accepts_valid_rejects_tamper_stale_and_handshake_payload() {
+        let id = generate_keypair("alice@test.local").unwrap();
+        let (sig, ts) = sign_auth_challenge(&id.key_pair, "alice@test.local").unwrap();
+        let now = chrono::DateTime::parse_from_rfc3339(&ts).unwrap().with_timezone(&chrono::Utc);
+
+        // Valid
+        assert!(verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
+        // Tampered identity
+        assert!(!verify_auth_challenge(&id.public_key_bytes, "mallory@test.local", &ts, &sig, now, 300));
+        // Wrong key
+        let other = generate_keypair("bob@test.local").unwrap();
+        assert!(!verify_auth_challenge(&other.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
+        // Stale timestamp
+        let later = now + chrono::Duration::seconds(10_000);
+        assert!(!verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &ts, &sig, later, 300));
+        // DOMAIN SEPARATION: a handshake-style signature (verify_init payload, no
+        // "ainm-auth-token|" prefix) must NOT verify as an auth challenge.
+        let (handshake_sig, hts) = sign_init(&id.key_pair, "alice@test.local").unwrap();
+        let hnow = chrono::DateTime::parse_from_rfc3339(&hts).unwrap().with_timezone(&chrono::Utc);
+        assert!(!verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &hts, &handshake_sig, hnow, 300));
+    }
+}
+
 #[cfg(test)]
 mod verify_init_tests {
     use super::*;

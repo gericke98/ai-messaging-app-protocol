@@ -1,5 +1,6 @@
 mod accounts;
 mod agent;
+mod auth_session;
 mod auth_token;
 mod briefing;
 mod categories;
