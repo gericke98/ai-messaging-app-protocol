@@ -353,18 +353,32 @@ pub async fn bind_key_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Resolve the calling account from the `Authorization: Bearer <enrollment-token>` header.
-fn account_from_bearer(state: &ServerState, headers: &HeaderMap) -> Result<uuid::Uuid, (StatusCode, String)> {
+/// Resolve the calling account + presented-token hash from the `Authorization: Bearer
+/// <session-token>` header, validating the DB-backed session (reject revoked/expired,
+/// slide on use). Replaces the old enrollment-token check.
+async fn caller_from_bearer(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Result<crate::auth_session::Caller, (StatusCode, String)> {
+    let pool = state.db.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let raw = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .ok_or((StatusCode::UNAUTHORIZED, "missing Authorization header".into()))?;
     let token = raw.strip_prefix("Bearer ").ok_or((StatusCode::UNAUTHORIZED, "expected Bearer token".into()))?;
-    let acct = state
-        .token_signer
-        .verify(token, "enrollment", crate::protocol::now_unix())
-        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
-    uuid::Uuid::parse_str(&acct).map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))
+    match crate::auth_session::authenticate(pool, token, chrono::Utc::now()).await {
+        Ok(Some(caller)) => Ok(caller),
+        Ok(None) => Err((StatusCode::UNAUTHORIZED, "invalid session".into())),
+        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "session lookup failed".into())),
+    }
+}
+
+/// Account-id-only convenience for endpoints that don't need the token hash.
+async fn account_from_bearer(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Result<uuid::Uuid, (StatusCode, String)> {
+    Ok(caller_from_bearer(state, headers).await?.account_id)
 }
 
 #[derive(serde::Deserialize)]
@@ -379,7 +393,7 @@ pub async fn llm_credential_put_handler(
     headers: HeaderMap,
     Json(req): Json<LlmCredentialReq>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let account_id = account_from_bearer(&state, &headers)?;
+    let account_id = account_from_bearer(&state, &headers).await?;
     let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let cipher = state
         .cred_cipher
@@ -396,7 +410,7 @@ pub async fn llm_credential_delete_handler(
     State(state): State<ServerState>,
     headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let account_id = account_from_bearer(&state, &headers)?;
+    let account_id = account_from_bearer(&state, &headers).await?;
     let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     crate::credentials::clear_byo_key(&pool, account_id)
         .await
@@ -408,7 +422,7 @@ pub async fn usage_get_handler(
     State(state): State<ServerState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let account_id = account_from_bearer(&state, &headers)?;
+    let account_id = account_from_bearer(&state, &headers).await?;
     let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let account = crate::accounts::find_account_by_id(&pool, account_id)
         .await
@@ -429,6 +443,115 @@ pub async fn usage_get_handler(
         "remaining": (budget - used).max(0),
         "byo_key_set": byo_key_set,
     })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct MintTokenReq {
+    pub identity: String,
+    pub timestamp: String,
+    pub signature: String,
+    pub device_label: Option<String>,
+}
+#[derive(serde::Serialize)]
+pub struct MintTokenResp {
+    pub token: String,
+    pub session_id: uuid::Uuid,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// `POST /accounts/auth/token` — mint a session by proving possession of the account's
+/// bound Ed25519 key (domain-separated challenge). Uniform 401 on any auth failure.
+pub async fn auth_token_mint_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<MintTokenReq>,
+) -> Result<Json<MintTokenResp>, (StatusCode, String)> {
+    let pool = state.db.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let unauthorized = || (StatusCode::UNAUTHORIZED, "authentication failed".to_string());
+
+    let account = crate::accounts::find_account_by_address(pool, &req.identity)
+        .await.map_err(|_| unauthorized())?.ok_or_else(unauthorized)?;
+    let key = crate::accounts::find_active_key(pool, account.id)
+        .await.map_err(|_| unauthorized())?.ok_or_else(unauthorized)?;
+    let pk_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&key.public_key).map_err(|_| unauthorized())?;
+
+    if !crate::signing::verify_auth_challenge(
+        &pk_bytes, &req.identity, &req.timestamp, &req.signature, chrono::Utc::now(), 300,
+    ) {
+        return Err(unauthorized());
+    }
+
+    let now = chrono::Utc::now();
+    let (token, hash) = crate::auth_session::generate_token();
+    let expires_at = crate::auth_session::next_expiry(now, now);
+    let session_id = crate::auth_session::insert(
+        pool, account.id, &hash, req.device_label.as_deref(), now, expires_at,
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(MintTokenResp { token, session_id, expires_at }))
+}
+
+#[derive(serde::Serialize)]
+pub struct SessionView {
+    pub id: uuid::Uuid,
+    pub device_label: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub current: bool,
+}
+
+/// `GET /accounts/auth/sessions` — list the caller's active sessions (current flagged).
+pub async fn sessions_list_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SessionView>>, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let now = chrono::Utc::now();
+    let sessions = crate::auth_session::list_active(&pool, caller.account_id, now)
+        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // `list_active` rows don't carry the token hash, so resolve the current session's id
+    // by looking it up from the caller's presented-token hash, then flag the matching row.
+    let current_id = crate::auth_session::find_active_by_hash(&pool, &caller.token_hash, now)
+        .await.ok().flatten().map(|s| s.id);
+    let views = sessions.into_iter().map(|s| SessionView {
+        current: Some(s.id) == current_id,
+        id: s.id,
+        device_label: s.device_label,
+        created_at: s.created_at,
+        last_used_at: s.last_used_at,
+        expires_at: s.expires_at,
+    }).collect();
+    Ok(Json(views))
+}
+
+/// `DELETE /accounts/auth/sessions/{id}` — revoke one owned session.
+pub async fn session_revoke_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Path(session_id): Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let ok = crate::auth_session::revoke_one(&pool, caller.account_id, session_id, chrono::Utc::now())
+        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if ok { Ok(StatusCode::NO_CONTENT) } else { Err((StatusCode::NOT_FOUND, "no such session".into())) }
+}
+
+#[derive(serde::Serialize)]
+pub struct RevokeOthersResp { pub revoked: u64 }
+
+/// `DELETE /accounts/auth/sessions/others` — revoke all the caller's sessions but the current.
+pub async fn sessions_revoke_others_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<Json<RevokeOthersResp>, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let revoked = crate::auth_session::revoke_others(&pool, caller.account_id, &caller.token_hash, chrono::Utc::now())
+        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(RevokeOthersResp { revoked }))
 }
 
 #[derive(serde::Deserialize)]
@@ -655,6 +778,10 @@ pub async fn start(
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
+        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
+        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
+        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
+        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -724,6 +851,10 @@ pub async fn start_with_port(
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
+        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
+        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
+        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
+        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 
@@ -801,6 +932,10 @@ pub async fn start_federation(
         .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
         .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
+        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
+        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
+        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
+        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
         .with_state(state);
 

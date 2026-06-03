@@ -6,12 +6,6 @@
 //! only their SHA-256 hash. Sessions are individually revocable (Telegram-style) and
 //! expire on a sliding window capped at an absolute ceiling.
 //!
-//! AT-1 lands only the migration + pure helpers/structs; the DB repo (AT-3),
-//! signing challenge (AT-2), and HTTP wiring (AT-4) consume these. Until then the
-//! public items are unreferenced from the binary target, so suppress dead_code at
-//! the module boundary rather than per-item.
-#![allow(dead_code)]
-
 use crate::error::StorageError;
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
@@ -30,6 +24,10 @@ pub struct AuthSession {
     pub created_at: DateTime<Utc>,
     pub last_used_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+    /// Populated by `FromRow` for row-completeness. Revocation state is enforced in SQL
+    /// (`revoked_at IS NULL` in the active-session predicate), so the field is not read
+    /// in Rust — hence the targeted allow.
+    #[allow(dead_code)]
     pub revoked_at: Option<DateTime<Utc>>,
 }
 

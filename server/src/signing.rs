@@ -121,7 +121,10 @@ pub fn verify_init(
 const AUTH_CHALLENGE_DOMAIN: &str = "ainm-auth-token";
 
 /// Sign the auth-session mint challenge: `"ainm-auth-token|{identity}|{timestamp}"`.
-/// Returns `(signature_b64url, timestamp_rfc3339)`. Test/reference helper mirroring `sign_init`.
+/// Returns `(signature_b64url, timestamp_rfc3339)`. Reference/test helper mirroring
+/// `sign_init` — the server only ever *verifies*; signing happens on the client (iOS).
+/// Exercised by the auth-sessions integration tests; allowed-dead in the binary build.
+#[allow(dead_code)]
 pub fn sign_auth_challenge(key_pair: &Ed25519KeyPair, identity: &str) -> Result<(String, String)> {
     let timestamp = crate::protocol::now_rfc3339();
     let payload = format!("{AUTH_CHALLENGE_DOMAIN}|{identity}|{timestamp}");
