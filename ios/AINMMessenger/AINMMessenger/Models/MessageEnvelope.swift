@@ -12,6 +12,7 @@ struct MessageEnvelope: Codable, Sendable {
     let content: [ContentBlock]
     var signature: String?   // base64url Ed25519 sig, nil before signing
     let parentId: String?    // Optional parent message ID for sub-threading
+    var to: String? = nil    // optional explicit recipient (e.g. an agent address)
 
     enum MessageType: String, Codable, Sendable {
         case message
@@ -34,6 +35,7 @@ struct MessageEnvelope: Codable, Sendable {
         case content
         case signature
         case parentId = "parent_id"
+        case to
     }
 
     func encode(to encoder: Encoder) throws {
@@ -50,6 +52,9 @@ struct MessageEnvelope: Codable, Sendable {
         }
         if let parentId {
             try container.encode(parentId, forKey: .parentId)
+        }
+        if let to {
+            try container.encode(to, forKey: .to)
         }
     }
 }

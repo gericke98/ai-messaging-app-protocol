@@ -332,9 +332,38 @@ final class AppState {
         presenceCleanupTask?.cancel()
     }
 
+    /// Derive the built-in agent address `assistant@<host>` from a WS server URL.
+    /// nil if the URL has no host. The host must equal the server's `server_domain`
+    /// (account binding is `username@<host>`).
+    nonisolated static func assistantAddress(forServerURL serverURL: String) -> String? {
+        guard let host = URL(string: serverURL)?.host else { return nil }
+        return "assistant@\(host)"
+    }
+
+    /// Look up the target agent address for a thread, if any. Reads the persisted
+    /// `ThreadRecord.agentAddress` directly from GRDB (AppState keeps no in-memory
+    /// thread list — the thread list UI observes the database). Returns nil for
+    /// human↔human threads (and when there is no database / no such thread).
+    private func agentAddress(forThread threadId: String) async -> String? {
+        guard let db = appDatabase else { return nil }
+        return try? await db.dbPool.read { db in
+            try ThreadRecord.fetchOne(db, key: threadId)?.agentAddress
+        }
+    }
+
     /// Send a signed message envelope via the protocol client.
+    ///
+    /// If the message targets a thread bound to an agent (the persisted
+    /// `ThreadRecord.agentAddress` is non-nil) and the envelope does not already
+    /// carry an explicit recipient, the agent address is stamped as `to` so the
+    /// server routes the message to that agent. Human↔human threads leave `to` nil,
+    /// so the envelope encodes byte-identically to before (the encoder omits nil `to`).
     func sendMessage(envelope: MessageEnvelope) async throws {
         guard let client else { return }
+        var envelope = envelope
+        if envelope.to == nil, let agent = await agentAddress(forThread: envelope.threadId) {
+            envelope.to = agent
+        }
         try await client.sendMessage(envelope: envelope)
     }
 
@@ -375,6 +404,42 @@ final class AppState {
         #else
         throw AINMClient.ClientError.notConnected
         #endif
+    }
+
+    /// Create + persist a thread addressed to the built-in assistant agent.
+    /// Returns the new threadId, or nil if the agent address can't be derived
+    /// (no host in `serverURL`), if there is no identity, or if there is no database.
+    ///
+    /// Reuses the exact persistence path of ``createThread(title:firstMessageText:)``'s
+    /// local write: a fresh UUID id, the `ISO8601DateFormatter.ainm` timestamp, and a
+    /// direct `ThreadRecord.save` on `appDatabase.dbPool`. The only difference is that
+    /// `agentAddress` is set, which makes ``sendMessage(envelope:)`` stamp `to` for
+    /// every message in this thread. AppState keeps no in-memory thread list, so there
+    /// is no separate published state to update — the thread list UI observes GRDB.
+    @discardableResult
+    func startAssistantThread() async -> String? {
+        guard let agent = AppState.assistantAddress(forServerURL: serverURL) else { return nil }
+        guard let identity = connectedIdentity else { return nil }
+        guard let db = appDatabase else { return nil }
+        let threadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+        let record = ThreadRecord(
+            id: threadId,
+            title: "Assistant",
+            createdAt: timestamp,
+            createdBy: identity,
+            parentThreadId: nil,
+            parentMessageId: nil,
+            agentAddress: agent
+        )
+        do {
+            try await db.dbPool.write { db in
+                try record.save(db)
+            }
+        } catch {
+            return nil
+        }
+        return threadId
     }
 
     /// Create a sub-thread branching from a specific message.
