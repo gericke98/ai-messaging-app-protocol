@@ -7,6 +7,7 @@ struct ConversationListView: View {
     @Bindable var appState: AppState
     @State private var viewModel: ConversationListViewModel?
     @State private var showMemoryGraph = false
+    @State private var showAssistantChatError = false
 
     var body: some View {
         contentView
@@ -30,6 +31,19 @@ struct ConversationListView: View {
                                 .accessibilityLabel("Discover agents")
                         }
                         Button {
+                            Task {
+                                if let threadId = await appState.startAssistantThread() {
+                                    appState.selectedThreadId = threadId
+                                } else {
+                                    showAssistantChatError = true
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "bubble.left.and.sparkles")
+                                .accessibilityLabel("Chat with Assistant")
+                        }
+                        .disabled(appState.connectionState != .connected)
+                        Button {
                             appState.showNewThreadComposer = true
                         } label: {
                             Image(systemName: "square.and.pencil")
@@ -37,6 +51,11 @@ struct ConversationListView: View {
                         }
                     }
                 }
+            }
+            .alert("Couldn't start assistant chat", isPresented: $showAssistantChatError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Please make sure you're connected and try again.")
             }
             .navigationDestination(item: $appState.selectedThreadId) { threadId in
                 MessageThreadView(appState: appState, threadId: threadId)
