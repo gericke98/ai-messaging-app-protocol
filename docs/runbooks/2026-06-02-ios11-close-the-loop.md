@@ -39,6 +39,12 @@ the DB referenced by `AINM_DATABASE__URL` exists. Migrations apply automatically
 AINM_LLM__API_KEY=sk-... make dogfood
 ```
 
+> **No OpenAI key?** Launch with `AINM_LLM__MOCK=1 make dogfood` (or set `AINM_LLM__MOCK=1`
+> in the environment before any dogfood command). The hosted agent then replies with a fixed
+> canned message instead of calling a real LLM — enough to see the full handshake → agent →
+> streamed delivery loop render in the app. `AINM_LLM__MOCK` takes precedence over
+> `AINM_LLM__API_KEY`; unset it to use the real model. Dev/test only.
+
 `make dogfood` runs `scripts/dogfood.sh`, which execs:
 
 ```
