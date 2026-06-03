@@ -1,6 +1,7 @@
 //! Integration tests for account auth sessions (live Postgres; skips without a DB).
 
 use ainm_server::auth_session;
+use ainm_server::{identity, signing};
 use chrono::{Duration, Utc};
 
 async fn pool_or_skip() -> Option<sqlx::PgPool> {
@@ -86,4 +87,44 @@ async fn revoke_one_is_account_scoped() {
     let exp = auth_session::next_expiry(now, now);
     let sid = auth_session::insert(&pool, victim, &hash, None, now, exp).await.unwrap();
     assert!(!auth_session::revoke_one(&pool, attacker, sid, now).await.unwrap());
+}
+
+/// Bind a real Ed25519 key to an account (mirrors what the bind-key endpoint stores:
+/// URL-safe-base64-no-pad of the public key bytes).
+async fn bind_key(pool: &sqlx::PgPool, account_id: uuid::Uuid) -> identity::Identity {
+    use base64::Engine;
+    let id = identity::generate_keypair("unused@ainm.local").unwrap();
+    let pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&id.public_key_bytes);
+    sqlx::query("INSERT INTO account_keys (account_id, public_key) VALUES ($1, $2)")
+        .bind(account_id).bind(&pk_b64).execute(pool).await.unwrap();
+    id
+}
+
+#[tokio::test]
+async fn mint_via_signature_then_authenticate() {
+    let Some(pool) = pool_or_skip().await else { eprintln!("no DB; skipping"); return; };
+    let suffix = format!("{:x}", uuid::Uuid::new_v4().as_u128());
+    let address = format!("as-mint-{suffix}@ainm.local");
+    let account_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts (username, domain, address, email_hash, email_verified, status) \
+         VALUES ($1, 'ainm.local', $2, $3, true, 'active') RETURNING id",
+    ).bind(format!("as-mint-{suffix}")).bind(&address).bind(format!("hash-{address}"))
+    .fetch_one(&pool).await.unwrap();
+    let id = bind_key(&pool, account_id).await;
+
+    // Client signs the domain-separated challenge; server-side verify must accept it.
+    let (sig, ts) = signing::sign_auth_challenge(&id.key_pair, &address).unwrap();
+    let now = chrono::DateTime::parse_from_rfc3339(&ts).unwrap().with_timezone(&chrono::Utc);
+    assert!(signing::verify_auth_challenge(&id.public_key_bytes, &address, &ts, &sig, now, 300));
+
+    // Mint + authenticate round-trip (the library path the mint handler runs).
+    let (token, hash) = auth_session::generate_token();
+    let exp = auth_session::next_expiry(now, now);
+    auth_session::insert(&pool, account_id, &hash, Some("dev"), now, exp).await.unwrap();
+    let caller = auth_session::authenticate(&pool, &token, now).await.unwrap().expect("active");
+    assert_eq!(caller.account_id, account_id);
+
+    // An arbitrary non-session bearer (e.g. a stale enrollment token string) is rejected
+    // — this is the closed C gap: only real session tokens authenticate now.
+    assert!(auth_session::authenticate(&pool, "not-a-real-session-token", now).await.unwrap().is_none());
 }
