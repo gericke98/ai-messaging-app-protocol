@@ -513,13 +513,25 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
             .map(std::sync::Arc::new)
             .map_err(|e| tracing::warn!("[hosted-agent] provisioning failed: {e}"))
             .ok();
-        let llm: Option<std::sync::Arc<dyn llm::LlmClient>> = match std::env::var("AINM_LLM__API_KEY") {
-            Ok(key) => Some(std::sync::Arc::new(llm::OpenAiClient::new(
-                key,
-                std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
-                std::env::var("AINM_LLM__BASE_URL").ok(),
-            ))),
-            Err(_) => None,
+        let llm: Option<std::sync::Arc<dyn llm::LlmClient>> = if matches!(
+            std::env::var("AINM_LLM__MOCK").as_deref(),
+            Ok("1") | Ok("true")
+        ) {
+            tracing::warn!(
+                "[llm] AINM_LLM__MOCK set — hosted agent using constant mock reply (dev/test only)"
+            );
+            Some(std::sync::Arc::new(llm::ConstantMockLlmClient {
+                reply: llm::MOCK_LLM_REPLY.to_string(),
+            }))
+        } else {
+            match std::env::var("AINM_LLM__API_KEY") {
+                Ok(key) => Some(std::sync::Arc::new(llm::OpenAiClient::new(
+                    key,
+                    std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+                    std::env::var("AINM_LLM__BASE_URL").ok(),
+                ))),
+                Err(_) => None,
+            }
         };
         let providers = mcp::build_providers_from_config(&app_config).await;
         (agent, llm, std::sync::Arc::new(providers))

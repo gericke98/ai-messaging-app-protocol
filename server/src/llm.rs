@@ -477,6 +477,40 @@ impl LlmClient for MockLlmClient {
     }
 }
 
+/// The fixed reply used when `AINM_LLM__MOCK` selects the constant mock client.
+/// Single source of truth: the WS E2E test asserts the delivered reply contains this.
+pub const MOCK_LLM_REPLY: &str = "[mock-llm] Hello from the AINM assistant. (no LLM key configured)";
+
+/// A constant mock LLM client: every `chat_with_tools` call returns the same final
+/// text turn, and it never exhausts or errors. Unlike `MockLlmClient` (a FIFO queue
+/// that errors when drained), this is safe for a long-lived server that may call the
+/// LLM any number of times. Selected by the `AINM_LLM__MOCK` env in `main.rs` to give
+/// the hosted agent a deterministic, key-free reply (E2E tests + key-free dogfood).
+pub struct ConstantMockLlmClient {
+    pub reply: String,
+}
+
+#[async_trait::async_trait]
+impl LlmClient for ConstantMockLlmClient {
+    async fn extract(
+        &self,
+        _messages: &[ConversationMessage],
+    ) -> Result<ExtractionResult, AppError> {
+        Ok(ExtractionResult { nodes: vec![], edges: vec![] })
+    }
+
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: &[ToolSchema],
+    ) -> Result<ChatResponse, AppError> {
+        Ok(ChatResponse {
+            turn: AssistantTurn::Text(self.reply.clone()),
+            usage: None,
+        })
+    }
+}
+
 // ── Prompt ─────────────────────────────────────────────────────────────────
 
 const EXTRACTION_SYSTEM_PROMPT_TEMPLATE: &str = r#"You are a knowledge extraction specialist. Extract structured entities and relationships from conversations.
@@ -705,6 +739,22 @@ mod tests {
 
         let exhausted = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await;
         assert!(exhausted.is_err(), "exhausted turns queue should error");
+    }
+
+    #[tokio::test]
+    async fn constant_mock_returns_same_text_and_never_exhausts() {
+        let client = ConstantMockLlmClient { reply: "canned reply".into() };
+        // Call several times — unlike MockLlmClient, it must never error or change.
+        for _ in 0..5 {
+            let resp = client.chat_with_tools(&[], &[]).await.unwrap();
+            match resp.turn {
+                AssistantTurn::Text(t) => assert_eq!(t, "canned reply"),
+                AssistantTurn::ToolCalls(_) => panic!("constant mock must never request tool calls"),
+            }
+        }
+        // extract is not exercised on the agent path; it must return an empty result, not error.
+        let extracted = client.extract(&[]).await.unwrap();
+        assert!(extracted.nodes.is_empty() && extracted.edges.is_empty());
     }
 
     #[test]
