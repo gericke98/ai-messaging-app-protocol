@@ -53,6 +53,23 @@ async fn make_bound_account(pool: &sqlx::PgPool, address: &str, domain: &str) ->
     id
 }
 
+/// Remove every row for `domain` so the test leaves the shared DB as it found it. The
+/// auto-provisioned `assistant@<domain>` account otherwise collides with
+/// `hosted_agent_test::bootstrap_is_idempotent` via the GLOBAL `accounts_username_lower_idx`
+/// on `lower(username)`. `hosted_agents` has no FK to `accounts`, so delete it explicitly;
+/// `account_keys` and `key_escrow` cascade from `accounts` on delete. Best-effort (ignore errors).
+async fn cleanup_domain(pool: &sqlx::PgPool, domain: &str) {
+    // hosted_agents has no FK to accounts — delete explicitly. accounts cascades to keys/escrow.
+    let _ = sqlx::query("DELETE FROM hosted_agents WHERE address LIKE $1")
+        .bind(format!("%@{domain}"))
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM accounts WHERE domain = $1")
+        .bind(domain)
+        .execute(pool)
+        .await;
+}
+
 /// Bind 127.0.0.1:0, read the assigned port, drop the listener so the server can take it.
 async fn free_port() -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -76,6 +93,11 @@ async fn ws_conversation_delivers_agent_reply() {
     let domain = "ws-e2e.local".to_string();
     let alice_addr = format!("alice-{run}@{domain}");
     let agent_addr = format!("assistant@{domain}");
+
+    // Clean slate: drop any `ws-e2e.local` rows a prior aborted run may have left behind, so
+    // stale state can't interfere with provisioning or assertions below.
+    cleanup_domain(&pool, &domain).await;
+
     let alice = make_bound_account(&pool, &alice_addr, &domain).await;
 
     let port = free_port().await;
@@ -244,6 +266,11 @@ async fn ws_conversation_delivers_agent_reply() {
         .expect("decode agent pk");
 
     let _ = child.kill().await;
+
+    // Best-effort cleanup BEFORE assertions so a failing assert can't leak rows that would poison
+    // hosted_agent_test::bootstrap_is_idempotent (global username index). The agent public key was
+    // already fetched above, so deleting the account here does not affect signature verification.
+    cleanup_domain(&pool, &domain).await;
 
     let text = delivered_text.expect("agent never delivered a reply within 20s");
     let delivered_message = delivered_message.expect("agent never delivered a reply within 20s");
