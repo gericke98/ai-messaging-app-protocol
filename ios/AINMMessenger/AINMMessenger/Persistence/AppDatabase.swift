@@ -166,6 +166,12 @@ struct AppDatabase: Sendable {
             try db.create(index: "idx_memoryEdge_target", on: "memoryEdge", columns: ["targetNode"])
         }
 
+        migrator.registerMigration("v7_add_thread_agentAddress") { db in
+            try db.alter(table: "thread") { t in
+                t.add(column: "agentAddress", .text)   // nullable; nil = human thread
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }

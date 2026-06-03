@@ -13,6 +13,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
     var parentThreadId: String?
     var parentMessageId: String?
     var hasUnread: Bool = false
+    var agentAddress: String? = nil   // target agent for this thread (e.g. assistant@host); nil = human thread
 
     /// Create from protocol ThreadMetadata.
     init(from metadata: ThreadMetadata) {
@@ -23,6 +24,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.parentThreadId = metadata.parentThreadId
         self.parentMessageId = metadata.parentMessageId
         self.hasUnread = false
+        self.agentAddress = nil
     }
 
     /// Memberwise initializer for direct construction.
@@ -33,7 +35,8 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         createdBy: String,
         parentThreadId: String?,
         parentMessageId: String?,
-        hasUnread: Bool = false
+        hasUnread: Bool = false,
+        agentAddress: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -42,6 +45,7 @@ struct ThreadRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.parentThreadId = parentThreadId
         self.parentMessageId = parentMessageId
         self.hasUnread = hasUnread
+        self.agentAddress = agentAddress
     }
 }
 
