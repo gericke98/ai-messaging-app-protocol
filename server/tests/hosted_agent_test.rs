@@ -28,6 +28,17 @@ async fn bootstrap_is_idempotent() {
     };
     let domain = format!("ainm-{:x}.local", uuid::Uuid::new_v4().as_u128());
 
+    // Start clean: the global `accounts_username_lower_idx` (lower(username), not domain-scoped)
+    // means a single persisted `assistant` account anywhere blocks provisioning. Clear any stray
+    // `assistant` test rows left by an earlier aborted run (this test's own or the WS E2E test's)
+    // so this test is self-contained on a shared DB. hosted_agents has no FK (delete explicitly).
+    let _ = sqlx::query("DELETE FROM hosted_agents WHERE address LIKE 'assistant@%'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM accounts WHERE lower(username) = 'assistant'")
+        .execute(&pool)
+        .await;
+
     let a1 = hosted_agent::provision(&pool, &domain).await.expect("provision 1");
     let a2 = hosted_agent::provision(&pool, &domain).await.expect("provision 2");
 
@@ -39,12 +50,26 @@ async fn bootstrap_is_idempotent() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(acct_count, 1);
     let ha_count: i64 = sqlx::query_scalar("SELECT count(*) FROM hosted_agents WHERE address = $1")
         .bind(&a1.address)
         .fetch_one(&pool)
         .await
         .unwrap();
+
+    // Clean up BEFORE asserting so a failing assert can't leak an `assistant` account.
+    // The global `accounts_username_lower_idx` (lower(username), not domain-scoped) means a
+    // persisted `assistant` row would block every other test's provisioning on a shared DB.
+    // hosted_agents has no FK to accounts (delete explicitly); accounts cascades to its keys.
+    let _ = sqlx::query("DELETE FROM hosted_agents WHERE address = $1")
+        .bind(&a1.address)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM accounts WHERE domain = $1")
+        .bind(&domain)
+        .execute(&pool)
+        .await;
+
+    assert_eq!(acct_count, 1);
     assert_eq!(ha_count, 1);
 }
 
