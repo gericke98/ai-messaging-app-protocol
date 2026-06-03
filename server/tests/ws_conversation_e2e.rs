@@ -125,9 +125,13 @@ async fn ws_conversation_delivers_agent_reply() {
 
     // Open the WebSocket and do the signed handshake (mirror repl.rs:20-48).
     let ws_url = format!("ws://127.0.0.1:{port}/ws");
-    let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
-        .await
-        .expect("ws connect");
+    let (ws_stream, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(&ws_url),
+    )
+    .await
+    .expect("ws connect timed out")
+    .expect("ws connect");
     let (mut tx, mut rx) = ws_stream.split();
 
     let (init_sig, init_ts) = signing::sign_init(&alice.key_pair, &alice.address).unwrap();
@@ -193,8 +197,11 @@ async fn ws_conversation_delivers_agent_reply() {
     // Tolerate the send ack (id result), stream deltas, and any other notifications.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut delivered_text: Option<String> = None;
+    let mut delivered_message: Option<serde_json::Value> = None;
     while tokio::time::Instant::now() < deadline {
-        let remaining = deadline - tokio::time::Instant::now();
+        let remaining = deadline
+            .checked_duration_since(tokio::time::Instant::now())
+            .unwrap_or(Duration::ZERO);
         let Some(frame) = next_text(&mut rx, remaining).await else { break };
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&frame) else { continue };
         if v.get("method").and_then(|m| m.as_str()) != Some("ainm.message.deliver") {
@@ -214,16 +221,41 @@ async fn ws_conversation_delivers_agent_reply() {
             .unwrap_or("")
             .to_string();
         delivered_text = Some(text);
+        delivered_message = msg.cloned();
         break;
     }
+
+    // Fetch the agent's bound public key (the active, non-revoked key for `assistant@<domain>`).
+    // Mirrors `accounts::find_active_key` semantics (WHERE revoked_at IS NULL); `account_keys` has
+    // no `created_at` column (it uses `enrolled_at`), and the partial unique index
+    // `account_keys_one_active_idx` guarantees at most one active key per account.
+    let agent_pk_b64: String = sqlx::query_scalar(
+        "SELECT ak.public_key FROM account_keys ak \
+         JOIN accounts a ON a.id = ak.account_id \
+         WHERE a.address = $1 AND ak.revoked_at IS NULL \
+         ORDER BY ak.enrolled_at DESC LIMIT 1",
+    )
+    .bind(&agent_addr)
+    .fetch_one(&pool)
+    .await
+    .expect("agent key provisioned");
+    let agent_pk = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(agent_pk_b64.as_bytes())
+        .expect("decode agent pk");
 
     let _ = child.kill().await;
 
     let text = delivered_text.expect("agent never delivered a reply within 20s");
+    let delivered_message = delivered_message.expect("agent never delivered a reply within 20s");
     assert!(
         text.contains(llm::MOCK_LLM_REPLY),
         "delivered reply did not contain the canned mock text.\n  got: {text}\n  want substring: {}",
         llm::MOCK_LLM_REPLY
+    );
+    let sig_ok = signing::verify_signature(&agent_pk, &delivered_message).unwrap_or(false);
+    assert!(
+        sig_ok,
+        "agent reply signature did not verify against the provisioned agent key"
     );
 }
 
