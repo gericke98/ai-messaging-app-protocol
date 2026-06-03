@@ -1,7 +1,7 @@
 # Phase 14 UAT automation harness orchestrator.
 # See docs/testing.md for full usage.
 
-.PHONY: uat uat-clean uat-debug
+.PHONY: uat uat-clean uat-debug dogfood
 
 UAT_SERVER_LOG       := tmp/uat-server.log
 UAT_SERVER_PID       := tmp/uat-server.pid
@@ -55,3 +55,6 @@ uat-debug: ## Boot the UAT server and hold it until Ctrl-C (for manual inspectio
 
 uat-clean: ## Remove UAT artifacts (logs, result bundles, PID file)
 	rm -rf tmp/
+
+dogfood: ## Launch a DB-backed human-mode server for iOS dogfooding (IOS-11). Set AINM_LLM__API_KEY for real replies.
+	@bash scripts/dogfood.sh
