@@ -785,15 +785,38 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 14. Mode branching
     match mode.as_str() {
         "human" => {
-            // Run REPL connecting to local WebSocket server
-            let repl_result =
-                repl::run(server_addr, local_identity, identity_store.clone()).await;
-            server_handle.abort();
-            fed_handle.abort();
-            if let Err(e) = repl_result {
-                tracing::error!("REPL error: {}", e);
+            // The interactive REPL (rustyline) needs a controlling TTY. In a headless
+            // context (container / CI / background, e.g. `make dogfood` piped, or a
+            // production deploy) there is no TTY, and running the REPL would error
+            // immediately and tear down the whole server. So only run the REPL when
+            // stdin is a terminal; otherwise keep serving WS/REST until terminated.
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() {
+                // Interactive: run the REPL; when it exits, tear down the server.
+                let repl_result =
+                    repl::run(server_addr, local_identity, identity_store.clone()).await;
+                server_handle.abort();
+                fed_handle.abort();
+                if let Err(e) = repl_result {
+                    tracing::error!("REPL error: {}", e);
+                }
+                println!("\nGoodbye!");
+            } else {
+                // Headless: no TTY for the REPL. Stay up serving the WS/REST listeners
+                // (and federation) until the process is terminated (SIGTERM/SIGINT).
+                tracing::info!(
+                    "[human] no TTY detected; skipping interactive REPL and serving until terminated"
+                );
+                tokio::select! {
+                    res = server_handle => {
+                        if let Err(e) = res { tracing::error!("[human] server task ended: {e}"); }
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        tracing::info!("[human] received Ctrl-C/SIGINT; shutting down");
+                    }
+                }
+                fed_handle.abort();
             }
-            println!("\nGoodbye!");
         }
         "agent" => {
             // Run headless agent: subscribe to local_delivery_tx and process messages
