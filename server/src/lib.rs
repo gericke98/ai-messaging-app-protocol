@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod auth_session;
 pub mod auth_token;
 pub mod briefing;
 pub mod categories;
