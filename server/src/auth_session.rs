@@ -12,7 +12,9 @@
 //! the module boundary rather than per-item.
 #![allow(dead_code)]
 
+use crate::error::StorageError;
 use chrono::{DateTime, Duration, Utc};
+use sqlx::PgPool;
 
 /// Sliding TTL: each authenticated use extends `expires_at` to `now + 90d`...
 pub const SESSION_TTL_DAYS: i64 = 90;
@@ -20,7 +22,7 @@ pub const SESSION_TTL_DAYS: i64 = 90;
 pub const SESSION_ABSOLUTE_CAP_DAYS: i64 = 365;
 
 /// A stored session row (never carries the plaintext token).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AuthSession {
     pub id: uuid::Uuid,
     pub account_id: uuid::Uuid,
@@ -65,6 +67,138 @@ pub fn next_expiry(created_at: DateTime<Utc>, now: DateTime<Utc>) -> DateTime<Ut
     let sliding = now + Duration::days(SESSION_TTL_DAYS);
     let ceiling = created_at + Duration::days(SESSION_ABSOLUTE_CAP_DAYS);
     sliding.min(ceiling)
+}
+
+/// Insert a new session. `expires_at` is computed by the caller (mint = now + 90d).
+pub async fn insert(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    token_hash: &[u8],
+    device_label: Option<&str>,
+    created_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+) -> Result<uuid::Uuid, StorageError> {
+    let id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO account_auth_tokens \
+         (account_id, token_hash, device_label, created_at, last_used_at, expires_at) \
+         VALUES ($1, $2, $3, $4, $4, $5) RETURNING id",
+    )
+    .bind(account_id)
+    .bind(token_hash)
+    .bind(device_label)
+    .bind(created_at)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
+
+/// Look up an ACTIVE (not revoked, not expired) session by token hash.
+pub async fn find_active_by_hash(
+    pool: &PgPool,
+    token_hash: &[u8],
+    now: DateTime<Utc>,
+) -> Result<Option<AuthSession>, StorageError> {
+    let row = sqlx::query_as::<_, AuthSession>(
+        "SELECT id, account_id, device_label, created_at, last_used_at, expires_at, revoked_at \
+         FROM account_auth_tokens \
+         WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > $2",
+    )
+    .bind(token_hash)
+    .bind(now)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Slide a session forward on use: bump `last_used_at` and `expires_at`.
+pub async fn slide(
+    pool: &PgPool,
+    id: uuid::Uuid,
+    now: DateTime<Utc>,
+    new_expires: DateTime<Utc>,
+) -> Result<(), StorageError> {
+    sqlx::query("UPDATE account_auth_tokens SET last_used_at = $2, expires_at = $3 WHERE id = $1")
+        .bind(id)
+        .bind(now)
+        .bind(new_expires)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Validate a presented bearer token and slide it forward. Returns the `Caller`
+/// (account_id + token_hash) iff the session is active. The per-request auth path.
+pub async fn authenticate(
+    pool: &PgPool,
+    presented_token: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<Caller>, StorageError> {
+    let hash = hash_token(presented_token);
+    let Some(session) = find_active_by_hash(pool, &hash, now).await? else {
+        return Ok(None);
+    };
+    let new_expires = next_expiry(session.created_at, now);
+    slide(pool, session.id, now, new_expires).await?;
+    Ok(Some(Caller { account_id: session.account_id, token_hash: hash }))
+}
+
+/// List a caller's ACTIVE sessions, newest first.
+pub async fn list_active(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    now: DateTime<Utc>,
+) -> Result<Vec<AuthSession>, StorageError> {
+    let rows = sqlx::query_as::<_, AuthSession>(
+        "SELECT id, account_id, device_label, created_at, last_used_at, expires_at, revoked_at \
+         FROM account_auth_tokens \
+         WHERE account_id = $1 AND revoked_at IS NULL AND expires_at > $2 \
+         ORDER BY last_used_at DESC",
+    )
+    .bind(account_id)
+    .bind(now)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Revoke one session owned by `account_id`. Returns true if a matching row was updated.
+pub async fn revoke_one(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    id: uuid::Uuid,
+    now: DateTime<Utc>,
+) -> Result<bool, StorageError> {
+    let res = sqlx::query(
+        "UPDATE account_auth_tokens SET revoked_at = COALESCE(revoked_at, $3) \
+         WHERE id = $1 AND account_id = $2",
+    )
+    .bind(id)
+    .bind(account_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Revoke all of the caller's active sessions EXCEPT the one whose hash is `keep_hash`.
+/// Returns the number revoked.
+pub async fn revoke_others(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    keep_hash: &[u8],
+    now: DateTime<Utc>,
+) -> Result<u64, StorageError> {
+    let res = sqlx::query(
+        "UPDATE account_auth_tokens SET revoked_at = $3 \
+         WHERE account_id = $1 AND token_hash <> $2 AND revoked_at IS NULL",
+    )
+    .bind(account_id)
+    .bind(keep_hash)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
 }
 
 #[cfg(test)]
