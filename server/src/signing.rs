@@ -113,6 +113,11 @@ pub fn verify_init(
 /// Domain-separation prefix for the auth-session mint challenge. Distinct from the
 /// handshake payload (`"{identity}|{timestamp}"`) so signatures cannot be replayed
 /// across the two protocols.
+///
+/// SECURITY INVARIANT: this separator is unforgeable only because `validate_username`
+/// (accounts.rs) restricts usernames to `[a-z0-9_]` — so no identity (`username@domain`)
+/// can begin with the literal `ainm-auth-token|`. If username rules ever admit `-` or
+/// `|`, switch to a length-prefixed/structured payload to preserve domain separation.
 const AUTH_CHALLENGE_DOMAIN: &str = "ainm-auth-token";
 
 /// Sign the auth-session mint challenge: `"ainm-auth-token|{identity}|{timestamp}"`.
