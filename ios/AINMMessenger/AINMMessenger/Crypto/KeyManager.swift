@@ -16,7 +16,16 @@ actor KeyManager {
     // MARK: - Constants
 
     private static let keychainService = "com.ainm.messenger"
-    private static let keychainAccount = "ed25519.privateKey"
+    /// The legacy single-account slot (RC). A `nil` address maps here so the pre-migration
+    /// read and the UITest identity-bootstrap path keep working unchanged.
+    private static let legacyKeychainAccount = "ed25519.privateKey"
+
+    /// The Keychain account string for an AINM address. `nil` → the legacy slot.
+    /// Multi-account always passes a real address; the slot is derived from it.
+    static func keychainAccount(forAddress address: String?) -> String {
+        guard let address else { return legacyKeychainAccount }
+        return "\(legacyKeychainAccount).\(address)"
+    }
 
     // MARK: - Types
 
@@ -44,21 +53,24 @@ actor KeyManager {
 
     // MARK: - Keychain Implementation
 
-    /// Production Keychain storage using Security framework directly.
+    /// Production Keychain storage using Security framework directly. Each instance
+    /// targets one account slot (`kSecAttrAccount`), so distinct addresses are isolated.
     struct KeychainStorage: KeyStorage, Sendable {
+        let account: String
+
         func save(_ data: Data) throws {
             // Delete any existing item first to avoid errSecDuplicateItem
             let deleteQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: KeyManager.keychainService,
-                kSecAttrAccount as String: KeyManager.keychainAccount,
+                kSecAttrAccount as String: account,
             ]
             SecItemDelete(deleteQuery as CFDictionary)
 
             let addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: KeyManager.keychainService,
-                kSecAttrAccount as String: KeyManager.keychainAccount,
+                kSecAttrAccount as String: account,
                 kSecValueData as String: data,
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             ]
@@ -72,7 +84,7 @@ actor KeyManager {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: KeyManager.keychainService,
-                kSecAttrAccount as String: KeyManager.keychainAccount,
+                kSecAttrAccount as String: account,
                 kSecReturnData as String: true,
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
@@ -92,7 +104,7 @@ actor KeyManager {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: KeyManager.keychainService,
-                kSecAttrAccount as String: KeyManager.keychainAccount,
+                kSecAttrAccount as String: account,
             ]
             let status = SecItemDelete(query as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -133,9 +145,10 @@ actor KeyManager {
 
     // MARK: - Initialization
 
-    /// Create a KeyManager with the default Keychain storage.
-    init() {
-        self.storage = KeychainStorage()
+    /// Create a KeyManager bound to an account's Keychain slot. `nil` → the legacy slot
+    /// (used pre-migration and by the UITest identity bootstrap).
+    init(address: String? = nil) {
+        self.storage = KeychainStorage(account: KeyManager.keychainAccount(forAddress: address))
     }
 
     /// Create a KeyManager with custom storage (for testing).

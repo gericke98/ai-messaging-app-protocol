@@ -47,7 +47,7 @@ enum UITestIdentityBootstrap {
     /// Must run BEFORE `AppState.setup()` / `AINMClient.connect()` because the client
     /// reads the Keychain identity during setup.
     static func resetIdentity() async throws {
-        try await resetIdentity(storage: KeyManager.KeychainStorage())
+        try await resetIdentity(storage: KeyManager.KeychainStorage(account: KeyManager.keychainAccount(forAddress: nil)))
     }
 
     /// Storage-parameterized variant used by SeedLoaderIntegrationTests to bypass

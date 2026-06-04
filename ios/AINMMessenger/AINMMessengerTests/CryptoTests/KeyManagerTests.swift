@@ -174,4 +174,34 @@ struct KeyManagerTests {
             try await manager.getOrCreateKeypair()
         }
     }
+
+    // MARK: - Per-Account Slot Isolation (multi-account)
+
+    @Test("Default (nil) address maps to the legacy fixed slot")
+    func testNilAddressIsLegacySlot() async throws {
+        // Both managers use the production KeychainStorage; the legacy account string
+        // is the constant used pre-migration. We assert the account string, not Keychain I/O.
+        #expect(KeyManager.keychainAccount(forAddress: nil) == "ed25519.privateKey")
+        #expect(KeyManager.keychainAccount(forAddress: "alice@localhost")
+                == "ed25519.privateKey.alice@localhost")
+    }
+
+    @Test("Keys for two addresses are independent in storage")
+    func testPerAddressIsolation() async throws {
+        // Inject independent in-memory storages to simulate two distinct Keychain slots.
+        let storageA = KeyManager.InMemoryStorage()
+        let storageB = KeyManager.InMemoryStorage()
+        let a = KeyManager(storage: storageA)
+        let b = KeyManager(storage: storageB)
+
+        let keyA = try await a.getOrCreateKeypair()
+        #expect(await b.hasStoredKeypair() == false)   // creating A did not touch B
+
+        let keyB = try await b.getOrCreateKeypair()
+        #expect(keyA.publicKeyBase64url != keyB.publicKeyBase64url)
+
+        try await a.deleteKeypair()
+        #expect(await a.hasStoredKeypair() == false)
+        #expect(await b.hasStoredKeypair() == true)     // deleting A left B intact
+    }
 }
