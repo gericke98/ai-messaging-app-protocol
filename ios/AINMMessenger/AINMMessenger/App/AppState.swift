@@ -109,31 +109,70 @@ final class AppState {
         static let faceID    = "ainm.session.faceIDEnabled"
     }
 
-    private func persistSession(serverURL: String, username: String, faceIDEnabled: Bool) {
-        let d = UserDefaults.standard
-        d.set(serverURL, forKey: SessionKey.serverURL)
-        d.set(username, forKey: SessionKey.username)
-        d.set(faceIDEnabled, forKey: SessionKey.faceID)
-    }
-
-    var persistedServerURL: String? { UserDefaults.standard.string(forKey: SessionKey.serverURL) }
-    var persistedUsername: String? { UserDefaults.standard.string(forKey: SessionKey.username) }
-    var faceIDEnabled: Bool { UserDefaults.standard.bool(forKey: SessionKey.faceID) }
-
     func clearPersistedSession() {
         let d = UserDefaults.standard
         [SessionKey.serverURL, SessionKey.username, SessionKey.faceID].forEach { d.removeObject(forKey: $0) }
     }
 
-    /// Sign out of the current session: clear the persisted routing identity, optionally
-    /// forget the Keychain key, drop the connection, and clear the in-memory identity.
-    /// `sessionPhase` reset is wired in a later task (Task 1.3).
+    /// Sign out of the active account. With multi-account this is "remove the active account":
+    /// it deletes the account's registry entry (and, when `forgetKey`, its Keychain key + DB)
+    /// then routes to another account or onboarding. Kept as `signOut` for SessionGateView.
     func signOut(forgetKey: Bool = false) {
-        clearPersistedSession()
-        if forgetKey { Task { try? await keyManager.deleteKeypair() } }
-        Task { await disconnect() }
-        connectedIdentity = nil
+        guard let address = registry.activeAddress else {
+            clearPersistedSession()
+            sessionPhase = .onboarding
+            return
+        }
+        Task { await removeAccount(address, deleteData: forgetKey) }
+    }
+
+    /// Switch to another existing account: disconnect, repoint key + DB, reconnect.
+    /// No Face-ID re-prompt (Face ID gates launch-resume only).
+    func switchAccount(to address: String) async {
+        guard let target = registry.all().first(where: { $0.address == address }) else { return }
+        await disconnect()
+        await activate(address: address)
+        serverURL = target.serverURL
+        displayName = target.username
+        registry.setActive(address: address)
+        refreshAccounts()
+        sessionPhase = .active
+        await connect()
+    }
+
+    /// Begin adding a NEW account: drop to onboarding without disturbing the registry.
+    /// On a successful signup/recovery, `finishSignup`/`completeRecovery` register the new
+    /// account and make it active. The existing accounts remain; cancelling returns to them.
+    func addAccount() {
+        onboardingError = nil
         sessionPhase = .onboarding
+    }
+
+    /// Remove an account. Deletes its registry entry; when `deleteData`, also its Keychain key
+    /// and DB files. If it was active, route to another account (switch) or onboarding.
+    func removeAccount(_ address: String, deleteData: Bool = true) async {
+        let wasActive = registry.activeAddress == address
+        if deleteData {
+            try? await KeyManager(address: address).deleteKeypair()
+            if let url = try? AppDatabase.dbURL(forAccount: address) {
+                for suffix in ["", "-wal", "-shm"] {
+                    try? FileManager.default.removeItem(atPath: url.path + suffix)
+                }
+            }
+        }
+        registry.remove(address: address)
+        refreshAccounts()
+        guard wasActive else { return }
+        await disconnect()
+        if let next = registry.all().first {
+            await switchAccount(to: next.address)
+        } else {
+            clearPersistedSession()
+            keyManager = KeyManager()   // back to the legacy slot default
+            appDatabase = nil
+            client = nil
+            sessionPhase = .onboarding
+        }
     }
 
     /// Decide the launch route from the registry. Resume requires an active account whose
