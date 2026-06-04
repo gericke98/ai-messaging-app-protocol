@@ -18,14 +18,22 @@ pub async fn handle_turn(
     requester: &str,
     inbound_user_text: &str,
 ) {
+    tracing::debug!(
+        "[runtime] handle_turn entered: thread={thread_id} requester={requester} \
+         has_agent={} has_llm={} has_db={}",
+        state.hosted_agent.is_some(), state.llm_client.is_some(), state.db.is_some()
+    );
     let (Some(agent), Some(llm), Some(db)) =
         (state.hosted_agent.as_ref(), state.llm_client.as_ref(), state.db.as_ref())
     else {
+        tracing::warn!("[runtime] handle_turn early return: missing agent/llm/db");
         return; // hosted agent not provisioned → nothing to do
     };
     if !agent.enabled {
+        tracing::warn!("[runtime] handle_turn early return: agent disabled");
         return; // agent disabled
     }
+    tracing::info!("[runtime] running agent turn for {} (agent={})", requester, agent.address);
 
     // Resolve the requester's granted scopes (consent gate spine).
     let (scopes, _level) = match crate::briefing::resolve_scopes(
@@ -112,6 +120,10 @@ pub async fn handle_turn(
         inbound_user_text, 8,
     ).await;
 
+    tracing::info!(
+        "[runtime] agent turn complete: delivering {} chars to thread {thread_id}",
+        outcome.final_text.len()
+    );
     stream_reply(state, agent, thread_id, &outcome.final_text).await;
 }
 
@@ -221,7 +233,14 @@ async fn stream_reply(state: &ServerState, agent: &crate::hosted_agent::HostedAg
         "id": uuid::Uuid::now_v7().to_string(),
         "from": agent.address,
         "thread_id": thread_id,
-        "content": [{"type": "text", "text": text}],
+        "type": "message",
+        "content": [{
+            "type": "text",
+            "version": "1.0",
+            "source": "agent",
+            "text": text,
+            "fallback": text,
+        }],
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
     // Sign the complete message — this MUST be the last mutation before delivery.

@@ -2456,6 +2456,11 @@ async fn handle_human_connection(
                                         || params.get("to").and_then(|t| t.as_str())
                                             .map(|t| t == agent.address).unwrap_or(false)
                                         || content_mentions(&content, &agent.address);
+                                    tracing::debug!(
+                                        "[agent-trigger] thread={msg_thread_id} to={:?} agent={} targets_agent={targets_agent}",
+                                        params.get("to").and_then(|t| t.as_str()),
+                                        agent.address,
+                                    );
                                     if targets_agent {
                                         let state2 = state.clone();
                                         let tid = msg_thread_id.to_string();
