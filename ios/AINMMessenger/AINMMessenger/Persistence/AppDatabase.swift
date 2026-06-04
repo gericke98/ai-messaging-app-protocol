@@ -205,6 +205,15 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v8_create_saved_agents") { db in
+            try db.create(table: "savedAgent") { t in
+                t.primaryKey("address", .text).notNull()   // canonical name@host
+                t.column("displayName", .text).notNull()
+                t.column("cardJson", .text).notNull()
+                t.column("addedAt", .text).notNull()       // RFC 3339
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }
