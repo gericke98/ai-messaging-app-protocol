@@ -18,6 +18,9 @@ struct AINMMessengerApp: App {
                         SessionGateView(appState: appState)
                     case .active:
                         ConversationListView(appState: appState)
+                            // Rebuild the list (and its GRDB-observing view model) when the
+                            // active account changes, so a switch shows the new account's DB.
+                            .id(appState.activeAccount?.address ?? "active")
                     }
                 }
             }
@@ -103,13 +106,16 @@ struct AINMMessengerApp: App {
                     handleDeepLink(url)
                 }
 
-                // Normal launch (no UITest seed): decide the launch route. The seed path above
-                // already forced `.active`, so skip bootstrap there.
+                // Normal launch (no UITest seed): migrate the RC single account into the
+                // registry (one-time, idempotent) then decide the launch route. The seed path
+                // above already forced `.active`, so skip both there.
                 if seedFixture == nil {
+                    await LegacyMigration.migrateIfNeeded()
                     await appState.bootstrap()
                 }
                 #else
-                // Release / non-DEBUG launch: always run the launch-route decision.
+                // Release / non-DEBUG launch: migrate then run the launch-route decision.
+                await LegacyMigration.migrateIfNeeded()
                 await appState.bootstrap()
                 #endif
 
