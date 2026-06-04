@@ -343,14 +343,23 @@ pub async fn bind_key_handler(
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
     let account_id = uuid::Uuid::parse_str(&account_id_str)
         .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
-    crate::accounts::insert_account_key(pool, account_id, &req.public_key, req.device_label.as_deref())
-        .await
-        .map_err(|e| match e {
-            crate::error::StorageError::Duplicate(_) =>
-                (StatusCode::CONFLICT, "key already bound".into()),
-            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
-        })?;
-    Ok(StatusCode::NO_CONTENT)
+    match crate::accounts::insert_account_key(pool, account_id, &req.public_key, req.device_label.as_deref()).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        // Idempotent: the SAME key already bound to the SAME account (e.g. onboarding
+        // retried on an already-enrolled device) is a no-op, not a conflict. A key bound
+        // to a DIFFERENT account is still a genuine conflict (global unique index).
+        Err(crate::error::StorageError::Duplicate(_)) => {
+            let already_ours = crate::accounts::key_bound_to_account(pool, account_id, &req.public_key)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            if already_ours {
+                Ok(StatusCode::NO_CONTENT)
+            } else {
+                Err((StatusCode::CONFLICT, "key already bound".into()))
+            }
+        }
+        Err(other) => Err((StatusCode::INTERNAL_SERVER_ERROR, other.to_string())),
+    }
 }
 
 /// Resolve the calling account + presented-token hash from the `Authorization: Bearer

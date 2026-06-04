@@ -177,6 +177,26 @@ pub async fn insert_account_key(
     Ok(())
 }
 
+/// True if `public_key` is already bound to *this* `account_id` with an active
+/// (non-revoked) binding. Lets the bind-key handler treat a duplicate insert as
+/// idempotent (same account re-binding its existing device key) rather than a
+/// cross-account conflict.
+pub async fn key_bound_to_account(
+    pool: &PgPool,
+    account_id: uuid::Uuid,
+    public_key: &str,
+) -> Result<bool, StorageError> {
+    let found: Option<i32> = sqlx::query_scalar(
+        "SELECT 1 FROM account_keys \
+         WHERE account_id = $1 AND public_key = $2 AND revoked_at IS NULL",
+    )
+    .bind(account_id)
+    .bind(public_key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(found.is_some())
+}
+
 /// The active (non-revoked) key for an account, if any.
 pub async fn find_active_key(
     pool: &PgPool,
