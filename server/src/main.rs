@@ -19,6 +19,7 @@ mod llm;
 mod identity;
 mod mcp;
 mod persistence;
+mod prod_guard;
 mod protocol;
 mod quota;
 mod relay;
