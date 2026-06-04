@@ -101,6 +101,9 @@ enum SeedLoader {
             for card in fixture.agentCards {
                 try card.asRecord().insert(db)
             }
+            for agent in fixture.savedAgents {
+                try agent.asRecord().insert(db)
+            }
         }
     }
 }

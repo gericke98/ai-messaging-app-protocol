@@ -22,5 +22,19 @@
       "etag": "W/\"test-etag-assistant-01\"",
       "fetchedAt": "2026-04-18T10:00:00.000Z"
     }
+  ],
+  "savedAgents": [
+    {
+      "address": "helper@localhost",
+      "displayName": "Helper",
+      "cardJson": "{\"name\":\"Helper\",\"description\":\"General-purpose assistant agent with streaming, memory, and sub-thread support.\",\"url\":\"https://localhost/.well-known/ainm/agent-card/helper\",\"version\":\"1.0\",\"protocol_version\":\"0.1.0\",\"capabilities\":{\"streaming\":true,\"push_notifications\":false},\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\",\"description\":\"Summarize long-form content into concise highlights.\",\"tags\":[\"text\",\"productivity\"]},{\"id\":\"draft-email\",\"name\":\"Draft Email\",\"description\":\"Compose professional email drafts from bullet-point intent.\",\"tags\":[\"email\",\"productivity\"]}],\"ainm\":{\"protocol_version\":\"0.1.0\",\"content_types\":[\"text\"],\"streaming\":{\"supported\":true,\"parallel_blocks\":false,\"preferred_chunk_size\":\"medium\"},\"threading\":{\"sub_threads\":true,\"max_concurrent_threads\":10},\"memory\":{\"archival_supported\":true,\"context_frame_preferred\":true},\"tools\":[]}}",
+      "addedAt": "2026-04-18T10:00:00.000Z"
+    },
+    {
+      "address": "assistant@localhost",
+      "displayName": "Assistant",
+      "cardJson": "{\"name\":\"Assistant\",\"description\":\"Focused coding-support agent. Answers technical questions and reviews diffs.\",\"url\":\"https://localhost/.well-known/ainm/agent-card/assistant\",\"version\":\"1.0\",\"protocol_version\":\"0.1.0\",\"capabilities\":{\"streaming\":true,\"push_notifications\":false},\"skills\":[{\"id\":\"code-review\",\"name\":\"Code Review\",\"description\":\"Review code changes for style and correctness.\",\"tags\":[\"code\"]},{\"id\":\"explain-code\",\"name\":\"Explain Code\",\"description\":\"Explain unfamiliar source code in plain language.\",\"tags\":[\"code\"]}],\"ainm\":{\"protocol_version\":\"0.1.0\",\"content_types\":[\"text\"],\"streaming\":{\"supported\":true,\"parallel_blocks\":false,\"preferred_chunk_size\":\"medium\"},\"threading\":{\"sub_threads\":false,\"max_concurrent_threads\":1},\"memory\":{\"archival_supported\":false,\"context_frame_preferred\":false},\"tools\":[]}}",
+      "addedAt": "2026-04-18T10:00:01.000Z"
+    }
   ]
 }

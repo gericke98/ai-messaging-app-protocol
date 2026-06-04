@@ -20,6 +20,7 @@ struct ScenarioFixture: Decodable, Sendable {
     let toolCalls: [FixtureToolCall]
     let archivalFacts: [FixtureArchivalFact]
     let agentCards: [FixtureAgentCard]
+    let savedAgents: [FixtureSavedAgent]
 }
 
 // MARK: - Thread
@@ -150,6 +151,25 @@ struct FixtureArchivalFact: Decodable, Sendable {
             tags: tags,
             storedBy: storedBy,
             storedAt: storedAt
+        )
+    }
+}
+
+// MARK: - Saved agent
+
+struct FixtureSavedAgent: Decodable, Sendable {
+    // Mirrors SavedAgentRecord (Persistence/SavedAgentRecord.swift).
+    let address: String
+    let displayName: String
+    let cardJson: String
+    let addedAt: String
+
+    func asRecord() -> SavedAgentRecord {
+        SavedAgentRecord(
+            address: address,
+            displayName: displayName,
+            cardJson: cardJson,
+            addedAt: addedAt
         )
     }
 }

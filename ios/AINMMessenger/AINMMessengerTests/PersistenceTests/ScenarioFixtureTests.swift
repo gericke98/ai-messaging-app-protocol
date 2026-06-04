@@ -50,7 +50,8 @@ struct ScenarioFixtureTests {
           "messages": [],
           "toolCalls": [],
           "archivalFacts": [],
-          "agentCards": []
+          "agentCards": [],
+          "savedAgents": []
         }
         """
         let data = Data(json.utf8)
