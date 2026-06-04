@@ -325,6 +325,7 @@ final class AppState {
         graphStats = nil
         lintResult = nil
         activePresence.removeAll()
+        savedAgents.removeAll()
         presenceCleanupTask?.cancel()
         streamingViewModel = StreamingViewModel()
         toolCallTimeoutTasks.values.forEach { $0.cancel() }
