@@ -1661,9 +1661,19 @@ async fn handle_agent_connection(
     // Track stream_id -> thread_id for federation relay of delta/end events
     let mut stream_thread_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    // Main loop: receive agent messages and forward to human
-    while let Some(Ok(msg)) = ws_receiver.next().await {
-        if let Message::Text(text) = msg {
+    // Main loop: receive agent messages and forward to human, or drain on shutdown.
+    let mut shutdown_rx = state.shutdown.subscribe();
+    if !state.shutdown.is_shutting_down() {
+        loop {
+            tokio::select! {
+                biased;
+                _ = shutdown_rx.changed() => {
+                    tracing::info!("[lifecycle] draining agent connection {from_addr}");
+                    break;
+                }
+                maybe = ws_receiver.next() => {
+                    let Some(Ok(msg)) = maybe else { break; };
+                    if let Message::Text(text) = msg {
             let text_str = text.to_string();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text_str) {
                 let method = parsed
@@ -2184,7 +2194,15 @@ async fn handle_agent_connection(
                     }
                 }
             }
-        }
+                    } // end if let Message::Text
+                } // end maybe arm
+            } // end select!
+        } // end loop
+    } // end if !is_shutting_down
+    // On break, close the socket cleanly so the client sees a Close frame.
+    {
+        let mut sender = ws_sender.lock().await;
+        let _ = sender.send(Message::Close(None)).await;
     }
 
     forward_handle.abort();
@@ -2249,9 +2267,19 @@ async fn handle_human_connection(
         }
     });
 
-    // Main loop: receive human messages
-    while let Some(Ok(msg)) = ws_receiver.next().await {
-        if let Message::Text(text) = msg {
+    // Main loop: receive human messages, or drain on shutdown.
+    let mut shutdown_rx = state.shutdown.subscribe();
+    if !state.shutdown.is_shutting_down() {
+        loop {
+            tokio::select! {
+                biased;
+                _ = shutdown_rx.changed() => {
+                    tracing::info!("[lifecycle] draining human connection {human_addr}");
+                    break;
+                }
+                maybe = ws_receiver.next() => {
+                    let Some(Ok(msg)) = maybe else { break; };
+                    if let Message::Text(text) = msg {
             let text_str = text.to_string();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text_str) {
                 let method = parsed
@@ -2494,7 +2522,7 @@ async fn handle_human_connection(
                                         let tid = msg_thread_id.to_string();
                                         let requester = from.to_string();
                                         let user_text = content_to_plain(&content);
-                                        tokio::spawn(async move {
+                                        state.shutdown.spawn_turn(async move {
                                             crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
                                         });
                                     }
@@ -2522,7 +2550,15 @@ async fn handle_human_connection(
                     }
                 }
             }
-        }
+                    } // end if let Message::Text
+                } // end maybe arm
+            } // end select!
+        } // end loop
+    } // end if !is_shutting_down
+    // On break, close the socket cleanly so the client sees a Close frame.
+    {
+        let mut sender = ws_sender.lock().await;
+        let _ = sender.send(Message::Close(None)).await;
     }
 
     forward_handle.abort();
