@@ -30,6 +30,11 @@ ios/Frameworks/*.xcframework
 # Environment files
 .env
 .env.local
+.env.production
+
+# Runtime data directories (created by --data-dir during local runs)
+/data/
+/server/data/
 .claude/worktrees/
 
 # Phase 14 UAT automation harness runtime output (server log, PID, xcresult bundle)

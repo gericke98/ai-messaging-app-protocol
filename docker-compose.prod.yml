@@ -1,0 +1,66 @@
+# Single-node production deployment: ainm-server + Postgres.
+# Usage: cp .env.production.example .env.production  (fill it in)
+#        docker compose -f docker-compose.prod.yml up --build -d
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: ainm
+      POSTGRES_USER: ainm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - ainm-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ainm"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    env_file:
+      - .env.production
+    environment:
+      AINM_ENV: production
+      RUST_LOG: info
+    volumes:
+      - ./server/certs:/certs:ro
+      - ainm-app-data:/data
+    command:
+      - "--mode"
+      - "human"
+      - "--port"
+      - "8080"
+      - "--federation-port"
+      - "8443"
+      - "--identity"
+      - "${AINM_IDENTITY:-localhost}"
+      - "--cert"
+      - "/certs/localhost.pem"
+      - "--key"
+      - "/certs/localhost-key.pem"
+      - "--ca-cert"
+      - "/certs/ca.pem"
+      - "--data-dir"
+      - "/data"
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  ainm-pg-data:
+  ainm-app-data:
