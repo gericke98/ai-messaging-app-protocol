@@ -10,6 +10,24 @@ actor AgentCardService {
         self.appDatabase = appDatabase
     }
 
+    /// Map a WebSocket server URL scheme to the HTTP scheme used for agent-card fetches.
+    /// `ws → http`, `wss → https`. Defaults to `https` for anything else.
+    static func httpScheme(forServerURL serverURL: String) -> String {
+        let lower = serverURL.lowercased()
+        if lower.hasPrefix("ws://") { return "http" }
+        if lower.hasPrefix("wss://") { return "https" }
+        return "https"
+    }
+
+    /// Build the canonical agent-card URL for an AINM address, matching the SERVER route
+    /// `/.well-known/ainm/{name}/agent-card.json`. Returns nil for a malformed address.
+    static func canonicalCardURL(forAddress address: String, scheme: String) -> String? {
+        let parts = address.components(separatedBy: "@")
+        guard parts.count == 2, !parts[0].isEmpty,
+              let domain = parts.last, !domain.isEmpty else { return nil }
+        return "\(scheme)://\(domain)/.well-known/ainm/\(parts[0])/agent-card.json"
+    }
+
     /// Fetch Agent Card from URL with ETag-based conditional request.
     /// Returns cached version if server returns 304 Not Modified.
     func fetchCard(agentCardURL: String, identity: String) async throws -> AgentCard {
@@ -67,18 +85,18 @@ actor AgentCardService {
         }
     }
 
-    /// Fetch Agent Card by AINM address using identity resolution.
-    /// For v1: constructs the well-known URL from the address domain.
-    func fetchCardByAddress(_ address: String) async throws -> AgentCard {
-        // Extract domain from address (e.g., "agent@server.com" -> "server.com")
-        let parts = address.components(separatedBy: "@")
-        guard parts.count == 2, let domain = parts.last, !domain.isEmpty else {
+    /// Fetch an Agent Card by AINM address using the canonical home-server route.
+    /// `scheme` is derived from the active account's `serverURL` (see `httpScheme(forServerURL:)`).
+    func fetchCard(forAddress address: String, scheme: String) async throws -> AgentCard {
+        guard let cardURL = AgentCardService.canonicalCardURL(forAddress: address, scheme: scheme) else {
             throw AgentCardError.invalidAddress
         }
-        let localPart = parts[0]
-        // Well-known URL pattern: https://{domain}/.well-known/ainm/agents/{local}/agent-card.json
-        let cardURL = "https://\(domain)/.well-known/ainm/agents/\(localPart)/agent-card.json"
         return try await fetchCard(agentCardURL: cardURL, identity: address)
+    }
+
+    @available(*, deprecated, message: "Use fetchCard(forAddress:scheme:) — removed in a later task")
+    func fetchCardByAddress(_ address: String) async throws -> AgentCard {
+        try await fetchCard(forAddress: address, scheme: "https")
     }
 
     enum AgentCardError: Error, LocalizedError {
