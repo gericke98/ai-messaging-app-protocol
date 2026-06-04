@@ -8,6 +8,7 @@ struct ConversationListView: View {
     @State private var viewModel: ConversationListViewModel?
     @State private var showMemoryGraph = false
     @State private var showAssistantChatError = false
+    @State private var showAccountSwitcher = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,6 +22,12 @@ struct ConversationListView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
+                        Button {
+                            showAccountSwitcher = true
+                        } label: {
+                            Image(systemName: "person.crop.circle")
+                                .accessibilityLabel("Accounts")
+                        }
                         Button {
                             showMemoryGraph = true
                         } label: {
@@ -79,6 +86,9 @@ struct ConversationListView: View {
             }
             .sheet(isPresented: $showMemoryGraph) {
                 MemoryGraphView(appState: appState)
+            }
+            .sheet(isPresented: $showAccountSwitcher) {
+                AccountSwitcherView(appState: appState)
             }
     }
 
