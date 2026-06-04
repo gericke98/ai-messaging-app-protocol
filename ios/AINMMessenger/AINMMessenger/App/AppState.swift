@@ -327,6 +327,13 @@ final class AppState {
         return comps.url
     }
 
+    /// The AINM address `username@host` for a signup/recovery, derived from the WS server URL's
+    /// host. Mirrors how `connect()` builds `connectedIdentity`. nil if the URL has no host.
+    private func makeAddress(serverURL: String, username: String) -> String? {
+        guard let host = URL(string: serverURL)?.host else { return nil }
+        return "\(username)@\(host)"
+    }
+
     /// A human-readable label for the bound device key. Optional metadata for the server.
     private func deviceLabelString() -> String? {
         #if canImport(UIKit)
@@ -376,19 +383,19 @@ final class AppState {
         }
     }
 
-    /// Step 2 of signup: bind the device key → enroll the PIN escrow → connect, using the
-    /// already-obtained enrollment token (does NOT re-verify), so it is safe to retry after a
-    /// transient bind/escrow/connect failure without stranding on a consumed OTP.
-    ///
-    /// The bound key and the handshake key are the same (shared `keyManager`), and the identity
-    /// becomes `username@host` because `connect()` reads `displayName`/`serverURL`, which we set
-    /// here. Returns `true` once the enforced handshake succeeds.
     func finishSignup(serverURL: String, username: String, enrollmentToken: String, pin: String, faceIDEnabled: Bool) async -> Bool {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
             return false
         }
+        guard let address = makeAddress(serverURL: serverURL, username: username) else {
+            onboardingError = "Enter a valid server URL."
+            return false
+        }
         onboardingError = nil
+        // Point AppState at THIS account's key slot + DB before generating/binding the key,
+        // so the bound key lands in the new account's slot — not the previously-active one.
+        await activate(address: address)
         let account = AccountService(baseURL: base)
         do {
             let kp = try await keyManager.getOrCreateKeypair()
@@ -399,13 +406,14 @@ final class AppState {
             )
             try await EscrowClient(account: account, keyManager: keyManager)
                 .enrollAndUpload(enrollmentToken: enrollmentToken, pin: pin)
-            // Identity must be username@host to match the server-bound key; set both fields
-            // so connect() builds it correctly, then handshake against the enforced server.
             self.serverURL = serverURL
             self.displayName = username
             await connect()
             if connectionState == .connected {
-                persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+                registry.upsert(AccountSummary(address: address, serverURL: serverURL,
+                                               username: username, faceIDEnabled: faceIDEnabled))
+                registry.setActive(address: address)
+                refreshAccounts()
                 sessionPhase = .active
             }
             return connectionState == .connected
@@ -431,18 +439,18 @@ final class AppState {
         }
     }
 
-    /// Complete recovery: verify the email code → recover the device key with the PIN (one
-    /// OPRF-guarded attempt) → connect. Distinguishes wrong-PIN and escrow-destroyed for UX.
-    ///
-    /// On success the recovered key is restored into the same `keyManager` the handshake uses,
-    /// so the identity (`username@host`, derived by `connect()` from `displayName`/`serverURL`)
-    /// matches the account's server-bound key.
     func completeRecovery(serverURL: String, email: String, username: String, code: String, pin: String, faceIDEnabled: Bool = false) async -> RecoveryOutcome {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
             return .failed
         }
+        guard let address = makeAddress(serverURL: serverURL, username: username) else {
+            onboardingError = "Enter a valid server URL."
+            return .failed
+        }
         onboardingError = nil
+        // Recover INTO this account's slot + DB.
+        await activate(address: address)
         let account = AccountService(baseURL: base)
         do {
             let token = try await account.recoverVerify(email: email, code: code)
@@ -452,7 +460,10 @@ final class AppState {
             self.displayName = username
             await connect()
             if connectionState == .connected {
-                persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+                registry.upsert(AccountSummary(address: address, serverURL: serverURL,
+                                               username: username, faceIDEnabled: faceIDEnabled))
+                registry.setActive(address: address)
+                refreshAccounts()
                 sessionPhase = .active
                 return .connected
             }
