@@ -89,6 +89,38 @@ pub async fn wait_for_shutdown(mut rx: watch::Receiver<bool>) {
     }
 }
 
+/// Spawn a task that triggers `controller` on the first SIGTERM or SIGINT.
+///
+/// Today the server only caught SIGINT (`ctrl_c`) — Docker/orchestrators send
+/// SIGTERM, which had no handler, so the process was killed immediately. This
+/// catches both. Unix only; on other targets it falls back to SIGINT alone
+/// (the production target is Linux).
+pub fn install_signals(controller: ShutdownController) {
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut term = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("[lifecycle] failed to install SIGTERM handler: {e}");
+                    return;
+                }
+            };
+            tokio::select! {
+                _ = term.recv() => tracing::info!("[lifecycle] received SIGTERM; beginning graceful shutdown"),
+                _ = tokio::signal::ctrl_c() => tracing::info!("[lifecycle] received SIGINT; beginning graceful shutdown"),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("[lifecycle] received Ctrl-C; beginning graceful shutdown");
+        }
+        controller.trigger();
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
