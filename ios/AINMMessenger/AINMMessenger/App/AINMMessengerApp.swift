@@ -11,11 +11,13 @@ struct AINMMessengerApp: App {
         WindowGroup {
             NavigationStack {
                 Group {
-                    switch appState.connectionState {
-                    case .connected:
-                        ConversationListView(appState: appState)
-                    default:
+                    switch appState.sessionPhase {
+                    case .onboarding:
                         OnboardingFlowView(appState: appState)
+                    case .locked:
+                        SessionGateView(appState: appState)
+                    case .active:
+                        ConversationListView(appState: appState)
                     }
                 }
             }
@@ -82,6 +84,9 @@ struct AINMMessengerApp: App {
                     appState.connectedIdentity = "uat-user@localhost"
                     appState.serverURL = "ws://127.0.0.1:8080/ws"
                     appState.connectionState = .connected
+                    // Render ConversationListView directly: the seeded UITest path is already
+                    // "connected" with fixture data and must not run the launch-route decision.
+                    appState.sessionPhase = .active
                 }
 
                 // Step 4: TestEventInjector fires scripted ms-offset events (tool-call
@@ -97,6 +102,15 @@ struct AINMMessengerApp: App {
                 if let deepLinkArg, let url = URL(string: deepLinkArg) {
                     handleDeepLink(url)
                 }
+
+                // Normal launch (no UITest seed): decide the launch route. The seed path above
+                // already forced `.active`, so skip bootstrap there.
+                if seedFixture == nil {
+                    await appState.bootstrap()
+                }
+                #else
+                // Release / non-DEBUG launch: always run the launch-route decision.
+                await appState.bootstrap()
                 #endif
 
                 bootstrapComplete = true

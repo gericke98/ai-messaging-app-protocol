@@ -71,6 +71,12 @@ final class AppState {
         case error
     }
 
+    /// Launch route decided by `bootstrap()`. Drives the root view in `AINMMessengerApp`:
+    /// `.onboarding` → OnboardingFlowView, `.locked` → SessionGateView (Face ID unlock),
+    /// `.active` → ConversationListView.
+    enum SessionPhase: Sendable { case onboarding, locked, active }
+    var sessionPhase: SessionPhase = .onboarding
+
     private var client: AINMClient?
     var appDatabase: AppDatabase?
 
@@ -117,6 +123,28 @@ final class AppState {
         if forgetKey { Task { try? await keyManager.deleteKeypair() } }
         Task { await disconnect() }
         connectedIdentity = nil
+        sessionPhase = .onboarding
+    }
+
+    /// Decide the launch route. Called once after `setup()`. Resume requires BOTH a persisted
+    /// routing identity (server URL + username) and a stored device key in the Keychain — a
+    /// persisted identity without its key cannot reconnect (the enforced handshake would fail),
+    /// so we fall back to onboarding. The Face-ID gate (SessionGateView) applies only when the
+    /// user opted into `faceIDEnabled`; otherwise we connect immediately.
+    func bootstrap() async {
+        guard let url = persistedServerURL, let user = persistedUsername,
+              await keyManager.hasStoredKeypair() else {
+            sessionPhase = .onboarding
+            return
+        }
+        serverURL = url
+        displayName = user
+        if faceIDEnabled {
+            sessionPhase = .locked            // SessionGateView runs Face ID then connects
+        } else {
+            sessionPhase = .active
+            await connect()
+        }
     }
 
     /// Initialize the database and protocol client.
@@ -306,6 +334,7 @@ final class AppState {
             await connect()
             if connectionState == .connected {
                 persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+                sessionPhase = .active
             }
             return connectionState == .connected
         } catch {
@@ -352,6 +381,7 @@ final class AppState {
             await connect()
             if connectionState == .connected {
                 persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+                sessionPhase = .active
                 return .connected
             }
             return .failed
