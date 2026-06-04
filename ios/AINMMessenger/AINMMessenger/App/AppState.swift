@@ -306,8 +306,8 @@ final class AppState {
     }
 
     /// Trigger the signup email (sends the verification code). Separate from
-    /// ``completeSignup(serverURL:email:username:code:pin:)`` so the UI can advance to the
-    /// code-entry step before the user has a code.
+    /// ``verifyCode(serverURL:email:code:)`` / ``finishSignup(serverURL:username:enrollmentToken:pin:faceIDEnabled:)``
+    /// so the UI can advance to the code-entry step before the user has a code.
     func startSignup(serverURL: String, email: String, username: String) async -> Bool {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
@@ -323,11 +323,31 @@ final class AppState {
         }
     }
 
-    /// Complete signup: verify the email code → bind the device key → enroll the PIN escrow →
-    /// connect. The bound key and the handshake key are the same (shared `keyManager`), and
-    /// the identity becomes `username@host` because `connect()` reads `displayName`/`serverURL`,
-    /// which we set here. Returns `true` once the enforced handshake succeeds.
-    func completeSignup(serverURL: String, email: String, username: String, code: String, pin: String, faceIDEnabled: Bool = false) async -> Bool {
+    /// Step 1 of signup: verify the email OTP (consumes it once) and return the enrollment token.
+    /// Returns `nil` and sets `onboardingError` on failure. This is the ONLY step that consumes
+    /// the code, so it must run exactly once — `finishSignup` reuses the returned token.
+    func verifyCode(serverURL: String, email: String, code: String) async -> String? {
+        guard let base = restBaseURL(from: serverURL) else {
+            onboardingError = "Enter a valid server URL."
+            return nil
+        }
+        onboardingError = nil
+        do {
+            return try await AccountService(baseURL: base).verify(email: email, code: code)
+        } catch {
+            onboardingError = onboardingMessage(for: error)
+            return nil
+        }
+    }
+
+    /// Step 2 of signup: bind the device key → enroll the PIN escrow → connect, using the
+    /// already-obtained enrollment token (does NOT re-verify), so it is safe to retry after a
+    /// transient bind/escrow/connect failure without stranding on a consumed OTP.
+    ///
+    /// The bound key and the handshake key are the same (shared `keyManager`), and the identity
+    /// becomes `username@host` because `connect()` reads `displayName`/`serverURL`, which we set
+    /// here. Returns `true` once the enforced handshake succeeds.
+    func finishSignup(serverURL: String, username: String, enrollmentToken: String, pin: String, faceIDEnabled: Bool) async -> Bool {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
             return false
@@ -335,15 +355,14 @@ final class AppState {
         onboardingError = nil
         let account = AccountService(baseURL: base)
         do {
-            let token = try await account.verify(email: email, code: code)
             let kp = try await keyManager.getOrCreateKeypair()
             try await account.bindKey(
-                enrollmentToken: token,
+                enrollmentToken: enrollmentToken,
                 publicKeyB64: kp.publicKeyBase64url,
                 deviceLabel: deviceLabelString()
             )
             try await EscrowClient(account: account, keyManager: keyManager)
-                .enrollAndUpload(enrollmentToken: token, pin: pin)
+                .enrollAndUpload(enrollmentToken: enrollmentToken, pin: pin)
             // Identity must be username@host to match the server-bound key; set both fields
             // so connect() builds it correctly, then handshake against the enforced server.
             self.serverURL = serverURL

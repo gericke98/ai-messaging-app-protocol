@@ -2,11 +2,15 @@ import SwiftUI
 
 /// Multi-step account signup flow.
 ///
-/// Drives the create-account lifecycle that `AppState.startSignup` / `completeSignup`
-/// orchestrate: collect server + identity, send a verification email, enter the code,
-/// set a recovery PIN, optionally gate behind Face ID, then run the
-/// verify → bind key → enroll escrow → connect pipeline. On success the root view
-/// observes `appState.connectionState == .connected` and swaps to the conversation list.
+/// Drives the create-account lifecycle that `AppState.startSignup` / `verifyCode` /
+/// `finishSignup` orchestrate: collect server + identity, send a verification email,
+/// enter the code (verified immediately — consuming the OTP once and holding the returned
+/// enrollment token), set a recovery PIN, optionally gate behind Face ID, then run the
+/// bind key → enroll escrow → connect pipeline against the held token. On success the root
+/// view observes `appState.connectionState == .connected` and swaps to the conversation list.
+///
+/// Verify is split out from bind/connect so a transient bind/escrow/connect failure retries
+/// against the already-held token (never re-verifying the consumed OTP, which would 401).
 ///
 /// Identity correctness: the WebSocket handshake builds `username@<host-of-serverURL>`
 /// and the server bound the account to `username@<server_domain>`. The two must match,
@@ -28,8 +32,10 @@ struct OnboardingFlowView: View {
     @State private var email: String = ""
     @State private var username: String = ""
     @State private var code: String = ""
+    @State private var enrollmentToken: String = ""
     @State private var pin: String = ""
     @State private var confirmPin: String = ""
+    @State private var faceIDChoice: Bool = false
     @State private var showRecovery = false
     @State private var busy = false
 
@@ -131,11 +137,24 @@ struct OnboardingFlowView: View {
                 .textContentType(.oneTimeCode)
         }
         Section {
-            Button("Continue") {
-                appState.onboardingError = nil
-                step = .pin
+            Button {
+                Task {
+                    busy = true
+                    // Verify (and CONSUME) the OTP exactly once here; hold the enrollment
+                    // token so later bind/escrow/connect retries never re-verify.
+                    if let token = await appState.verifyCode(
+                        serverURL: serverURL, email: email, code: code) {
+                        enrollmentToken = token
+                        step = .pin
+                    }
+                    // On failure we stay on `.code` (code wrong/expired — the only legitimate
+                    // reason to stay here); appState.onboardingError carries the reason.
+                    busy = false
+                }
+            } label: {
+                stepLabel("Continue")
             }
-            .disabled(code.count < 6)
+            .disabled(code.count < 6 || busy)
 
             Button("Back") { step = .identity }
         }
@@ -178,10 +197,14 @@ struct OnboardingFlowView: View {
                 Task {
                     // Best-effort: failure or unavailability is non-fatal — proceed either way.
                     try? await BiometricManager.authenticate(reason: "Confirm it's you")
+                    faceIDChoice = true
                     step = .working
                 }
             }
-            Button("Skip for now") { step = .working }
+            Button("Skip for now") {
+                faceIDChoice = false
+                step = .working
+            }
             Button("Back") { step = .pin }
         }
     }
@@ -194,17 +217,18 @@ struct OnboardingFlowView: View {
             }
         }
         .task {
-            let ok = await appState.completeSignup(
+            let ok = await appState.finishSignup(
                 serverURL: serverURL,
-                email: email,
                 username: username,
-                code: code,
-                pin: pin
+                enrollmentToken: enrollmentToken,
+                pin: pin,
+                faceIDEnabled: faceIDChoice
             )
             // On success the root view swaps to ConversationListView automatically.
-            // On failure, return to the code step so the user can correct and retry;
-            // appState.onboardingError carries the reason.
-            if !ok { step = .code }
+            // On failure, return to the Face ID step (which leads back to `.working`) so the
+            // user retries bind/escrow/connect — NEVER `.code`, since the OTP was already
+            // consumed by verifyCode and re-verifying it would 401. onboardingError has the reason.
+            if !ok { step = .faceID }
         }
     }
 
