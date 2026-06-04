@@ -67,10 +67,15 @@ struct AINMMessengerApp: App {
                 if seedFixture != nil {
                     try? SeedLoader.preparePristineDatabase()
                     try? await UITestIdentityBootstrap.resetIdentity()
+                    // Seed/UITest path ONLY: open the legacy makeDefault DB + client up front so
+                    // fixtures load and the forced-`.active` render works. Normal launches must NOT
+                    // call setup() — they go migrate → bootstrap → activate(address:), which opens the
+                    // per-account DB (or none, when onboarding). Calling setup() unconditionally would
+                    // (a) create a stray legacy ainm.sqlite on every launch and (b) hold that DB open
+                    // via a GRDB pool while LegacyMigration renames it on upgrade — unsafe.
+                    try? appState.setup()
                 }
                 #endif
-
-                try? appState.setup()
 
                 #if DEBUG
                 // Step 3: Load fixture rows into GRDB after pool is open (Plan 14-03).
