@@ -658,7 +658,11 @@ actor AINMClient {
     private func handleMessageDelivery(_ params: [String: Any]) async {
         // Write-through pattern: persist to GRDB first, then UI observes GRDB
         do {
-            let paramsData = try JSONSerialization.data(withJSONObject: params)
+            // The server wraps the envelope: params = { "message": {…}, "verified": bool }.
+            // Decode the inner `message`; fall back to `params` for any path that delivers
+            // the envelope directly.
+            let envelopeObj = (params["message"] as? [String: Any]) ?? params
+            let paramsData = try JSONSerialization.data(withJSONObject: envelopeObj)
             let envelope = try JSONDecoder().decode(MessageEnvelope.self, from: paramsData)
             // Clear typing indicator when participant sends a message
             onMessageDelivered?(envelope.from)
