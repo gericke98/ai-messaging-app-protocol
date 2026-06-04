@@ -1122,6 +1122,9 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 Ok(()) => tracing::info!("[agent] drained cleanly"),
                 Err(_) => tracing::warn!("[agent] drain deadline exceeded; forcing shutdown"),
             }
+            // Stop the WS + federation listeners after the drain (parity with the human arm).
+            server_handle.abort();
+            fed_handle.abort();
         }
         _ => unreachable!(),
     }
