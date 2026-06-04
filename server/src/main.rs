@@ -831,6 +831,13 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 // Interactive: run the REPL; when it exits, tear down the server.
                 let repl_result =
                     repl::run(server_addr, local_identity, identity_store.clone()).await;
+                // Drain in-flight turns before teardown (parity with the headless path).
+                controller.trigger();
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(drain_secs),
+                    controller.wait_idle(),
+                )
+                .await;
                 server_handle.abort();
                 fed_handle.abort();
                 if let Err(e) = repl_result {

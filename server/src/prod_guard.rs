@@ -31,8 +31,10 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
 
     match get("AINM_LLM_ENCRYPTION_KEY") {
         Some(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-            Ok(bytes) if !bytes.is_empty() => {}
-            Ok(_) => problems.push("AINM_LLM_ENCRYPTION_KEY decoded to empty bytes".to_string()),
+            Ok(bytes) if bytes.len() >= 32 => {}
+            Ok(_) => problems.push(
+                "AINM_LLM_ENCRYPTION_KEY must decode to at least 32 bytes (use: openssl rand -base64 32)".to_string(),
+            ),
             Err(_) => problems.push("AINM_LLM_ENCRYPTION_KEY must be valid base64".to_string()),
         },
         None => problems.push("AINM_LLM_ENCRYPTION_KEY is required in production".to_string()),
@@ -42,7 +44,13 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
         problems.push("AINM_DATABASE__URL is required in production".to_string());
     }
 
-    if matches!(get("AINM_LLM__MOCK").as_deref(), Some("1") | Some("true")) {
+    if get("AINM_LLM__MOCK")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        })
+        .unwrap_or(false)
+    {
         problems.push("AINM_LLM__MOCK must not be set in production".to_string());
     }
 
@@ -69,7 +77,11 @@ mod tests {
     fn good() -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("AINM_TOKEN_SECRET".into(), "x".repeat(32));
-        m.insert("AINM_LLM_ENCRYPTION_KEY".into(), "aGVsbG8gd29ybGQ=".into()); // valid base64
+        // 32-byte key, base64 — satisfies the >= 32-byte minimum.
+        m.insert(
+            "AINM_LLM_ENCRYPTION_KEY".into(),
+            base64::engine::general_purpose::STANDARD.encode([0u8; 32]),
+        );
         m.insert("AINM_DATABASE__URL".into(), "postgres://u@h/db".into());
         m.insert("AINM_EMAIL__RESEND_API_KEY".into(), "re_123".into());
         m.insert("AINM_EMAIL__FROM".into(), "noreply@example.com".into());
@@ -107,6 +119,26 @@ mod tests {
         m.insert("AINM_LLM_ENCRYPTION_KEY".into(), "not valid base64!!!".into());
         let err = validate_with(&getter(m)).unwrap_err();
         assert!(err.iter().any(|p| p.contains("AINM_LLM_ENCRYPTION_KEY")));
+    }
+
+    #[test]
+    fn short_encryption_key_is_reported() {
+        let mut m = good();
+        // valid base64 but only 5 decoded bytes — below the 32-byte minimum.
+        m.insert(
+            "AINM_LLM_ENCRYPTION_KEY".into(),
+            base64::engine::general_purpose::STANDARD.encode([0u8; 5]),
+        );
+        let err = validate_with(&getter(m)).unwrap_err();
+        assert!(err.iter().any(|p| p.contains("AINM_LLM_ENCRYPTION_KEY")));
+    }
+
+    #[test]
+    fn mock_llm_case_insensitive_rejected() {
+        let mut m = good();
+        m.insert("AINM_LLM__MOCK".into(), "True".into());
+        let err = validate_with(&getter(m)).unwrap_err();
+        assert!(err.iter().any(|p| p.contains("AINM_LLM__MOCK")));
     }
 
     #[test]
