@@ -78,8 +78,9 @@ struct AccountRegistry: @unchecked Sendable {
     }
 
     private func persist(_ list: [AccountSummary]) {
-        if let data = try? JSONEncoder().encode(list) {
-            defaults.set(data, forKey: Self.accountsKey)
-        }
+        // AccountSummary is trivially Codable, so encoding cannot fail; force-try so a
+        // future non-Codable field surfaces as a crash instead of silent data loss.
+        let data = try! JSONEncoder().encode(list)
+        defaults.set(data, forKey: Self.accountsKey)
     }
 }
