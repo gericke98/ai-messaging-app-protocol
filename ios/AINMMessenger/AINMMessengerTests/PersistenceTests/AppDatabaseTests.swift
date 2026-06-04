@@ -252,4 +252,39 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertEqual(record.signature, "base64url-sig")
         XCTAssertTrue(record.contentJson.contains("Hello world"))
     }
+
+    // MARK: - Per-Account Database Files (multi-account)
+
+    func testDbFileNameIsDeterministicAndDistinct() {
+        let a1 = AppDatabase.dbFileName(forAccount: "alice@localhost")
+        let a2 = AppDatabase.dbFileName(forAccount: "alice@localhost")
+        let b = AppDatabase.dbFileName(forAccount: "bob@localhost")
+
+        // Deterministic for the same address.
+        XCTAssertEqual(a1, a2)
+        // Distinct addresses → distinct files.
+        XCTAssertNotEqual(a1, b)
+        // Filesystem-safe: no '@' or '.' before the extension, has the ainm- prefix + .sqlite.
+        XCTAssertTrue(a1.hasPrefix("ainm-"))
+        XCTAssertTrue(a1.hasSuffix(".sqlite"))
+        let stem = String(a1.dropLast(".sqlite".count))
+        XCTAssertFalse(stem.contains("@"))
+        XCTAssertFalse(stem.contains("."))
+    }
+
+    func testMakeForAccountYieldsWorkingMigratedSchema() throws {
+        // Use a unique address so the file is fresh; clean it up after.
+        let address = "schema-\(UUID().uuidString)@localhost"
+        let url = try AppDatabase.dbURL(forAccount: address)
+        defer {
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(atPath: url.path + suffix)
+            }
+        }
+        let db = try AppDatabase.make(forAccount: address)
+        try db.dbPool.read { db in
+            XCTAssertTrue(try db.tableExists("thread"))
+            XCTAssertTrue(try db.tableExists("message"))
+        }
+    }
 }

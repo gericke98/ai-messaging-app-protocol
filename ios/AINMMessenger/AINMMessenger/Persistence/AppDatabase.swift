@@ -1,5 +1,6 @@
 import GRDB
 import Foundation
+import CryptoKit
 
 /// Central database access point for the AINM Messenger app.
 /// Uses GRDB DatabasePool for concurrent reads with serialized writes.
@@ -31,6 +32,38 @@ struct AppDatabase: Sendable {
         let tempDir = NSTemporaryDirectory()
         let dbPath = (tempDir as NSString).appendingPathComponent("ainm-test-\(UUID().uuidString).sqlite")
         let dbPool = try DatabasePool(path: dbPath)
+        let db = AppDatabase(dbPool: dbPool)
+        try db.migrate()
+        return db
+    }
+
+    // MARK: - Per-Account Files
+
+    /// Deterministic, filesystem-safe DB file name for an AINM address.
+    /// Sanitizes non-alphanumerics to `_` and appends a short SHA-256 prefix so two
+    /// addresses that sanitize to the same stem (e.g. `a.b@h` vs `a_b@h`) never collide.
+    static func dbFileName(forAccount address: String) -> String {
+        let sanitized = String(address.map { ($0.isLetter || $0.isNumber) ? $0 : "_" })
+        let digest = SHA256.hash(data: Data(address.utf8))
+        let shortHash = digest.prefix(4).map { String(format: "%02x", $0) }.joined() // 8 hex chars
+        return "ainm-\(sanitized)-\(shortHash).sqlite"
+    }
+
+    /// Application Support URL for an account's DB file (creates the directory if needed).
+    static func dbURL(forAccount address: String) throws -> URL {
+        let appSupportURL = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return appSupportURL.appendingPathComponent(dbFileName(forAccount: address))
+    }
+
+    /// Open (or create) the per-account database and run all migrations.
+    static func make(forAccount address: String) throws -> AppDatabase {
+        let dbURL = try dbURL(forAccount: address)
+        let dbPool = try DatabasePool(path: dbURL.path)
         let db = AppDatabase(dbPool: dbPool)
         try db.migrate()
         return db
