@@ -51,6 +51,30 @@ struct KeyManagerTests {
         #expect(original.publicKey.rawRepresentation != regenerated.publicKey.rawRepresentation)
     }
 
+    // MARK: - Existence Check (non-creating)
+
+    @Test("hasStoredKeypair reflects presence without creating a key")
+    func testHasStoredKeypairLifecycle() async throws {
+        let storage = KeyManager.InMemoryStorage()
+        let manager = KeyManager(storage: storage)
+
+        // Fresh manager: no key stored yet.
+        let before = await manager.hasStoredKeypair()
+        #expect(before == false)
+        // Crucially, the check must NOT have created a key.
+        #expect(try storage.load() == nil)
+
+        // After creating: present.
+        _ = try await manager.getOrCreateKeypair()
+        let afterCreate = await manager.hasStoredKeypair()
+        #expect(afterCreate == true)
+
+        // After delete: absent again.
+        try await manager.deleteKeypair()
+        let afterDelete = await manager.hasStoredKeypair()
+        #expect(afterDelete == false)
+    }
+
     // MARK: - Base64url Format
 
     @Test("Public key base64url has correct format: no +, /, = and length 43")

@@ -183,6 +183,15 @@ actor KeyManager {
         try storage.save(rawPrivateKey)
     }
 
+    /// Whether a keypair is already stored, WITHOUT creating one.
+    ///
+    /// Unlike `getOrCreateKeypair()`, this is a pure read: it never generates or persists
+    /// a key. Used by launch routing to decide between enrollment and the signed-in path.
+    /// A storage load error is treated as "not present".
+    func hasStoredKeypair() -> Bool {
+        ((try? storage.load()) ?? nil) != nil
+    }
+
     /// Delete stored keypair (for key rotation or testing).
     func deleteKeypair() throws {
         try storage.delete()
