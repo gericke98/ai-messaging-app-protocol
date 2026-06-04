@@ -94,11 +94,6 @@ actor AgentCardService {
         return try await fetchCard(agentCardURL: cardURL, identity: address)
     }
 
-    @available(*, deprecated, message: "Use fetchCard(forAddress:scheme:) — removed in a later task")
-    func fetchCardByAddress(_ address: String) async throws -> AgentCard {
-        try await fetchCard(forAddress: address, scheme: "https")
-    }
-
     enum AgentCardError: Error, LocalizedError {
         case invalidURL
         case invalidResponse
