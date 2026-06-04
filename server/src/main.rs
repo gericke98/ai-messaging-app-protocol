@@ -584,6 +584,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         remote_cache: remote_cache.clone(),
     };
 
+    let controller = crate::lifecycle::ShutdownController::new();
     let (server_addr, server_handle) = server::start_federation(
         identity_store.clone(),
         agent_card.clone(),
@@ -600,6 +601,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         mcp_providers,
         cred_cipher,
         quota_config,
+        controller.clone(),
     )
     .await?;
 

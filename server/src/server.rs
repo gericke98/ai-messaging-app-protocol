@@ -259,6 +259,9 @@ pub struct ServerState {
     pub mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
     pub cred_cipher: Option<std::sync::Arc<crate::credentials::CredCipher>>,
     pub quota: crate::config::QuotaConfig,
+    /// Graceful-shutdown coordinator. Default (never triggered) for legacy/UAT start paths;
+    /// the real one is threaded in by `run_federation` for the production listener.
+    pub shutdown: crate::lifecycle::ShutdownController,
 }
 
 // --- Account REST handlers (signup / verify / bind-key) ---
@@ -769,8 +772,10 @@ pub async fn start(
         mcp_providers: std::sync::Arc::new(vec![]),
         cred_cipher: None,
         quota: crate::config::QuotaConfig::default(),
+        shutdown: crate::lifecycle::ShutdownController::new(),
     };
 
+    let shutdown_rx = state.shutdown.subscribe();
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
@@ -798,7 +803,10 @@ pub async fn start(
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.ok();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(crate::lifecycle::wait_for_shutdown(shutdown_rx))
+            .await
+            .ok();
     });
 
     Ok((addr, handle))
@@ -840,8 +848,10 @@ pub async fn start_with_port(
         mcp_providers: std::sync::Arc::new(vec![]),
         cred_cipher: None,
         quota: crate::config::QuotaConfig::default(),
+        shutdown: crate::lifecycle::ShutdownController::new(),
     };
 
+    let shutdown_rx = state.shutdown.subscribe();
     let app = Router::new()
         .route("/ws", get(ws_upgrade_handler))
         .route(
@@ -871,7 +881,10 @@ pub async fn start_with_port(
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.ok();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(crate::lifecycle::wait_for_shutdown(shutdown_rx))
+            .await
+            .ok();
     });
 
     Ok((addr, handle))
@@ -897,9 +910,11 @@ pub async fn start_federation(
     mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
     cred_cipher: Option<std::sync::Arc<crate::credentials::CredCipher>>,
     quota: crate::config::QuotaConfig,
+    shutdown: crate::lifecycle::ShutdownController,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
+    let shutdown_rx = shutdown.subscribe();
     let state = ServerState {
         identity_store,
         agent_card,
@@ -920,6 +935,7 @@ pub async fn start_federation(
         mcp_providers,
         cred_cipher,
         quota,
+        shutdown: shutdown.clone(),
     };
 
     let app = Router::new()
@@ -952,7 +968,10 @@ pub async fn start_federation(
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.ok();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(crate::lifecycle::wait_for_shutdown(shutdown_rx))
+            .await
+            .ok();
     });
 
     Ok((addr, handle))
