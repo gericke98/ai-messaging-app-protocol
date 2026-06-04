@@ -241,6 +241,9 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         .with_max_level(tracing::Level::INFO)
         .init();
 
+    let controller = crate::lifecycle::ShutdownController::new();
+    crate::lifecycle::install_signals(controller.clone());
+
     // 1. Validate required flags
     let server_id = cli.identity.as_deref().unwrap_or_else(|| {
         eprintln!("Error: --identity is required in federation mode");
@@ -584,7 +587,6 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         remote_cache: remote_cache.clone(),
     };
 
-    let controller = crate::lifecycle::ShutdownController::new();
     let (server_addr, server_handle) = server::start_federation(
         identity_store.clone(),
         agent_card.clone(),
@@ -797,6 +799,13 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     println!("========================================");
     println!();
 
+    // Graceful-shutdown drain budget (seconds). Keep below the container stop_grace_period
+    // so the orchestrator does not SIGKILL mid-drain.
+    let drain_secs: u64 = std::env::var("AINM_SHUTDOWN_DRAIN_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(25);
+
     // 14. Mode branching
     match mode.as_str() {
         "human" => {
@@ -825,10 +834,20 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 tokio::select! {
                     res = server_handle => {
                         if let Err(e) = res { tracing::error!("[human] server task ended: {e}"); }
+                        controller.trigger();
                     }
-                    _ = tokio::signal::ctrl_c() => {
-                        tracing::info!("[human] received Ctrl-C/SIGINT; shutting down");
+                    _ = crate::lifecycle::wait_for_shutdown(controller.subscribe()) => {
+                        tracing::info!("[human] shutdown signal; draining in-flight turns (deadline {drain_secs}s)");
                     }
+                }
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(drain_secs),
+                    controller.wait_idle(),
+                )
+                .await
+                {
+                    Ok(()) => tracing::info!("[human] drained cleanly"),
+                    Err(_) => tracing::warn!("[human] drain deadline exceeded; forcing shutdown"),
                 }
                 fed_handle.abort();
             }
@@ -841,7 +860,15 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
             );
             let mut delivery_rx = local_delivery_tx.subscribe();
             loop {
-                match delivery_rx.recv().await {
+                let recv = tokio::select! {
+                    biased;
+                    _ = crate::lifecycle::wait_for_shutdown(controller.subscribe()) => {
+                        tracing::info!("[agent] shutdown signal; draining in-flight turns (deadline {drain_secs}s)");
+                        break;
+                    }
+                    r = delivery_rx.recv() => r,
+                };
+                match recv {
                     Ok(msg_text) => {
                         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg_text) {
                             let method = parsed
@@ -1072,6 +1099,16 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                         break;
                     }
                 }
+            }
+            // Bounded drain: let any in-flight turns finish before exit.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(drain_secs),
+                controller.wait_idle(),
+            )
+            .await
+            {
+                Ok(()) => tracing::info!("[agent] drained cleanly"),
+                Err(_) => tracing::warn!("[agent] drain deadline exceeded; forcing shutdown"),
             }
         }
         _ => unreachable!(),
