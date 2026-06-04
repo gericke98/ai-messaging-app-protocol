@@ -1,0 +1,14 @@
+target/
+**/target/
+ios/
+website/
+packages/
+**/node_modules/
+**/dist/
+.git/
+.github/
+tmp/
+.planning/
+docs/
+*.log
+.DS_Store
