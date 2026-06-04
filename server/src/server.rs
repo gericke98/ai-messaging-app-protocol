@@ -982,12 +982,26 @@ pub async fn start_federation(
 
 /// The agent card this server publishes for `agent_name`, or `None` (→ 404).
 ///
-/// The static `state.agent_card` is published only when its own declared address local-part
-/// matches the requested `agent_name`. A null / identity-less card publishes nothing, so every
-/// name 404s. This keeps the well-known route from returning the hosted card under an arbitrary
-/// (typo'd or not-yet-connected) agent name. Per-agent card publishing for live connector
-/// agents is a separate, larger change and is intentionally NOT handled here.
+/// Resolution order:
+/// 1. **Hosted assistant:** if a hosted agent is provisioned and its address local-part
+///    matches `agent_name`, serve its freshly built canonical card.
+/// 2. **Static card:** the static `state.agent_card` is published only when its own declared
+///    address local-part matches `agent_name`.
+///
+/// A null / identity-less card with no matching hosted agent publishes nothing, so every name
+/// 404s. This keeps the well-known route from returning a card under an arbitrary (typo'd or
+/// not-yet-connected) agent name. Per-agent card publishing for live connector agents is a
+/// separate, larger change and is intentionally NOT handled here.
 fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_json::Value> {
+    // (1) Hosted assistant: build its canonical card on demand.
+    if let Some(agent) = &state.hosted_agent {
+        let local = agent.address.split('@').next().unwrap_or("");
+        if !local.is_empty() && local == agent_name {
+            return Some(crate::agent_card::build_assistant_card(&agent.address));
+        }
+    }
+
+    // (2) Static card: serve only under its own declared identity.
     let card = &state.agent_card;
     let addr = card
         .get("address")
