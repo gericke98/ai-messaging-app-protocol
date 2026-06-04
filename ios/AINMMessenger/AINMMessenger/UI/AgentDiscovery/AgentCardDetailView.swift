@@ -158,15 +158,9 @@ struct AgentCardDetailView: View {
     private var startConversationButton: some View {
         Button {
             Task {
-                do {
-                    let threadId = try await appState.createThread(
-                        title: "Chat with \(card.name)",
-                        firstMessageText: "Started a conversation with \(card.name)"
-                    )
+                if let threadId = await appState.startThread(withAgent: identity) {
                     appState.selectedThreadId = threadId
                     dismiss()
-                } catch {
-                    // Handle error silently for now; thread creation failure is rare
                 }
             }
         } label: {
