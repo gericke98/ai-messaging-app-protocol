@@ -13,36 +13,7 @@ struct AccountSwitcherView: View {
             List {
                 Section("Accounts") {
                     ForEach(appState.accounts) { account in
-                        Button {
-                            guard account.address != appState.activeAccount?.address else {
-                                dismiss(); return
-                            }
-                            Task {
-                                await appState.switchAccount(to: account.address)
-                                dismiss()
-                            }
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(account.username).font(.body)
-                                    Text(account.address).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if account.address == appState.activeAccount?.address {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(Color.accentColor)
-                                        .accessibilityLabel("Active account")
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                pendingRemoval = account
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
-                        }
+                        accountRow(account)
                     }
                 }
                 Section {
@@ -83,6 +54,40 @@ struct AccountSwitcherView: View {
                 Text("This deletes its key and local conversations on this device. The account itself is not deleted from the server.")
             }
             .onAppear { appState.refreshAccounts() }
+        }
+    }
+
+    @ViewBuilder
+    private func accountRow(_ account: AccountSummary) -> some View {
+        Button {
+            guard account.address != appState.activeAccount?.address else {
+                dismiss(); return
+            }
+            Task {
+                await appState.switchAccount(to: account.address)
+                dismiss()
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.username).font(.body)
+                    Text(account.address).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if account.address == appState.activeAccount?.address {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityLabel("Active account")
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .swipeActions {
+            Button(role: .destructive) {
+                pendingRemoval = account
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
         }
     }
 }
