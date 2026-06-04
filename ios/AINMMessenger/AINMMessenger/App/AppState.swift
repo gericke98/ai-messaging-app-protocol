@@ -630,8 +630,7 @@ final class AppState {
             if let cardURL = parsed.directCardURL {
                 card = try await service.fetchCard(agentCardURL: cardURL, identity: parsed.address)
             } else {
-                let scheme = AgentCardService.httpScheme(forServerURL: serverURL)
-                card = try await service.fetchCard(forAddress: parsed.address, scheme: scheme)
+                card = try await service.fetchCard(forAddress: parsed.address, serverURL: serverURL)
             }
             return .success(ResolvedAgent(address: parsed.address, card: card))
         } catch {

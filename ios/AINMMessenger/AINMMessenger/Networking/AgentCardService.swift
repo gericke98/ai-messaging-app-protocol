@@ -19,13 +19,19 @@ actor AgentCardService {
         return "https"
     }
 
-    /// Build the canonical agent-card URL for an AINM address, matching the SERVER route
-    /// `/.well-known/ainm/{name}/agent-card.json`. Returns nil for a malformed address.
-    static func canonicalCardURL(forAddress address: String, scheme: String) -> String? {
+    /// Build the canonical agent-card URL for a home-server agent. The agent NAME comes from
+    /// the address local-part; the scheme, host, AND PORT come from the active account's
+    /// `serverURL` — AINM addresses are port-less (`name@host`), but the home server may listen
+    /// on a non-standard port (e.g. `ws://localhost:8080`), so the port must come from serverURL.
+    /// Returns nil for a malformed address or serverURL.
+    static func canonicalCardURL(forAddress address: String, serverURL: String) -> String? {
         let parts = address.components(separatedBy: "@")
-        guard parts.count == 2, !parts[0].isEmpty,
-              let domain = parts.last, !domain.isEmpty else { return nil }
-        return "\(scheme)://\(domain)/.well-known/ainm/\(parts[0])/agent-card.json"
+        guard parts.count == 2, !parts[0].isEmpty, !(parts.last ?? "").isEmpty else { return nil }
+        guard let comps = URLComponents(string: serverURL), let host = comps.host, !host.isEmpty else { return nil }
+        let scheme = httpScheme(forServerURL: serverURL)
+        var base = "\(scheme)://\(host)"
+        if let port = comps.port { base += ":\(port)" }
+        return base + "/.well-known/ainm/\(parts[0])/agent-card.json"
     }
 
     /// Fetch Agent Card from URL with ETag-based conditional request.
@@ -74,21 +80,10 @@ actor AgentCardService {
         return card
     }
 
-    /// Load all cached agent cards from GRDB.
-    func loadCachedCards() async throws -> [(identity: String, card: AgentCard)] {
-        let records = try await appDatabase.dbPool.read { db in
-            try AgentCardRecord.fetchAll(db)
-        }
-        return records.compactMap { record in
-            guard let card = record.agentCard() else { return nil }
-            return (identity: record.identity, card: card)
-        }
-    }
-
-    /// Fetch an Agent Card by AINM address using the canonical home-server route.
-    /// `scheme` is derived from the active account's `serverURL` (see `httpScheme(forServerURL:)`).
-    func fetchCard(forAddress address: String, scheme: String) async throws -> AgentCard {
-        guard let cardURL = AgentCardService.canonicalCardURL(forAddress: address, scheme: scheme) else {
+    /// Fetch an Agent Card by AINM address using the canonical home-server route, deriving
+    /// scheme/host/port from the active account's `serverURL`.
+    func fetchCard(forAddress address: String, serverURL: String) async throws -> AgentCard {
+        guard let cardURL = AgentCardService.canonicalCardURL(forAddress: address, serverURL: serverURL) else {
             throw AgentCardError.invalidAddress
         }
         return try await fetchCard(agentCardURL: cardURL, identity: address)
