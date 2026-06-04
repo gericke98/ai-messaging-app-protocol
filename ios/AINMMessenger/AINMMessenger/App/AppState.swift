@@ -136,20 +136,26 @@ final class AppState {
         sessionPhase = .onboarding
     }
 
-    /// Decide the launch route. Called once after `setup()`. Resume requires BOTH a persisted
-    /// routing identity (server URL + username) and a stored device key in the Keychain — a
-    /// persisted identity without its key cannot reconnect (the enforced handshake would fail),
-    /// so we fall back to onboarding. The Face-ID gate (SessionGateView) applies only when the
-    /// user opted into `faceIDEnabled`; otherwise we connect immediately.
+    /// Decide the launch route from the registry. Resume requires an active account whose
+    /// key is present in the Keychain AND whose per-account database opened; otherwise fall
+    /// back to onboarding. The Face-ID gate (SessionGateView) applies only when the account
+    /// opted into `faceIDEnabled`.
     func bootstrap() async {
-        guard let url = persistedServerURL, let user = persistedUsername,
-              await keyManager.hasStoredKeypair() else {
+        refreshAccounts()
+        guard let account = registry.active() else {
             sessionPhase = .onboarding
             return
         }
-        serverURL = url
-        displayName = user
-        if faceIDEnabled {
+        await activate(address: account.address)
+        // activate() leaves appDatabase nil if the per-account DB failed to open, and the
+        // handshake needs the stored key — either failure means we cannot resume cleanly.
+        guard appDatabase != nil, await keyManager.hasStoredKeypair() else {
+            sessionPhase = .onboarding
+            return
+        }
+        serverURL = account.serverURL
+        displayName = account.username
+        if account.faceIDEnabled {
             sessionPhase = .locked            // SessionGateView runs Face ID then connects
         } else {
             sessionPhase = .active
