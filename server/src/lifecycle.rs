@@ -15,15 +15,19 @@ use tokio_util::task::TaskTracker;
 #[derive(Clone)]
 pub struct ShutdownController {
     tx: Arc<watch::Sender<bool>>,
+    /// Retained so the channel is never receiver-less; this ensures `tx.subscribe()`
+    /// called *after* `trigger()` produces a receiver whose `borrow()` returns `true`.
+    _rx: Arc<watch::Receiver<bool>>,
     flag: Arc<AtomicBool>,
     tracker: TaskTracker,
 }
 
 impl ShutdownController {
     pub fn new() -> Self {
-        let (tx, _rx) = watch::channel(false);
+        let (tx, rx) = watch::channel(false);
         Self {
             tx: Arc::new(tx),
+            _rx: Arc::new(rx),
             flag: Arc::new(AtomicBool::new(false)),
             tracker: TaskTracker::new(),
         }
@@ -37,12 +41,16 @@ impl ShutdownController {
 
     /// Signal shutdown. Idempotent.
     pub fn trigger(&self) {
-        self.flag.store(true, Ordering::SeqCst);
+        self.flag.store(true, Ordering::Relaxed);
+        // Silenced: the AtomicBool is the authoritative state. `watch` persists the
+        // last-sent value, so any receiver created *after* this call still observes
+        // `true` via `borrow()`. A send error (no receivers yet) is therefore safe.
         let _ = self.tx.send(true);
     }
 
+    /// Returns `true` after `trigger()` has been called at least once.
     pub fn is_shutting_down(&self) -> bool {
-        self.flag.load(Ordering::SeqCst)
+        self.flag.load(Ordering::Relaxed)
     }
 
     /// Spawn an in-flight agent turn as a tracked task. The drain (`wait_idle`)
@@ -52,7 +60,7 @@ impl ShutdownController {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        self.tracker.spawn(fut);
+        drop(self.tracker.spawn(fut)); // fire-and-forget: TaskTracker still counts the task
     }
 
     /// Close the tracker and await all in-flight turns. Idempotent: calling twice
@@ -104,6 +112,16 @@ mod tests {
         tokio::time::timeout(Duration::from_millis(100), wait_for_shutdown(rx))
             .await
             .expect("wait_for_shutdown returns promptly after trigger");
+    }
+
+    #[tokio::test]
+    async fn wait_for_shutdown_already_triggered_before_subscribe() {
+        let c = ShutdownController::new();
+        c.trigger(); // trigger first
+        let rx = c.subscribe(); // subscribe after
+        tokio::time::timeout(Duration::from_millis(100), wait_for_shutdown(rx))
+            .await
+            .expect("already-triggered case resolves immediately");
     }
 
     #[tokio::test]
