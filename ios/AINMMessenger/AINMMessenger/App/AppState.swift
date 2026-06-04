@@ -300,6 +300,11 @@ final class AppState {
     /// Does NOT connect — callers (`bootstrap`, `switchAccount`, onboarding) connect after.
     /// Resets per-account in-memory caches so the previous account's data never bleeds through.
     func activate(address: String) async {
+        // Tear down the previous account's live connection before repointing. Safe when there
+        // is no prior client (no-op). switchAccount/removeAccount also disconnect first; the
+        // duplicate call here is idempotent and closes the addAccount/onboarding path, which
+        // does not pre-disconnect.
+        await disconnect()
         let km = KeyManager(address: address)
         self.keyManager = km
         let db = try? AppDatabase.make(forAccount: address)
@@ -309,7 +314,7 @@ final class AppState {
         } else {
             self.client = nil
         }
-        // Clear cross-account in-memory state.
+        // Clear cross-account in-memory state so the previous account's data never bleeds through.
         contextFrames.removeAll()
         toolCallStates.removeAll()
         memoryGraph = nil
@@ -318,6 +323,9 @@ final class AppState {
         lintResult = nil
         activePresence.removeAll()
         presenceCleanupTask?.cancel()
+        streamingViewModel = StreamingViewModel()
+        toolCallTimeoutTasks.values.forEach { $0.cancel() }
+        toolCallTimeoutTasks.removeAll()
     }
 
     /// Connect to the AINM server with the configured URL and display name.
