@@ -1,5 +1,6 @@
 mod accounts;
 mod agent;
+mod agent_card;
 mod auth_session;
 mod auth_token;
 mod briefing;
@@ -13,7 +14,6 @@ mod error;
 mod escrow;
 mod federation;
 mod graph;
-mod agent_card;
 mod hosted_agent;
 mod lifecycle;
 mod llm;
