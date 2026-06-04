@@ -82,6 +82,43 @@ final class AppState {
     /// same object makes the invariant explicit.)
     let keyManager = KeyManager()
 
+    // MARK: - Persisted Session Identity
+
+    /// UserDefaults keys for the non-secret persisted session. The secret (the Ed25519
+    /// private key) lives in the Keychain via `keyManager`; only the routing identity
+    /// (server URL, username) and the Face ID preference are stored here.
+    private enum SessionKey {
+        static let serverURL = "ainm.session.serverURL"
+        static let username  = "ainm.session.username"
+        static let faceID    = "ainm.session.faceIDEnabled"
+    }
+
+    private func persistSession(serverURL: String, username: String, faceIDEnabled: Bool) {
+        let d = UserDefaults.standard
+        d.set(serverURL, forKey: SessionKey.serverURL)
+        d.set(username, forKey: SessionKey.username)
+        d.set(faceIDEnabled, forKey: SessionKey.faceID)
+    }
+
+    var persistedServerURL: String? { UserDefaults.standard.string(forKey: SessionKey.serverURL) }
+    var persistedUsername: String? { UserDefaults.standard.string(forKey: SessionKey.username) }
+    var faceIDEnabled: Bool { UserDefaults.standard.bool(forKey: SessionKey.faceID) }
+
+    func clearPersistedSession() {
+        let d = UserDefaults.standard
+        [SessionKey.serverURL, SessionKey.username, SessionKey.faceID].forEach { d.removeObject(forKey: $0) }
+    }
+
+    /// Sign out of the current session: clear the persisted routing identity, optionally
+    /// forget the Keychain key, drop the connection, and clear the in-memory identity.
+    /// `sessionPhase` reset is wired in a later task (Task 1.3).
+    func signOut(forgetKey: Bool = false) {
+        clearPersistedSession()
+        if forgetKey { Task { try? await keyManager.deleteKeypair() } }
+        Task { await disconnect() }
+        connectedIdentity = nil
+    }
+
     /// Initialize the database and protocol client.
     /// Call once at app launch before any network operations.
     func setup() throws {
@@ -245,7 +282,7 @@ final class AppState {
     /// connect. The bound key and the handshake key are the same (shared `keyManager`), and
     /// the identity becomes `username@host` because `connect()` reads `displayName`/`serverURL`,
     /// which we set here. Returns `true` once the enforced handshake succeeds.
-    func completeSignup(serverURL: String, email: String, username: String, code: String, pin: String) async -> Bool {
+    func completeSignup(serverURL: String, email: String, username: String, code: String, pin: String, faceIDEnabled: Bool = false) async -> Bool {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
             return false
@@ -267,6 +304,9 @@ final class AppState {
             self.serverURL = serverURL
             self.displayName = username
             await connect()
+            if connectionState == .connected {
+                persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+            }
             return connectionState == .connected
         } catch {
             onboardingError = onboardingMessage(for: error)
@@ -296,7 +336,7 @@ final class AppState {
     /// On success the recovered key is restored into the same `keyManager` the handshake uses,
     /// so the identity (`username@host`, derived by `connect()` from `displayName`/`serverURL`)
     /// matches the account's server-bound key.
-    func completeRecovery(serverURL: String, email: String, username: String, code: String, pin: String) async -> RecoveryOutcome {
+    func completeRecovery(serverURL: String, email: String, username: String, code: String, pin: String, faceIDEnabled: Bool = false) async -> RecoveryOutcome {
         guard let base = restBaseURL(from: serverURL) else {
             onboardingError = "Enter a valid server URL."
             return .failed
@@ -310,7 +350,11 @@ final class AppState {
             self.serverURL = serverURL
             self.displayName = username
             await connect()
-            return connectionState == .connected ? .connected : .failed
+            if connectionState == .connected {
+                persistSession(serverURL: serverURL, username: username, faceIDEnabled: faceIDEnabled)
+                return .connected
+            }
+            return .failed
         } catch EscrowClient.RecoverError.wrongPin {
             return .wrongPin
         } catch EscrowClient.RecoverError.destroyed {
