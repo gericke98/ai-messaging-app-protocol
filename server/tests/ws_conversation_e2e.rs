@@ -284,6 +284,35 @@ async fn ws_conversation_delivers_agent_reply() {
         sig_ok,
         "agent reply signature did not verify against the provisioned agent key"
     );
+
+    // Canonical-envelope regression guard: the hosted agent must emit a top-level
+    // `"type":"message"` envelope whose first content block is a fully-populated text block.
+    // This locks in today's fix so the envelope shape can't silently regress.
+    assert_eq!(
+        delivered_message.get("type").and_then(|t| t.as_str()),
+        Some("message"),
+        "delivered envelope missing top-level type==\"message\".\n  got: {delivered_message}"
+    );
+    let first_block = delivered_message
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .expect("delivered envelope content[] is missing or empty");
+    assert_eq!(
+        first_block.get("type").and_then(|t| t.as_str()),
+        Some("text"),
+        "first content block is not a text block.\n  got: {first_block}"
+    );
+    for field in ["version", "source", "fallback", "text"] {
+        let value = first_block
+            .get(field)
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("text block field `{field}` is missing or not a string.\n  block: {first_block}"));
+        assert!(
+            !value.is_empty(),
+            "text block field `{field}` is an empty string.\n  block: {first_block}"
+        );
+    }
 }
 
 /// Read the next text frame within `timeout`, skipping ping/pong/binary. None on timeout/close.
