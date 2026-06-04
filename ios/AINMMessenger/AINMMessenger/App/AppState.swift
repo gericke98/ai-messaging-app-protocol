@@ -544,6 +544,43 @@ final class AppState {
         return "assistant@\(host)"
     }
 
+    /// Result of parsing user "add agent" input into a canonical target.
+    struct ParsedAgentInput: Equatable, Sendable {
+        let address: String          // canonical name@host
+        let directCardURL: String?   // non-nil only when the user pasted a card URL
+    }
+
+    /// Parse "add agent" input. Accepts a bare name (defaults host to `serverHost`), a
+    /// `name@host` address, or a card URL `scheme://host/.well-known/ainm/{name}/agent-card.json`.
+    /// Returns nil for malformed input. Pure — no host guard here (that lives in `resolveAgent`).
+    nonisolated static func parseAgentInput(_ raw: String, serverHost: String) -> ParsedAgentInput? {
+        let input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return nil }
+
+        let lower = input.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            guard let url = URL(string: input), let host = url.host, !host.isEmpty else { return nil }
+            let comps = url.path.split(separator: "/").map(String.init)
+            // Expect [".well-known", "ainm", "{name}", "agent-card.json"]
+            guard comps.count >= 4,
+                  comps[comps.count - 4] == ".well-known",
+                  comps[comps.count - 3] == "ainm",
+                  comps[comps.count - 1] == "agent-card.json" else { return nil }
+            let name = comps[comps.count - 2]
+            guard !name.isEmpty else { return nil }
+            return ParsedAgentInput(address: "\(name)@\(host)", directCardURL: input)
+        }
+
+        if input.contains("@") {
+            let parts = input.components(separatedBy: "@")
+            guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+            return ParsedAgentInput(address: input, directCardURL: nil)
+        }
+
+        guard !serverHost.isEmpty else { return nil }
+        return ParsedAgentInput(address: "\(input)@\(serverHost)", directCardURL: nil)
+    }
+
     /// Look up the target agent address for a thread, if any. Reads the persisted
     /// `ThreadRecord.agentAddress` directly from GRDB (AppState keeps no in-memory
     /// thread list — the thread list UI observes the database). Returns nil for
