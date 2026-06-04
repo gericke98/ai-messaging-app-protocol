@@ -20,6 +20,9 @@ final class AppState {
     var onboardingError: String?
     var connectedIdentity: String?
     var selectedThreadId: String?
+    /// Saved agent contacts for the ACTIVE account (mirrors `SavedAgentStore`). Refreshed
+    /// on connect, add, and remove. The agents list UI reads this directly.
+    var savedAgents: [SavedAgentRecord] = []
     var showNewThreadComposer: Bool = false
     var currentViewingThreadId: String?
     var scrollToMessageId: String?
@@ -342,6 +345,8 @@ final class AppState {
             serverCapabilities = capabilities
             connectedIdentity = "\(displayName)@\(URL(string: serverURL)?.host ?? "localhost")"
             connectionState = .connected
+            await seedDefaultAssistantIfNeeded()
+            await loadSavedAgents()
         } catch {
             connectionState = .error
             errorMessage = mapErrorMessage(error)
@@ -633,6 +638,101 @@ final class AppState {
         }
     }
 
+    // MARK: - Saved Agents
+
+    /// Reload `savedAgents` from the active account's store. Clears it when there is no DB.
+    func loadSavedAgents() async {
+        guard let db = appDatabase else { savedAgents = []; return }
+        let store = SavedAgentStore(dbPool: db.dbPool)
+        savedAgents = (try? await store.all()) ?? []
+    }
+
+    /// Persist a resolved agent as a contact, then refresh `savedAgents`. Upsert — saving an
+    /// already-saved address updates it in place (no duplicate row).
+    func saveAgent(address: String, card: AgentCard) async {
+        guard let db = appDatabase else { return }
+        let store = SavedAgentStore(dbPool: db.dbPool)
+        let json = (try? JSONEncoder().encode(card)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let record = SavedAgentRecord(
+            address: address,
+            displayName: card.name,
+            cardJson: json,
+            addedAt: ISO8601DateFormatter.ainm.string(from: Date())
+        )
+        try? await store.add(record)
+        await loadSavedAgents()
+    }
+
+    /// Remove a saved agent contact. Existing threads with that agent are untouched.
+    func removeAgent(address: String) async {
+        guard let db = appDatabase else { return }
+        let store = SavedAgentStore(dbPool: db.dbPool)
+        try? await store.remove(address: address)
+        await loadSavedAgents()
+    }
+
+    /// Create + persist a thread addressed to `address`. Mirrors `startAssistantThread()`'s
+    /// local-write path exactly (UUID id, `ISO8601DateFormatter.ainm` timestamp, direct
+    /// `ThreadRecord.save`) but parameterized by agent address. The only behavioral effect is
+    /// that `sendMessage(envelope:)` then stamps `to = agentAddress` for every message here.
+    /// Returns the new threadId, or nil if there is no identity/database.
+    @discardableResult
+    func startThread(withAgent address: String) async -> String? {
+        guard let identity = connectedIdentity else { return nil }
+        guard let db = appDatabase else { return nil }
+        let title = savedAgents.first(where: { $0.address == address })?.displayName ?? address
+        let threadId = UUID().uuidString
+        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
+        let record = ThreadRecord(
+            id: threadId,
+            title: title,
+            createdAt: timestamp,
+            createdBy: identity,
+            parentThreadId: nil,
+            parentMessageId: nil,
+            agentAddress: address
+        )
+        do {
+            try await db.dbPool.write { db in try record.save(db) }
+        } catch {
+            return nil
+        }
+        return threadId
+    }
+
+    /// Seed the built-in `assistant@<host>` as a default saved agent when the active account
+    /// has none, so the existing "Chat with Assistant" affordance maps onto the saved list.
+    /// Idempotent (guarded on empty store). Best-effort card fetch; falls back to a placeholder.
+    func seedDefaultAssistantIfNeeded() async {
+        guard let db = appDatabase else { return }
+        guard let assistant = AppState.assistantAddress(forServerURL: serverURL) else { return }
+        let store = SavedAgentStore(dbPool: db.dbPool)
+        let isEmpty = ((try? await store.all()) ?? []).isEmpty
+        guard isEmpty else { await loadSavedAgents(); return }
+        let card: AgentCard
+        if case .success(let resolved) = await resolveAgent(assistant) {
+            card = resolved.card
+        } else {
+            card = AppState.placeholderAssistantCard()
+        }
+        await saveAgent(address: assistant, card: card)
+    }
+
+    /// A minimal stand-in card for the assistant when its real card can't be fetched
+    /// (e.g. offline at first connect). Lets the saved-agents row render with a name.
+    nonisolated static func placeholderAssistantCard() -> AgentCard {
+        AgentCard(
+            name: "Assistant",
+            description: "Built-in assistant on your home server.",
+            url: "",
+            version: "1.0",
+            protocolVersion: "0.1.0",
+            capabilities: AgentCard.A2ACapabilities(streaming: true, pushNotifications: false),
+            skills: [],
+            ainm: nil
+        )
+    }
+
     /// Look up the target agent address for a thread, if any. Reads the persisted
     /// `ThreadRecord.agentAddress` directly from GRDB (AppState keeps no in-memory
     /// thread list — the thread list UI observes the database). Returns nil for
@@ -712,27 +812,7 @@ final class AppState {
     @discardableResult
     func startAssistantThread() async -> String? {
         guard let agent = AppState.assistantAddress(forServerURL: serverURL) else { return nil }
-        guard let identity = connectedIdentity else { return nil }
-        guard let db = appDatabase else { return nil }
-        let threadId = UUID().uuidString
-        let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
-        let record = ThreadRecord(
-            id: threadId,
-            title: "Assistant",
-            createdAt: timestamp,
-            createdBy: identity,
-            parentThreadId: nil,
-            parentMessageId: nil,
-            agentAddress: agent
-        )
-        do {
-            try await db.dbPool.write { db in
-                try record.save(db)
-            }
-        } catch {
-            return nil
-        }
-        return threadId
+        return await startThread(withAgent: agent)
     }
 
     /// Create a sub-thread branching from a specific message.

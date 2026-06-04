@@ -63,4 +63,16 @@ final class SavedAgentStoreTests: XCTestCase {
         XCTAssertTrue(inA)
         XCTAssertFalse(inB)
     }
+
+    @MainActor
+    func testStartThreadStampsAgentAddress() async throws {
+        let appState = AppState()
+        try appState.setup()                       // makeDefault DB + client
+        appState.connectedIdentity = "alice@localhost"
+        let threadId = await appState.startThread(withAgent: "helper@localhost")
+        let id = try XCTUnwrap(threadId)
+        let db = try XCTUnwrap(appState.appDatabase)
+        let fetched = try await db.dbPool.read { db in try ThreadRecord.fetchOne(db, key: id) }
+        XCTAssertEqual(fetched?.agentAddress, "helper@localhost")
+    }
 }
