@@ -245,6 +245,17 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     let controller = crate::lifecycle::ShutdownController::new();
     crate::lifecycle::install_signals(controller.clone());
 
+    if crate::prod_guard::is_production() {
+        if let Err(problems) = crate::prod_guard::validate() {
+            eprintln!("[config] refusing to boot in production — fix these and restart:");
+            for p in &problems {
+                eprintln!("[config]   - {p}");
+            }
+            std::process::exit(1);
+        }
+        tracing::info!("[config] production configuration validated");
+    }
+
     // 1. Validate required flags
     let server_id = cli.identity.as_deref().unwrap_or_else(|| {
         eprintln!("Error: --identity is required in federation mode");
