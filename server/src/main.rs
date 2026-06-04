@@ -14,6 +14,7 @@ mod escrow;
 mod federation;
 mod graph;
 mod hosted_agent;
+mod lifecycle;
 mod llm;
 mod identity;
 mod mcp;

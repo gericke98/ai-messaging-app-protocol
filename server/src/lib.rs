@@ -13,6 +13,7 @@ pub mod escrow;
 pub mod graph;
 pub mod hosted_agent;
 pub mod identity;
+pub mod lifecycle;
 pub mod llm;
 pub mod mcp;
 pub mod persistence;
