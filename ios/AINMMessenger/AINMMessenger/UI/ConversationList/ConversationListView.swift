@@ -42,7 +42,7 @@ struct ConversationListView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: "bubble.left.and.sparkles")
+                            Image(systemName: "sparkles")
                                 .accessibilityLabel("Chat with Assistant")
                         }
                         .disabled(appState.connectionState != .connected)
