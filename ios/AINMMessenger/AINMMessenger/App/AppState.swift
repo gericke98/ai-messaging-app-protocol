@@ -270,6 +270,9 @@ final class AppState {
         memoryGraph = nil
         latestBriefing = nil
         graphStats = nil
+        lintResult = nil
+        activePresence.removeAll()
+        presenceCleanupTask?.cancel()
     }
 
     /// Connect to the AINM server with the configured URL and display name.
