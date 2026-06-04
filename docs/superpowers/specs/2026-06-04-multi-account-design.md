@@ -168,3 +168,16 @@ a multi-account test surfaces a server gap, note it; don't speculatively change 
 Phase 1 → 2 → 3 → 4 → 5. Phases 1–2 (keyed storage + DB + migration) are load-bearing and must land
 before the AppState model (3) can switch; 4 is the UI; 5 locks it. The new-account key-slot
 sequencing (§5 call-out) is the riskiest detail — resolve it in Phase 3's plan.
+
+## 10. Runbook (add / switch / remove / migration)
+
+- **Add an account:** Conversations → person icon (top trailing) → **Add Account** → run
+  signup or recovery as normal. On success the new account becomes active.
+- **Switch accounts:** person icon → tap a non-active account. The app disconnects and
+  reconnects as that identity (no Face-ID re-prompt); the list rebuilds against its DB.
+- **Remove an account:** person icon → swipe a row → **Remove** → confirm. Deletes that
+  account's Keychain key + local DB on this device (the server account is untouched). If it
+  was active, the app switches to another account or returns to onboarding.
+- **One-time migration:** on first launch of this build, an existing RC single account
+  (legacy Keychain key + `ainm.sqlite` + `ainm.session.*`) is migrated into the registry as
+  the active account — its key and conversations are preserved. Migration is idempotent.
