@@ -187,6 +187,9 @@ impl AgentRegistry {
     }
 
     /// Get the cached agent card for a given identity.
+    /// Retained for forthcoming per-agent card publishing on the well-known route; the
+    /// client-facing `agent_card_handler` no longer routes through it (issue #2 guard).
+    #[allow(dead_code)]
     pub async fn get_agent_card(&self, identity: &str) -> Option<serde_json::Value> {
         let cards = self.agent_cards.lock().await;
         cards.get(identity).cloned()
