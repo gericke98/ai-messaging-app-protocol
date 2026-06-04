@@ -80,13 +80,23 @@ final class AppState {
     private var client: AINMClient?
     var appDatabase: AppDatabase?
 
-    /// The single Ed25519 key manager shared between onboarding (bind/escrow/recover)
-    /// and the protocol client's handshake. Sharing one instance guarantees the key
-    /// bound to the account on the server is the exact key the WebSocket handshake signs
-    /// with — a mismatch would cause the enforced server to reject the connection.
-    /// (Both instances would back onto the same Keychain regardless, but injecting the
-    /// same object makes the invariant explicit.)
-    let keyManager = KeyManager()
+    /// Source of truth for which accounts exist and which is active.
+    let registry = AccountRegistry()
+
+    /// In-memory mirror of the registry for SwiftUI (refreshed via `refreshAccounts()`).
+    var accounts: [AccountSummary] = []
+    var activeAccount: AccountSummary?
+
+    /// Re-read the registry into the observable mirrors.
+    func refreshAccounts() {
+        accounts = registry.all()
+        activeAccount = registry.active()
+    }
+
+    /// The active account's key manager. Defaults to the legacy slot (`address: nil`) so the
+    /// UITest seed path and pre-migration reads work; `activate(address:)` reassigns it to the
+    /// active account's address-keyed slot. Reassigned only from the @MainActor, so mutation is safe.
+    private(set) var keyManager = KeyManager()
 
     // MARK: - Persisted Session Identity
 
@@ -147,15 +157,20 @@ final class AppState {
         }
     }
 
-    /// Initialize the database and protocol client.
-    /// Call once at app launch before any network operations.
+    /// Initialize the database and protocol client for the UITest seed path and any caller
+    /// that wants the legacy single-account layout. Normal launches go through `bootstrap()`
+    /// → `activate(address:)` instead.
     func setup() throws {
         let db = try AppDatabase.makeDefault()
         self.appDatabase = db
-        let client = AINMClient(keyManager: keyManager, appDatabase: db)
-        self.client = client
+        self.client = makeClient(keyManager: keyManager, appDatabase: db)
+    }
 
-        // Wire streaming callbacks from AINMClient to StreamingViewModel
+    /// Build an AINMClient for the given key manager + database and wire all of its callbacks
+    /// into this AppState. Used by `setup()` (legacy/UITest) and `activate(address:)` (multi-account).
+    /// Wiring runs in a detached Task because the client's setters are `async`.
+    private func makeClient(keyManager: KeyManager, appDatabase db: AppDatabase) -> AINMClient {
+        let client = AINMClient(keyManager: keyManager, appDatabase: db)
         Task {
             await client.setStreamCallbacks(
                 onStart: { [weak self] stream in
@@ -187,7 +202,6 @@ final class AppState {
                 }
             )
 
-            // Wire presence callback from protocol client
             await client.setPresenceCallback { [weak self] params in
                 Task { @MainActor in
                     self?.handlePresence(params)
@@ -198,22 +212,16 @@ final class AppState {
                     self?.activePresence.removeValue(forKey: identity)
                 }
             }
-
-            // Wire tool event callback from protocol client
             await client.setToolEventCallback { [weak self] threadId, event in
                 Task { @MainActor in
                     self?.handleToolEvent(threadId: threadId, event: event)
                 }
             }
-
-            // Wire context frame callback for memory transparency
             await client.setContextFrameCallback { [weak self] frame in
                 Task { @MainActor in
                     self?.contextFrames[frame.threadId] = frame
                 }
             }
-
-            // Wire compound memory callbacks
             await client.setBriefingCallback { [weak self] briefing in
                 Task { @MainActor in
                     self?.latestBriefing = briefing
@@ -221,12 +229,9 @@ final class AppState {
             }
             await client.setCompilationCallback { [weak self] _ in
                 Task { @MainActor in
-                    // Refresh graph when compilation completes
                     await self?.fetchMemoryGraph()
                 }
             }
-
-            // Wire connection-state changes so an auto-reconnect cycle is reflected in the UI.
             // CRITICAL: this only touches `connectionState` — `sessionPhase` stays `.active`
             // throughout a drop/reconnect so the user is never bounced to onboarding/lock.
             await client.setConnectionStateCallback { [weak self] connState in
@@ -243,6 +248,28 @@ final class AppState {
                 }
             }
         }
+        return client
+    }
+
+    /// Point AppState at `address`'s key slot + database, rebuilding the protocol client.
+    /// Does NOT connect — callers (`bootstrap`, `switchAccount`, onboarding) connect after.
+    /// Resets per-account in-memory caches so the previous account's data never bleeds through.
+    func activate(address: String) async {
+        let km = KeyManager(address: address)
+        self.keyManager = km
+        let db = try? AppDatabase.make(forAccount: address)
+        self.appDatabase = db
+        if let db {
+            self.client = makeClient(keyManager: km, appDatabase: db)
+        } else {
+            self.client = nil
+        }
+        // Clear cross-account in-memory state.
+        contextFrames.removeAll()
+        toolCallStates.removeAll()
+        memoryGraph = nil
+        latestBriefing = nil
+        graphStats = nil
     }
 
     /// Connect to the AINM server with the configured URL and display name.
