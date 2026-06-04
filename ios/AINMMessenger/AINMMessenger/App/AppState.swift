@@ -358,6 +358,30 @@ final class AppState {
         case failed
     }
 
+    /// A resolved, fetched agent ready to preview/save.
+    struct ResolvedAgent: Sendable {
+        let address: String
+        let card: AgentCard
+    }
+
+    /// Why an "add agent" attempt failed, with user-facing messaging.
+    enum AgentResolveError: Error, Sendable {
+        case malformedInput
+        case remoteUnsupported(host: String)
+        case unreachable
+
+        var userMessage: String {
+            switch self {
+            case .malformedInput:
+                return "Enter an agent address like name@host or paste its agent-card URL."
+            case .remoteUnsupported(let host):
+                return "Only agents on your server (@\(host)) are supported yet."
+            case .unreachable:
+                return "Couldn't reach that agent — make sure it's connected to your server and the address is correct."
+            }
+        }
+    }
+
     /// Derive the REST base URL from the stored WebSocket `serverURL`.
     ///
     /// `AccountService` needs an HTTP origin (e.g. `http://localhost:8080`) and only
@@ -579,6 +603,34 @@ final class AppState {
 
         guard !serverHost.isEmpty else { return nil }
         return ParsedAgentInput(address: "\(input)@\(serverHost)", directCardURL: nil)
+    }
+
+    /// Resolve "add agent" input to a fetched card: parse → home-server guard → fetch.
+    /// Home-server-only (v1): the address host must equal the active account's server host.
+    func resolveAgent(_ rawInput: String) async -> Result<ResolvedAgent, AgentResolveError> {
+        guard let host = URL(string: serverURL)?.host, !host.isEmpty else {
+            return .failure(.malformedInput)
+        }
+        guard let parsed = AppState.parseAgentInput(rawInput, serverHost: host) else {
+            return .failure(.malformedInput)
+        }
+        let addrHost = parsed.address.components(separatedBy: "@").last ?? ""
+        guard addrHost == host else { return .failure(.remoteUnsupported(host: host)) }
+        guard let db = appDatabase else { return .failure(.unreachable) }
+
+        let service = AgentCardService(appDatabase: db)
+        do {
+            let card: AgentCard
+            if let cardURL = parsed.directCardURL {
+                card = try await service.fetchCard(agentCardURL: cardURL, identity: parsed.address)
+            } else {
+                let scheme = AgentCardService.httpScheme(forServerURL: serverURL)
+                card = try await service.fetchCard(forAddress: parsed.address, scheme: scheme)
+            }
+            return .success(ResolvedAgent(address: parsed.address, card: card))
+        } catch {
+            return .failure(.unreachable)
+        }
     }
 
     /// Look up the target agent address for a thread, if any. Reads the persisted
