@@ -13,6 +13,7 @@ mod error;
 mod escrow;
 mod federation;
 mod graph;
+mod agent_card;
 mod hosted_agent;
 mod lifecycle;
 mod llm;
