@@ -36,6 +36,27 @@ actor AINMClient {
     private(set) var serverCapabilities: ServerCapabilities?
     private var receiveTask: Task<Void, Never>?
 
+    /// Last-used connection parameters, captured on `connect(...)` so an unexpected
+    /// socket drop can re-run the full handshake without re-prompting the user.
+    private var lastServerURL: String?
+    private var lastDisplayName: String?
+    /// True while a user-initiated `disconnect()` is in effect; suppresses auto-reconnect
+    /// on a drop (Sign out / explicit disconnect must not bounce back online).
+    private var isUserDisconnect: Bool = false
+    /// Drives the bounded-backoff reconnect loop; cancelled by `disconnect()`.
+    private var reconnectTask: Task<Void, Never>?
+
+    /// Coarse connection state for the UI layer (AppState maps this onto its display state).
+    enum ConnectionState: Sendable { case reconnecting, connected, disconnected }
+    /// Fired when the connection transitions due to a drop/reconnect cycle so AppState can
+    /// reflect it without changing `sessionPhase`.
+    var onConnectionStateChange: (@Sendable (ConnectionState) -> Void)?
+
+    /// Register the connection-state callback. Called from AppState.setup().
+    func setConnectionStateCallback(_ callback: @escaping @Sendable (ConnectionState) -> Void) {
+        self.onConnectionStateChange = callback
+    }
+
     /// Callbacks for streaming events. Set by the view layer to receive updates.
     var onStreamStart: ((StreamingManager.ActiveStream) -> Void)?
     var onStreamDelta: ((String, Int, String) -> Void)?  // streamId, blockIndex, fullContent
@@ -108,6 +129,12 @@ actor AINMClient {
     /// Per D-07: always full re-handshake (stateless).
     func connect(serverURL: String, displayName: String) async throws -> ServerCapabilities {
         state = .connecting
+
+        // Remember params + clear the user-disconnect flag so an unexpected drop after this
+        // point re-handshakes against the same server/identity automatically.
+        lastServerURL = serverURL
+        lastDisplayName = displayName
+        isUserDisconnect = false
 
         // 1. Get or create Ed25519 keypair (NET-04)
         let keypair = try await keyManager.getOrCreateKeypair()
@@ -528,8 +555,13 @@ actor AINMClient {
         return try JSONDecoder().decode(T.self, from: resultData)
     }
 
-    /// Disconnect gracefully.
+    /// Disconnect gracefully. User-initiated: suppresses auto-reconnect and cancels any
+    /// in-flight reconnect loop, so Sign out / explicit disconnect stays disconnected.
     func disconnect() async {
+        isUserDisconnect = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        await reconnection.reset()
         receiveTask?.cancel()
         receiveTask = nil
         await streamingManager.clearAllStreams()
@@ -540,6 +572,7 @@ actor AINMClient {
         pendingResponses.removeAll()
         await webSocket.disconnect()
         state = .disconnected
+        onConnectionStateChange?(.disconnected)
     }
 
     // MARK: - Private
@@ -695,12 +728,66 @@ actor AINMClient {
     }
 
     private func handleDisconnect() async {
-        state = .disconnected
         await streamingManager.clearAllStreams()
-        // D-06: auto-reconnect with exponential backoff
-        // D-07: full re-handshake on reconnect
-        // Reconnection needs the original URL and display name -- stored on first connect
-        // For Phase 10, reconnection is best-effort. Full implementation in Phase 11.
+
+        // Only auto-reconnect when the drop was unexpected (not a user sign-out/disconnect)
+        // and we have the params to re-handshake. Otherwise just settle into .disconnected.
+        guard !isUserDisconnect,
+              let serverURL = lastServerURL,
+              let displayName = lastDisplayName else {
+            state = .disconnected
+            onConnectionStateChange?(.disconnected)
+            return
+        }
+
+        // D-06: auto-reconnect with bounded exponential backoff via ReconnectionManager.
+        // D-07: each attempt is a full re-handshake (connect(...) is stateless).
+        startReconnectLoop(serverURL: serverURL, displayName: displayName)
+    }
+
+    /// Drive a bounded-backoff reconnect loop: sleep ReconnectionManager.nextDelay(), then
+    /// re-run the full handshake; stop on success; stop at the backoff ceiling as
+    /// `.disconnected`. A user `disconnect()` cancels this task.
+    private func startReconnectLoop(serverURL: String, displayName: String) {
+        guard reconnectTask == nil else { return }
+        state = .connecting
+        onConnectionStateChange?(.reconnecting)
+
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            // The 30s cap is reached after 6 attempts (1,2,4,8,16,30); allow a bounded
+            // number of capped retries before giving up so the loop can't spin forever.
+            let maxAttempts = 10
+            for _ in 0..<maxAttempts {
+                let delay = await self.reconnection.nextDelay()
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                if Task.isCancelled { return }
+                if await self.isUserDisconnect { return }
+                do {
+                    _ = try await self.connect(serverURL: serverURL, displayName: displayName)
+                    // connect() resets the backoff and starts a fresh receive loop on success.
+                    await self.finishReconnect(success: true)
+                    return
+                } catch {
+                    // Stay in the loop; next iteration waits the next backoff delay.
+                    if Task.isCancelled { return }
+                    if await self.isUserDisconnect { return }
+                }
+            }
+            await self.finishReconnect(success: false)
+        }
+    }
+
+    /// Clear the reconnect task and surface the terminal state of a reconnect cycle.
+    private func finishReconnect(success: Bool) async {
+        reconnectTask = nil
+        if success {
+            onConnectionStateChange?(.connected)
+        } else {
+            state = .disconnected
+            await reconnection.reset()
+            onConnectionStateChange?(.disconnected)
+        }
     }
 
     /// Persist tool call event to GRDB. Upserts based on callId.

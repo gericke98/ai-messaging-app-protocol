@@ -225,6 +225,23 @@ final class AppState {
                     await self?.fetchMemoryGraph()
                 }
             }
+
+            // Wire connection-state changes so an auto-reconnect cycle is reflected in the UI.
+            // CRITICAL: this only touches `connectionState` — `sessionPhase` stays `.active`
+            // throughout a drop/reconnect so the user is never bounced to onboarding/lock.
+            await client.setConnectionStateCallback { [weak self] connState in
+                Task { @MainActor in
+                    guard let self else { return }
+                    switch connState {
+                    case .reconnecting:
+                        self.connectionState = .connecting
+                    case .connected:
+                        self.connectionState = .connected
+                    case .disconnected:
+                        self.connectionState = .disconnected
+                    }
+                }
+            }
         }
     }
 

@@ -10,7 +10,10 @@ struct ConversationListView: View {
     @State private var showAssistantChatError = false
 
     var body: some View {
-        contentView
+        VStack(spacing: 0) {
+            reconnectingBanner
+            contentView
+        }
             .navigationTitle("Conversations")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -77,6 +80,28 @@ struct ConversationListView: View {
             .sheet(isPresented: $showMemoryGraph) {
                 MemoryGraphView(appState: appState)
             }
+    }
+
+    /// Thin, non-blocking banner shown while the client is re-establishing a dropped
+    /// connection. Tied to `connectionState` only — `sessionPhase` stays `.active`, so the
+    /// list and its data remain visible and interactive underneath.
+    @ViewBuilder
+    private var reconnectingBanner: some View {
+        if appState.sessionPhase == .active, appState.connectionState == .connecting {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Reconnecting…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(.thinMaterial)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Reconnecting")
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     @ViewBuilder
