@@ -74,6 +74,12 @@ async fn canonical_agent_card_route_serves_hosted_card() {
         "agent card must carry a `name` field; got {body}"
     );
 
+    // Unknown agent name must 404 (the static card is published only under its own identity).
+    let unknown = format!("http://127.0.0.1:{port}/.well-known/ainm/ghost/agent-card.json");
+    let unknown_resp = http.get(&unknown).send().await.expect("GET unknown");
+    assert_eq!(unknown_resp.status().as_u16(), 404,
+               "an unknown agent name must 404, not serve the static card");
+
     // A bogus `agents/`-prefixed path must NOT serve the card (locks the no-`agents/` contract).
     let bogus = format!("http://127.0.0.1:{port}/.well-known/ainm/agents/helper/agent-card.json");
     let bogus_resp = http.get(&bogus).send().await.expect("GET bogus");

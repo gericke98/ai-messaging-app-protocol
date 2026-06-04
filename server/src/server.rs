@@ -977,18 +977,43 @@ pub async fn start_federation(
     Ok((addr, handle))
 }
 
+/// The agent card this server publishes for `agent_name`, or `None` (→ 404).
+///
+/// The static `state.agent_card` is published only when its own declared address local-part
+/// matches the requested `agent_name`. A null / identity-less card publishes nothing, so every
+/// name 404s. This keeps the well-known route from returning the hosted card under an arbitrary
+/// (typo'd or not-yet-connected) agent name. Per-agent card publishing for live connector
+/// agents is a separate, larger change and is intentionally NOT handled here.
+fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_json::Value> {
+    let card = &state.agent_card;
+    let addr = card
+        .get("address")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            card.get("ainm")
+                .and_then(|a| a.get("address"))
+                .and_then(|v| v.as_str())
+        })?;
+    let local = addr.split('@').next().unwrap_or("");
+    if !local.is_empty() && local == agent_name {
+        Some(card.clone())
+    } else {
+        None
+    }
+}
+
 /// Agent Card HTTP endpoint with ETag caching (per DISC-05).
-/// Checks the AgentRegistry for a live agent first, falls back to the static card.
+/// Serves the static card only when `agent_name` matches the server's own published identity.
 async fn agent_card_handler(
     Path(agent_name): Path<String>,
     headers: HeaderMap,
     State(state): State<ServerState>,
 ) -> Response {
-    // Check if a live agent is registered with this name
-    let card = if let Some(live_card) = state.agent_registry.get_agent_card(&agent_name).await {
-        live_card
-    } else {
-        state.agent_card.clone()
+    // Serve a card ONLY when `agent_name` matches the agent this server actually publishes
+    // (its own hosted/static agent identity). Unknown names 404 rather than leaking the static
+    // card under an arbitrary name (which would mislabel a typo'd or offline agent).
+    let Some(card) = published_card_for(&state, &agent_name) else {
+        return StatusCode::NOT_FOUND.into_response();
     };
     let body = serde_json::to_vec(&card).unwrap();
     let hash = ring::digest::digest(&ring::digest::SHA256, &body);
