@@ -39,6 +39,11 @@ describe("handshake", () => {
     expect(initReq.params.identity).toBe("test-agent@server.local");
     expect(initReq.params.capabilities.participant_type).toBe("agent");
 
+    // Default card path: no description/version/skills/tools provided → minimal valid card.
+    expect(initReq.params.card).toEqual({ name: "Test Agent", skills: [], tools: [] });
+    expect(initReq.params.card.description).toBeUndefined();
+    expect(initReq.params.card.version).toBeUndefined();
+
     // Server sends response
     transport.triggerMessage(JSON.stringify({
       jsonrpc: "2.0",
