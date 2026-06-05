@@ -174,15 +174,27 @@ impl AgentRegistry {
 
     /// Remove closed senders for an agent identity.
     pub async fn cleanup(&self, identity: &str) {
-        let mut conns = self.connections.lock().await;
-        if let Some(senders) = conns.get_mut(identity) {
-            senders.retain(|tx| !tx.is_closed());
-            if senders.is_empty() {
-                conns.remove(identity);
-                // Also remove the card when no connections remain
-                let mut cards = self.agent_cards.lock().await;
-                cards.remove(identity);
+        // Compute whether the identity has no remaining connections, holding only the
+        // `connections` lock, then drop it BEFORE locking `agent_cards` — avoids nesting the
+        // two registry locks (every other path takes `agent_cards` alone).
+        let now_empty = {
+            let mut conns = self.connections.lock().await;
+            match conns.get_mut(identity) {
+                Some(senders) => {
+                    senders.retain(|tx| !tx.is_closed());
+                    if senders.is_empty() {
+                        conns.remove(identity);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => false,
             }
+        };
+        if now_empty {
+            // No connections remain: drop the cached card so the well-known route 404s.
+            self.agent_cards.lock().await.remove(identity);
         }
     }
 
@@ -1034,9 +1046,9 @@ async fn agent_card_handler(
     headers: HeaderMap,
     State(state): State<ServerState>,
 ) -> Response {
-    // Serve a card ONLY when `agent_name` matches the agent this server actually publishes
-    // (its own hosted/static agent identity). Unknown names 404 rather than leaking the static
-    // card under an arbitrary name (which would mislabel a typo'd or offline agent).
+    // Serve a card ONLY when `agent_name` resolves via `published_card_for`: the hosted assistant,
+    // the server's own static identity, or a currently-connected connector agent. Unknown/offline
+    // names 404 rather than leaking a card under an arbitrary (typo'd or disconnected) name.
     let Some(card) = published_card_for(&state, &agent_name).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
