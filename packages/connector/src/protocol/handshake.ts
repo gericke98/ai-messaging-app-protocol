@@ -6,8 +6,11 @@ import { buildRequest, buildNotification, parseMessage } from "./rpc.js";
 export interface HandshakeOptions {
   identity: string;
   name: string;
+  description?: string;
+  version?: string;
   capabilities: string[];
   skills?: Array<{ name: string; description: string }>;
+  tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
   keypair: Keypair;
 }
 
@@ -23,6 +26,14 @@ export async function performHandshake(
 ): Promise<HandshakeResult> {
   const signature = await signInit(options.keypair, options.identity);
 
+  const card: Record<string, unknown> = {
+    name: options.name,
+    skills: options.skills ?? [],
+    tools: options.tools ?? [],
+  };
+  if (options.description !== undefined) card.description = options.description;
+  if (options.version !== undefined) card.version = options.version;
+
   const initReq = buildRequest("ainm.initialize", {
     protocolVersion: "0.1.0",
     identity: options.identity,
@@ -34,6 +45,7 @@ export async function performHandshake(
       participant_type: "agent",
       toolVisibility: true,
     },
+    card,
   });
 
   await transport.send(JSON.stringify(initReq));

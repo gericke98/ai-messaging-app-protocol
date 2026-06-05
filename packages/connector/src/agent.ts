@@ -80,11 +80,20 @@ export class AINMAgent {
     await this.transport.connect(this.config.server);
 
     // Perform handshake (sets its own onMessage handler temporarily)
+    const tools = Array.from(this.tools.entries()).map(([name, { definition }]) => ({
+      name,
+      description: definition.description,
+      parameters: definition.parameters,
+    }));
+
     this.handshakeResult = await performHandshake(this.transport, {
       identity: this.config.identity,
       name: this.config.name,
+      description: this.config.description,
+      version: this.config.version,
       capabilities: this.config.capabilities ?? [],
       skills: this.config.skills,
+      tools,
       keypair: this.keypair,
     });
 

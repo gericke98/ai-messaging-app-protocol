@@ -58,4 +58,38 @@ describe("handshake", () => {
     const initialized = JSON.parse(transport.sent[1]);
     expect(initialized.method).toBe("ainm.initialized");
   });
+
+  it("includes a card object with name, description, version, skills, and tools", async () => {
+    const transport = mockTransport();
+    const kp = await generateKeypair();
+
+    const handshakePromise = performHandshake(transport, {
+      identity: "coder@server.local",
+      name: "Coder",
+      description: "Writes and reviews code.",
+      version: "2.1.0",
+      capabilities: ["text", "code"],
+      skills: [{ name: "review", description: "Reviews diffs." }],
+      tools: [
+        { name: "run_tests", description: "Runs the test suite.", parameters: { type: "object", properties: {} } },
+      ],
+      keypair: kp,
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const initReq = JSON.parse(transport.sent[0]);
+    expect(initReq.params.card).toBeDefined();
+    expect(initReq.params.card.name).toBe("Coder");
+    expect(initReq.params.card.description).toBe("Writes and reviews code.");
+    expect(initReq.params.card.version).toBe("2.1.0");
+    expect(initReq.params.card.skills).toEqual([{ name: "review", description: "Reviews diffs." }]);
+    expect(initReq.params.card.tools).toEqual([
+      { name: "run_tests", description: "Runs the test suite.", parameters: { type: "object", properties: {} } },
+    ]);
+    expect(initReq.params.capabilities.participant_type).toBe("agent");
+    expect(initReq.params.capabilities.contentTypes).toEqual(["text", "code"]);
+
+    transport.triggerMessage(JSON.stringify({ jsonrpc: "2.0", id: initReq.id, result: { protocolVersion: "0.1.0", capabilities: {} } }));
+    await handshakePromise;
+  });
 });

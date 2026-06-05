@@ -2,6 +2,8 @@ export interface AINMAgentConfig {
   server: string;
   identity: string;
   name: string;
+  description?: string;
+  version?: string;
   capabilities?: string[];
   skills?: Array<{ name: string; description: string }>;
   privateKey?: Uint8Array;
