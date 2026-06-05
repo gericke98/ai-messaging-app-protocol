@@ -992,21 +992,20 @@ pub async fn start_federation(
 }
 
 /// The agent card this server publishes for `agent_name`, or `None` (→ 404).
+/// Shared by the client-facing `agent_card_handler` and the federation listener's handler so the
+/// resolution logic can't drift between listeners.
 ///
-/// Resolution order:
-/// 1. **Hosted assistant:** if a hosted agent is provisioned and its address local-part
-///    matches `agent_name`, serve its freshly built canonical card.
-/// 2. **Static card:** the static `state.agent_card` is published only when its own declared
-///    address local-part matches `agent_name`.
-/// 3. **Live connector agent:** if an agent with address `{agent_name}@{server_domain}` is
-///    currently connected, serve its registered (ephemeral) card. Removed on disconnect.
-///
-/// A null / identity-less static card with no matching hosted or connected agent publishes
-/// nothing, so every unknown name 404s. This keeps the well-known route from returning a card
-/// under an arbitrary (typo'd or offline) agent name.
-async fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_json::Value> {
+/// Resolution order: (1) hosted assistant → (2) static identity card → (3) live connector agent
+/// (AgentRegistry by `{agent_name}@{server_domain}`) → `None`.
+pub(crate) async fn published_card_for(
+    hosted_agent: Option<&crate::hosted_agent::HostedAgent>,
+    static_card: &serde_json::Value,
+    agent_registry: &AgentRegistry,
+    server_domain: &str,
+    agent_name: &str,
+) -> Option<serde_json::Value> {
     // (1) Hosted assistant: build its canonical card on demand.
-    if let Some(agent) = &state.hosted_agent {
+    if let Some(agent) = hosted_agent {
         let local = agent.address.split('@').next().unwrap_or("");
         if !local.is_empty() && local == agent_name {
             return Some(crate::agent_card::build_assistant_card(&agent.address));
@@ -1014,25 +1013,25 @@ async fn published_card_for(state: &ServerState, agent_name: &str) -> Option<ser
     }
 
     // (2) Static card: serve only under its own declared identity.
-    let card = &state.agent_card;
-    if let Some(addr) = card
+    if let Some(addr) = static_card
         .get("address")
         .and_then(|v| v.as_str())
         .or_else(|| {
-            card.get("ainm")
+            static_card
+                .get("ainm")
                 .and_then(|a| a.get("address"))
                 .and_then(|v| v.as_str())
         })
     {
         let local = addr.split('@').next().unwrap_or("");
         if !local.is_empty() && local == agent_name {
-            return Some(card.clone());
+            return Some(static_card.clone());
         }
     }
 
     // (3) Live connector agent: serve its registered (ephemeral) card while connected.
-    let full_addr = format!("{agent_name}@{}", state.server_domain);
-    if let Some(card) = state.agent_registry.get_agent_card(&full_addr).await {
+    let full_addr = format!("{agent_name}@{server_domain}");
+    if let Some(card) = agent_registry.get_agent_card(&full_addr).await {
         return Some(card);
     }
 
@@ -1049,7 +1048,15 @@ async fn agent_card_handler(
     // Serve a card ONLY when `agent_name` resolves via `published_card_for`: the hosted assistant,
     // the server's own static identity, or a currently-connected connector agent. Unknown/offline
     // names 404 rather than leaking a card under an arbitrary (typo'd or disconnected) name.
-    let Some(card) = published_card_for(&state, &agent_name).await else {
+    let Some(card) = published_card_for(
+        state.hosted_agent.as_deref(),
+        &state.agent_card,
+        &state.agent_registry,
+        &state.server_domain,
+        &agent_name,
+    )
+    .await
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let body = serde_json::to_vec(&card).unwrap();
@@ -2628,4 +2635,40 @@ async fn handle_human_connection(
     }
     // Deregister this connection from the human registry
     registry_for_cleanup.cleanup(&cleanup_addr).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn published_card_for_resolves_static_connector_and_unknown() {
+        let static_card = json!({
+            "name": "helper",
+            "address": "helper@testdom",
+            "ainm": { "address": "helper@testdom" }
+        });
+
+        let registry = AgentRegistry::new();
+        let connector_card = json!({ "name": "Coder", "ainm": { "address": "coder@testdom" } });
+        let _rx = registry.register("coder@testdom", &connector_card).await;
+
+        // (2) Static identity match.
+        let got = published_card_for(None, &static_card, &registry, "testdom", "helper").await;
+        assert_eq!(got.as_ref().and_then(|c| c.get("name")).and_then(|n| n.as_str()), Some("helper"));
+
+        // (3) Live connector match by {name}@{domain}.
+        let got = published_card_for(None, &static_card, &registry, "testdom", "coder").await;
+        assert_eq!(got.as_ref().and_then(|c| c["ainm"].get("address")).and_then(|a| a.as_str()), Some("coder@testdom"));
+
+        // Unknown name → None (→ 404).
+        let got = published_card_for(None, &static_card, &registry, "testdom", "ghost").await;
+        assert!(got.is_none(), "unknown name must resolve to None");
+
+        // A non-matching static card must NOT block the connector branch (falls through, not early None).
+        let other = json!({ "address": "someoneelse@testdom" });
+        let got = published_card_for(None, &other, &registry, "testdom", "coder").await;
+        assert!(got.is_some(), "non-matching static card must not block the connector branch");
+    }
 }
