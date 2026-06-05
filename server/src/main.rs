@@ -630,19 +630,36 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 11. Start Listener 2: mTLS TCP (federation relay) with FAUT-02 cert fingerprint verification
     let mtls_config = tls::build_mtls_server_config(ca_cert_path, cert_path, key_path);
 
-    // Build agent card handler for federation listener (serves same card as local listener)
-    let agent_card_for_fed = Arc::new(agent_card.clone());
+    // Federation card handler: resolves identically to the client route via the shared
+    // `published_card_for` (hosted → static → live connector → 404), over the shared AgentRegistry.
     let fed_agent_card_handler = {
-        let card = agent_card_for_fed.clone();
-        move |headers: axum::http::HeaderMap, axum::extract::Path(_agent_name): axum::extract::Path<String>| {
-            let card = card.clone();
+        let hosted = hosted_agent_for_fed.clone();
+        let static_card = agent_card.clone();
+        let registry = agent_registry.clone();
+        let domain = server_id.to_string();
+        move |headers: axum::http::HeaderMap, axum::extract::Path(agent_name): axum::extract::Path<String>| {
+            let hosted = hosted.clone();
+            let static_card = static_card.clone();
+            let registry = registry.clone();
+            let domain = domain.clone();
             async move {
-                let body = serde_json::to_vec(&*card).unwrap();
+                let Some(card) = crate::server::published_card_for(
+                    hosted.as_deref(),
+                    &static_card,
+                    &registry,
+                    &domain,
+                    &agent_name,
+                )
+                .await
+                else {
+                    return axum::http::StatusCode::NOT_FOUND.into_response();
+                };
+
+                let body = serde_json::to_vec(&card).unwrap();
                 let hash = ring::digest::digest(&ring::digest::SHA256, &body);
                 let etag_value = format!(
                     "\"{}\"",
-                    base64::engine::general_purpose::URL_SAFE_NO_PAD
-                        .encode(hash.as_ref())
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash.as_ref())
                 );
                 if let Some(if_none_match) = headers.get(axum::http::header::IF_NONE_MATCH) {
                     if if_none_match.to_str().unwrap_or("") == etag_value {
@@ -656,10 +673,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 (
                     axum::http::StatusCode::OK,
                     [
-                        (
-                            axum::http::header::CONTENT_TYPE,
-                            "application/json".to_string(),
-                        ),
+                        (axum::http::header::CONTENT_TYPE, "application/json".to_string()),
                         (axum::http::header::ETAG, etag_value),
                     ],
                     body,
