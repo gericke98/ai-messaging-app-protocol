@@ -89,6 +89,8 @@ pub fn build_connector_card(address: &str, init_params: &Value) -> Value {
         .and_then(|c| c.get("subThreads"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // The schema's AINMExtensions.contentTypes requires minItems:1, so an empty or absent
+    // array is normalized to the universal default ["text"] (an empty card would be invalid).
     let content_types: Vec<Value> = caps
         .and_then(|c| c.get("contentTypes"))
         .and_then(|v| v.as_array())
@@ -134,6 +136,10 @@ fn normalize_skills(skills: Option<&Value>) -> Vec<Value> {
                 .filter(|x| !x.is_empty())
                 .map(|x| x.to_string())
                 .unwrap_or_else(|| slug(name));
+            if id.is_empty() {
+                tracing::warn!("[connector-card] dropping skill `{name}`: derived id is empty");
+                return None;
+            }
             Some(json!({ "id": id, "name": name, "description": description }))
         })
         .collect()
@@ -260,6 +266,8 @@ mod tests {
         assert_eq!(ainm["type"], "agent");
         assert_eq!(ainm["contentTypes"], json!(["text", "code"]));
         assert_eq!(ainm["streaming"]["supported"], true);
+        assert_eq!(ainm["streaming"]["parallelBlocks"], false);
+        assert_eq!(ainm["streaming"]["preferredChunkSize"], "token");
         assert_eq!(ainm["threading"]["subThreads"], true);
         assert!(ainm["threading"]["maxConcurrentThreads"].is_null());
         assert_eq!(ainm["memory"]["archivalSupported"], false);
@@ -301,5 +309,20 @@ mod tests {
         assert_eq!(card["ainm"]["tools"], json!([]));
         assert_eq!(card["skills"], json!([]));
         assert_eq!(card["ainm"]["contentTypes"], json!(["text"]));
+    }
+
+    #[test]
+    fn build_connector_card_drops_skill_with_empty_slug() {
+        // A skill whose name has no alphanumerics slugs to "" → schema-invalid id → dropped.
+        let params = json!({
+            "card": { "name": "X", "skills": [
+                { "name": "!!!", "description": "all symbols" },
+                { "name": "Good Skill", "description": "fine" }
+            ] }
+        });
+        let card = build_connector_card("x@h.test", &params);
+        let skills = card["skills"].as_array().unwrap();
+        assert_eq!(skills.len(), 1, "the all-symbol-name skill must be dropped");
+        assert_eq!(skills[0]["id"], "good-skill");
     }
 }
