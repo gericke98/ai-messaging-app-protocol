@@ -1695,7 +1695,7 @@ async fn handle_agent_connection(
     let init_params = init_req.get("params").unwrap_or(&empty_params);
     let agent_card = crate::agent_card::build_connector_card(&from_addr, init_params);
 
-    let _from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
+    let from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
     tracing::info!("Agent registered: {}", from_addr);
 
     let mut from_human_rx = state.to_agent_tx.subscribe();
@@ -2262,6 +2262,11 @@ async fn handle_agent_connection(
     }
 
     forward_handle.abort();
+
+    // Drop this connection's registry receiver BEFORE cleanup so its paired sender reports
+    // `is_closed()`, letting `cleanup` prune it and (if it was the last) remove the cached card.
+    // Without this, the receiver outlives the cleanup call and the card/connection would leak.
+    drop(from_registry_rx);
 
     // Deregister this agent from the AgentRegistry
     state.agent_registry.cleanup(&from_addr).await;
