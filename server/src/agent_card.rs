@@ -47,6 +47,136 @@ pub fn build_assistant_card(address: &str) -> Value {
     })
 }
 
+/// Build a canonical Agent Card for a live connector agent from its `ainm.initialize` params.
+///
+/// `address` is the agent's AINM address (`name@host`); `init_params` is the `params` object of
+/// the initialize request. Card fields come from `params.card` (sent by the connector SDK);
+/// transport capabilities come from `params.capabilities`. All keys camelCase. Pure: no I/O.
+///
+/// Robust to partial/absent input: a missing `card` yields a card built from capabilities +
+/// defaults (name = address local-part, description = "{name} agent"). Malformed tools/skills are
+/// dropped (logged), never panicking and never failing the caller.
+pub fn build_connector_card(address: &str, init_params: &Value) -> Value {
+    let local = address.split('@').next().unwrap_or(address);
+    let host = address.split('@').nth(1).unwrap_or(address);
+    let card = init_params.get("card");
+    let caps = init_params.get("capabilities");
+
+    let name = card
+        .and_then(|c| c.get("name"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(local)
+        .to_string();
+    let description = card
+        .and_then(|c| c.get("description"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{name} agent"));
+    let version = card
+        .and_then(|c| c.get("version"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("0.1.0")
+        .to_string();
+
+    let streaming = caps
+        .and_then(|c| c.get("streaming"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let sub_threads = caps
+        .and_then(|c| c.get("subThreads"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let content_types: Vec<Value> = caps
+        .and_then(|c| c.get("contentTypes"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| vec![json!("text")]);
+
+    let skills = normalize_skills(card.and_then(|c| c.get("skills")));
+    let tools = normalize_tools(card.and_then(|c| c.get("tools")));
+
+    json!({
+        "name": name,
+        "description": description,
+        "url": format!("https://{host}"),
+        "version": version,
+        "protocolVersion": "0.1.0",
+        "capabilities": { "streaming": streaming, "pushNotifications": false },
+        "skills": skills,
+        "ainm": {
+            "protocolVersion": "0.1.0",
+            "address": address,
+            "type": "agent",
+            "contentTypes": content_types,
+            "streaming": { "supported": streaming, "parallelBlocks": false, "preferredChunkSize": "token" },
+            "threading": { "subThreads": sub_threads, "maxConcurrentThreads": null },
+            "memory": { "archivalSupported": false, "contextFramePreferred": false },
+            "tools": tools
+        }
+    })
+}
+
+/// Normalize `card.skills` into valid `AgentSkill` objects. The schema requires id/name/description;
+/// derive a slug `id` from `name` when absent. Drop entries lacking name or description.
+fn normalize_skills(skills: Option<&Value>) -> Vec<Value> {
+    let Some(arr) = skills.and_then(|v| v.as_array()) else { return vec![] };
+    arr.iter()
+        .filter_map(|s| {
+            let name = s.get("name").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
+            let description = s.get("description").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
+            let id = s
+                .get("id")
+                .and_then(|v| v.as_str())
+                .filter(|x| !x.is_empty())
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| slug(name));
+            Some(json!({ "id": id, "name": name, "description": description }))
+        })
+        .collect()
+}
+
+/// Normalize `card.tools` into valid `AgentTool` objects. The schema requires
+/// name/description/inputSchema, with `inputSchema` a JSON object. Drop entries whose `parameters`
+/// is missing or not an object (logged), or lacking name/description.
+fn normalize_tools(tools: Option<&Value>) -> Vec<Value> {
+    let Some(arr) = tools.and_then(|v| v.as_array()) else { return vec![] };
+    arr.iter()
+        .filter_map(|t| {
+            let name = t.get("name").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
+            let description = t.get("description").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
+            match t.get("parameters") {
+                Some(p) if p.is_object() => {
+                    Some(json!({ "name": name, "description": description, "inputSchema": p.clone() }))
+                }
+                _ => {
+                    tracing::warn!("[connector-card] dropping tool `{name}`: parameters missing or not an object");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Lowercase alphanumeric slug with `-` separators (for deriving a skill id from its name).
+fn slug(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_dash = false;
+    for ch in s.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash && !out.is_empty() {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +229,77 @@ mod tests {
         let card = build_assistant_card("assistant");
         assert_eq!(card["ainm"]["address"], "assistant");
         assert_eq!(card["url"], "https://assistant");
+    }
+
+    #[test]
+    fn build_connector_card_full_params_is_canonical() {
+        let params = json!({
+            "identity": "coder@h.test",
+            "capabilities": { "streaming": true, "subThreads": true, "contentTypes": ["text", "code"] },
+            "card": {
+                "name": "Coder",
+                "description": "Writes and reviews code.",
+                "version": "2.1.0",
+                "skills": [{ "name": "Review", "description": "Reviews diffs." }],
+                "tools": [{ "name": "run_tests", "description": "Runs tests.", "parameters": { "type": "object" } }]
+            }
+        });
+        let card = build_connector_card("coder@h.test", &params);
+
+        assert_eq!(card["name"], "Coder");
+        assert_eq!(card["description"], "Writes and reviews code.");
+        assert_eq!(card["url"], "https://h.test");
+        assert_eq!(card["version"], "2.1.0");
+        assert_eq!(card["protocolVersion"], "0.1.0");
+        assert_eq!(card["capabilities"]["streaming"], true);
+        assert_eq!(card["capabilities"]["pushNotifications"], false);
+        assert_eq!(card["skills"][0]["id"], "review");
+        assert_eq!(card["skills"][0]["name"], "Review");
+        let ainm = &card["ainm"];
+        assert_eq!(ainm["address"], "coder@h.test");
+        assert_eq!(ainm["type"], "agent");
+        assert_eq!(ainm["contentTypes"], json!(["text", "code"]));
+        assert_eq!(ainm["streaming"]["supported"], true);
+        assert_eq!(ainm["threading"]["subThreads"], true);
+        assert!(ainm["threading"]["maxConcurrentThreads"].is_null());
+        assert_eq!(ainm["memory"]["archivalSupported"], false);
+        assert_eq!(ainm["tools"][0]["name"], "run_tests");
+        assert_eq!(ainm["tools"][0]["inputSchema"], json!({ "type": "object" }));
+
+        let s = serde_json::to_string(&card).unwrap();
+        for snake in ["push_notifications", "protocol_version", "content_types", "input_schema", "sub_threads"] {
+            assert!(!s.contains(snake), "snake_case key `{snake}` leaked: {s}");
+        }
+    }
+
+    #[test]
+    fn build_connector_card_drops_malformed_tool() {
+        let params = json!({
+            "capabilities": { "contentTypes": ["text"] },
+            "card": {
+                "name": "X",
+                "tools": [
+                    { "name": "ok", "description": "good", "parameters": { "type": "object" } },
+                    { "name": "bad", "description": "no params" },
+                    { "name": "bad2", "description": "string params", "parameters": "nope" }
+                ]
+            }
+        });
+        let card = build_connector_card("x@h.test", &params);
+        let tools = card["ainm"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1, "only the well-formed tool survives");
+        assert_eq!(tools[0]["name"], "ok");
+    }
+
+    #[test]
+    fn build_connector_card_defaults_without_card_object() {
+        let params = json!({ "capabilities": { "contentTypes": ["text"] } });
+        let card = build_connector_card("solver@h.test", &params);
+        assert_eq!(card["name"], "solver");
+        assert_eq!(card["description"], "solver agent");
+        assert_eq!(card["version"], "0.1.0");
+        assert_eq!(card["ainm"]["tools"], json!([]));
+        assert_eq!(card["skills"], json!([]));
+        assert_eq!(card["ainm"]["contentTypes"], json!(["text"]));
     }
 }
