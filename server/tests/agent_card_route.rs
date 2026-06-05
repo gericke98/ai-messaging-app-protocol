@@ -18,8 +18,9 @@ async fn free_port() -> u16 {
 }
 
 /// Resolve a test Postgres URL (TEST_DATABASE_URL → AINM_DATABASE__URL → DATABASE_URL),
-/// connect, and run migrations. Returns the URL the spawned binary should use. None → skip.
-async fn db_url_or_skip() -> Option<String> {
+/// connect, and run migrations. Returns the pool (for cleanup) and the URL the spawned
+/// binary should use. None → skip.
+async fn db_pool_and_url_or_skip() -> Option<(sqlx::PgPool, String)> {
     let url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("AINM_DATABASE__URL"))
         .or_else(|_| std::env::var("DATABASE_URL"))
@@ -32,7 +33,20 @@ async fn db_url_or_skip() -> Option<String> {
         .run(&pool)
         .await
         .ok()?;
-    Some(url)
+    Some((pool, url))
+}
+
+/// Best-effort cleanup of a test domain's rows (matches `cleanup_domain` in ws_conversation_e2e.rs).
+/// `hosted_agents` has no FK to `accounts`; delete it explicitly, then `accounts` cascades.
+async fn cleanup_domain(pool: &sqlx::PgPool, domain: &str) {
+    let _ = sqlx::query("DELETE FROM hosted_agents WHERE address LIKE $1")
+        .bind(format!("%@{domain}"))
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM accounts WHERE domain = $1")
+        .bind(domain)
+        .execute(pool)
+        .await;
 }
 
 #[tokio::test]
@@ -115,14 +129,16 @@ async fn canonical_agent_card_route_serves_hosted_card() {
 /// produced by the hosted-assistant branch of `published_card_for`, not the static fallback.
 #[tokio::test]
 async fn assistant_card_route_serves_hosted_card() {
-    let Some(db_url) = db_url_or_skip().await else {
+    let Some((pool, db_url)) = db_pool_and_url_or_skip().await else {
         eprintln!("no DB; skipping assistant_card_route_serves_hosted_card");
         return;
     };
 
-    // Stable domain: provisioning is idempotent (ON CONFLICT (address) DO NOTHING) and the
-    // `assistant` username is globally unique, so a fixed domain re-uses the same row across runs.
     let domain = "assistant-card-e2e.local";
+    // Self-healing: clear any rows a prior aborted run left for this stable domain so
+    // provisioning starts clean (mirrors ws_conversation_e2e.rs).
+    cleanup_domain(&pool, domain).await;
+
     let port = free_port().await;
     let certs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("certs");
 
@@ -178,6 +194,10 @@ async fn assistant_card_route_serves_hosted_card() {
         "camelCase capability key must be present; got {body}"
     );
     assert_eq!(body["ainm"]["memory"]["archivalSupported"], true, "got {body}");
+    assert_eq!(
+        body["ainm"]["address"], "assistant@assistant-card-e2e.local",
+        "card must carry the routing address; got {body}"
+    );
 
     // Unknown names still 404 even with an assistant provisioned.
     let unknown = format!("http://127.0.0.1:{port}/.well-known/ainm/ghost/agent-card.json");
