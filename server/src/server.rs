@@ -186,10 +186,9 @@ impl AgentRegistry {
         }
     }
 
-    /// Get the cached agent card for a given identity.
-    /// Retained for forthcoming per-agent card publishing on the well-known route; the
-    /// client-facing `agent_card_handler` no longer routes through it (issue #2 guard).
-    #[allow(dead_code)]
+    /// Get the cached agent card for a connected agent identity. Consulted by `published_card_for`
+    /// (branch 3) to serve a live connector agent's card at the well-known route while it is
+    /// connected; returns `None` once the agent disconnects (the card is dropped by `cleanup`).
     pub async fn get_agent_card(&self, identity: &str) -> Option<serde_json::Value> {
         let cards = self.agent_cards.lock().await;
         cards.get(identity).cloned()
@@ -987,12 +986,13 @@ pub async fn start_federation(
 ///    matches `agent_name`, serve its freshly built canonical card.
 /// 2. **Static card:** the static `state.agent_card` is published only when its own declared
 ///    address local-part matches `agent_name`.
+/// 3. **Live connector agent:** if an agent with address `{agent_name}@{server_domain}` is
+///    currently connected, serve its registered (ephemeral) card. Removed on disconnect.
 ///
-/// A null / identity-less card with no matching hosted agent publishes nothing, so every name
-/// 404s. This keeps the well-known route from returning a card under an arbitrary (typo'd or
-/// not-yet-connected) agent name. Per-agent card publishing for live connector agents is a
-/// separate, larger change and is intentionally NOT handled here.
-fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_json::Value> {
+/// A null / identity-less static card with no matching hosted or connected agent publishes
+/// nothing, so every unknown name 404s. This keeps the well-known route from returning a card
+/// under an arbitrary (typo'd or offline) agent name.
+async fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_json::Value> {
     // (1) Hosted assistant: build its canonical card on demand.
     if let Some(agent) = &state.hosted_agent {
         let local = agent.address.split('@').next().unwrap_or("");
@@ -1003,20 +1003,28 @@ fn published_card_for(state: &ServerState, agent_name: &str) -> Option<serde_jso
 
     // (2) Static card: serve only under its own declared identity.
     let card = &state.agent_card;
-    let addr = card
+    if let Some(addr) = card
         .get("address")
         .and_then(|v| v.as_str())
         .or_else(|| {
             card.get("ainm")
                 .and_then(|a| a.get("address"))
                 .and_then(|v| v.as_str())
-        })?;
-    let local = addr.split('@').next().unwrap_or("");
-    if !local.is_empty() && local == agent_name {
-        Some(card.clone())
-    } else {
-        None
+        })
+    {
+        let local = addr.split('@').next().unwrap_or("");
+        if !local.is_empty() && local == agent_name {
+            return Some(card.clone());
+        }
     }
+
+    // (3) Live connector agent: serve its registered (ephemeral) card while connected.
+    let full_addr = format!("{agent_name}@{}", state.server_domain);
+    if let Some(card) = state.agent_registry.get_agent_card(&full_addr).await {
+        return Some(card);
+    }
+
+    None
 }
 
 /// Agent Card HTTP endpoint with ETag caching (per DISC-05).
@@ -1029,7 +1037,7 @@ async fn agent_card_handler(
     // Serve a card ONLY when `agent_name` matches the agent this server actually publishes
     // (its own hosted/static agent identity). Unknown names 404 rather than leaking the static
     // card under an arbitrary name (which would mislabel a typo'd or offline agent).
-    let Some(card) = published_card_for(&state, &agent_name) else {
+    let Some(card) = published_card_for(&state, &agent_name).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let body = serde_json::to_vec(&card).unwrap();
