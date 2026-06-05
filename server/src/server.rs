@@ -1668,19 +1668,13 @@ async fn handle_agent_connection(
     from_addr: String,
     init_req: &serde_json::Value,
 ) {
-    // Build a minimal agent card from the init request capabilities
-    let capabilities = init_req
-        .get("params")
-        .and_then(|p| p.get("capabilities"))
-        .cloned()
-        .unwrap_or(serde_json::json!({}));
-    let agent_card = serde_json::json!({
-        "identity": from_addr,
-        "capabilities": capabilities,
-        "connected_at": protocol::now_rfc3339(),
-    });
+    // Build the canonical Agent Card from the init params (card object + capabilities) and register
+    // it. The registry is ephemeral: `cleanup` (on disconnect) removes the card so the well-known
+    // route 404s once the agent is gone.
+    let empty_params = serde_json::json!({});
+    let init_params = init_req.get("params").unwrap_or(&empty_params);
+    let agent_card = crate::agent_card::build_connector_card(&from_addr, init_params);
 
-    // Register this agent in the AgentRegistry
     let _from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
     tracing::info!("Agent registered: {}", from_addr);
 
