@@ -924,6 +924,7 @@ pub async fn start_federation(
     mcp_providers: std::sync::Arc<Vec<std::sync::Arc<dyn crate::tools::ToolProvider>>>,
     cred_cipher: Option<std::sync::Arc<crate::credentials::CredCipher>>,
     quota: crate::config::QuotaConfig,
+    agent_registry: AgentRegistry,
     shutdown: crate::lifecycle::ShutdownController,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
@@ -934,7 +935,7 @@ pub async fn start_federation(
         agent_card,
         to_agent_tx,
         human_registry: HumanRegistry::new(),
-        agent_registry: AgentRegistry::new(),
+        agent_registry,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,

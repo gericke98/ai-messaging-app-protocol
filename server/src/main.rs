@@ -600,6 +600,12 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         remote_cache: remote_cache.clone(),
     };
 
+    // Shared agent registry: one instance backs both the local listener (inside start_federation)
+    // and the federation listener's card handler, so connector cards are visible over federation.
+    let agent_registry = server::AgentRegistry::new();
+    // Keep a hosted-agent handle for the federation card handler (hosted_agent is moved below).
+    let hosted_agent_for_fed = hosted_agent.clone();
+
     let (server_addr, server_handle) = server::start_federation(
         identity_store.clone(),
         agent_card.clone(),
@@ -616,6 +622,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         mcp_providers,
         cred_cipher,
         quota_config,
+        agent_registry.clone(),
         controller.clone(),
     )
     .await?;
