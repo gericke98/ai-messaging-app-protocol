@@ -78,4 +78,22 @@ final class ConversationSurfaceRenderTests: XCTestCase {
         )
         renderBothSchemes(view)
     }
+
+    func test_conversationRow_warmTokensAndAvatar() {
+        let row = ConversationRow(
+            id: "t-test-1",
+            title: "Assistant",
+            createdAt: "2026-06-08T09:41:00Z",
+            createdBy: "user@localhost",
+            hasUnread: true,
+            lastMessageTimestamp: "2026-06-08T09:41:00Z",
+            lastMessageContent: nil,
+            lastMessageFrom: nil
+        )
+        renderBothSchemes(ConversationRowView(
+            conversation: row,
+            previewText: "Sounds good",
+            relativeTime: "9:41 AM"
+        ))
+    }
 }

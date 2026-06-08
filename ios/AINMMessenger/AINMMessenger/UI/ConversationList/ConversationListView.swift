@@ -137,6 +137,8 @@ struct ConversationListView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.Color.paper)
             .refreshable {
                 // Pull-to-refresh: in write-through cache model, the list
                 // auto-updates from GRDB observation. Server re-sync is a
@@ -155,12 +157,13 @@ struct ConversationListView: View {
             Spacer()
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.system(size: 60))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Theme.Color.accent)
             Text("No conversations yet")
-                .font(.title2.bold())
+                .font(Theme.Typography.displayTitle())
+                .foregroundStyle(Theme.Color.inkPrimary)
             Text("Start a conversation with humans or AI agents")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.body())
+                .foregroundStyle(Theme.Color.inkSecondary)
                 .multilineTextAlignment(.center)
             Button {
                 appState.showNewThreadComposer = true
@@ -173,5 +176,7 @@ struct ConversationListView: View {
             .padding(.horizontal, 32)
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.paper)
     }
 }

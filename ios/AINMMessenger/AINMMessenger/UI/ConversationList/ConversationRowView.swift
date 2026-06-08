@@ -1,45 +1,56 @@
 import SwiftUI
 
-/// Single conversation row for the conversation list per UI-SPEC Screen 1.
-/// Shows avatar, thread title, last message preview, relative timestamp, and unread dot.
+/// Single conversation row (UI-SPEC Screen 1), Editorial Warm.
+/// Identity-colored avatar (legacy fallback when no address), serif title,
+/// warm preview/timestamp, accent unread dot.
 struct ConversationRowView: View {
     let conversation: ConversationRow
     let previewText: String
     let relativeTime: String
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Leading avatar -- default to "human" for v1
-            AvatarView(participantType: "human", size: 36)
+        HStack(spacing: Theme.Spacing.md) {
+            AvatarView(
+                participantType: "agent",
+                size: 36,
+                address: rowAddress,
+                displayName: conversation.title
+            )
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 HStack {
                     Text(conversation.title ?? "Untitled")
-                        .font(.subheadline.bold())
+                        .font(Theme.Typography.senderName())
+                        .foregroundStyle(Theme.Color.inkPrimary)
                         .lineLimit(1)
                     Spacer()
                     Text(relativeTime)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.caption())
+                        .foregroundStyle(Theme.Color.inkSecondary)
                 }
                 HStack {
                     Text(previewText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.caption())
+                        .foregroundStyle(Theme.Color.inkSecondary)
                         .lineLimit(2)
                     Spacer(minLength: 0)
                     if conversation.hasUnread {
                         Circle()
-                            .fill(Color.accentColor)
+                            .fill(Theme.Color.accent)
                             .frame(width: 8, height: 8)
                             .accessibilityLabel("Unread")
                     }
                 }
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 16)
+        .padding(.vertical, Theme.Spacing.sm)
+        .padding(.horizontal, Theme.Spacing.lg)
         .frame(minHeight: 64)
         .contentShape(Rectangle())
+    }
+
+    /// Address driving the identity avatar; nil → legacy avatar (no regression).
+    private var rowAddress: String? {
+        nil
     }
 }
