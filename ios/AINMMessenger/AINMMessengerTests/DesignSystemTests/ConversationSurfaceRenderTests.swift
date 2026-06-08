@@ -96,4 +96,23 @@ final class ConversationSurfaceRenderTests: XCTestCase {
             relativeTime: "9:41 AM"
         ))
     }
+
+    func test_streamingAndTyping_renderUnderReduceMotion() {
+        let state = StreamingViewModel.StreamingMessageState(
+            id: "s2", messageId: "m2", from: "researcher@acme.test", threadId: "t1",
+            blocks: [.init(type: "text", content: "Calculating…")],
+            status: .streaming, finalizingStartTime: nil
+        )
+        // \.accessibilityReduceMotion reflects a system-level UIAccessibility flag and is not
+        // writable via .environment(). Disabling UIView animations is the faithful test-harness
+        // equivalent: it prevents any animation from running during layout, matching the
+        // reduce-motion path in CursorView and TypingIndicatorView.
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        let stack = VStack {
+            StreamingMessageView(state: state)
+            TypingIndicatorView(name: "Researcher", isAgent: true, address: "researcher@acme.test")
+        }
+        renderBothSchemes(stack)
+    }
 }
