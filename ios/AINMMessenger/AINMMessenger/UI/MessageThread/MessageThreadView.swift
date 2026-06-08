@@ -253,6 +253,9 @@ struct MessageThreadView: View {
             isMultiParticipant: viewModel.isMultiParticipant,
             homeHost: homeHost
         )
+        // Raw group-id scroll anchor: threadItems carry prefixed ids ("g-"/"c-"), so without
+        // this the deep-link / jump-to-parent scrollTo(messageId) would resolve nothing.
+        .id(group.id)
     }
 
     /// Handle interactive block action from ContentBlockRenderer onAction chain.
@@ -324,7 +327,12 @@ struct MessageThreadView: View {
             group.messages.contains { $0.id == messageId }
         } ?? false
         if messageExists {
-            scrollPosition.scrollTo(id: messageId, anchor: .center)
+            // If the target lives inside a collapsed A2A capsule, expand it so its row exists.
+            viewModel?.expandCapsuleContaining(messageId: messageId)
+            // Scroll to the enclosing group's id (the rows' scroll anchor); messages aren't
+            // individually addressable, but their group is (see messageGroupView's `.id`).
+            let anchor = viewModel?.groupId(containingMessage: messageId) ?? messageId
+            scrollPosition.scrollTo(id: anchor, anchor: .center)
         } else {
             withAnimation {
                 showMessageNotFound = true

@@ -172,6 +172,23 @@ final class MessageThreadViewModel {
         }
     }
 
+    /// The id of the message group containing `messageId` (the row's scroll anchor), or nil.
+    func groupId(containingMessage messageId: String) -> String? {
+        messageGroups.first { $0.messages.contains { $0.id == messageId } }?.id
+    }
+
+    /// If `messageId` lives inside a collapsed A2A capsule, expand that capsule so its row
+    /// renders and can be scrolled to (deep-link / jump-to-parent into folded A2A chatter).
+    func expandCapsuleContaining(messageId: String) {
+        for item in threadItems {
+            if case .capsule(let capsule) = item,
+               capsule.groups.contains(where: { $0.messages.contains(where: { $0.id == messageId }) }) {
+                expandedCapsuleIDs.insert(capsule.id)
+                return
+            }
+        }
+    }
+
     private func startObservingNewMessages() {
         guard let newest = newestTimestamp else { return }
         observationTask = Task {
