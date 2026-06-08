@@ -37,6 +37,7 @@ struct SeedLoaderIntegrationTests {
         ("scenario-04-memory",          1, 2, 0, 0, 4, 0),
         ("scenario-05-sub-thread",      1, 2, 1, 0, 0, 0),
         ("scenario-06-deep-link",       1, 2, 1, 0, 0, 0),
+        ("scenario-07-a2a-burst",       1, 3, 5, 0, 0, 0),
     ]
 
     @Test(

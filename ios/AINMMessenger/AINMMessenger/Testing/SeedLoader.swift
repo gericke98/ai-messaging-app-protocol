@@ -67,10 +67,15 @@ enum SeedLoader {
         fixture name: String,
         into appState: AppState
     ) async throws {
-        guard let url = Bundle.main.url(forResource: name, withExtension: "json") else {
+        guard let dbPool = appState.appDatabase?.dbPool else {
+            throw SeedError.databaseNotReady
+        }
+
+        let url = bundleURL(forFixture: name)
+        guard let resolvedURL = url else {
             throw SeedError.fixtureNotFound(name)
         }
-        let data = try Data(contentsOf: url)
+        let data = try Data(contentsOf: resolvedURL)
         let fixture: ScenarioFixture
         do {
             fixture = try JSONDecoder().decode(ScenarioFixture.self, from: data)
@@ -78,33 +83,71 @@ enum SeedLoader {
             throw SeedError.decodeFailed(name, underlying: error)
         }
 
-        guard let dbPool = appState.appDatabase?.dbPool else {
-            throw SeedError.databaseNotReady
-        }
-
         try await dbPool.write { db in
-            for thread in fixture.threads {
-                try thread.asRecord().insert(db)
-            }
-            for participant in fixture.participants {
-                try participant.asRecord().insert(db)
-            }
-            for message in fixture.messages {
-                try message.asRecord().insert(db)
-            }
-            for toolCall in fixture.toolCalls {
-                try toolCall.asRecord().insert(db)
-            }
-            for fact in fixture.archivalFacts {
-                try fact.asRecord().insert(db)
-            }
-            for card in fixture.agentCards {
-                try card.asRecord().insert(db)
-            }
-            for agent in fixture.savedAgents {
-                try agent.asRecord().insert(db)
-            }
+            try insertFixture(fixture, into: db)
+        }
+    }
+
+    /// Synchronous by-name loader for unit tests: decodes the named fixture and
+    /// inserts every row into `db` in a single synchronous write transaction.
+    ///
+    /// This mirrors `loadFixtureIfRequested` exactly so the same JSON is exercised
+    /// by both the app boot path and the unit-test suite — without requiring an
+    /// `AppState` wrapper or async context.
+    ///
+    /// Bundle resolution: prefers `Bundle.main` (app / UAT host), then falls back
+    /// to the bundle containing `SeedLoaderBundleAnchor` (unit-test host where
+    /// `Bundle.main` is the XCTest runner and the JSON lives in the app bundle).
+    static func loadFixture(named name: String, into db: AppDatabase) throws {
+        guard let resolvedURL = bundleURL(forFixture: name) else {
+            throw SeedError.fixtureNotFound(name)
+        }
+        let data = try Data(contentsOf: resolvedURL)
+        let fixture: ScenarioFixture
+        do {
+            fixture = try JSONDecoder().decode(ScenarioFixture.self, from: data)
+        } catch {
+            throw SeedError.decodeFailed(name, underlying: error)
+        }
+        try db.dbPool.write { grdb in
+            try insertFixture(fixture, into: grdb)
+        }
+    }
+
+    // MARK: - Private helpers
+
+    private static func bundleURL(forFixture name: String) -> URL? {
+        Bundle.main.url(forResource: name, withExtension: "json")
+            ?? Bundle(for: SeedLoaderBundleAnchor.self)
+                .url(forResource: name, withExtension: "json")
+    }
+
+    private static func insertFixture(_ fixture: ScenarioFixture, into db: Database) throws {
+        for thread in fixture.threads {
+            try thread.asRecord().insert(db)
+        }
+        for participant in fixture.participants {
+            try participant.asRecord().insert(db)
+        }
+        for message in fixture.messages {
+            try message.asRecord().insert(db)
+        }
+        for toolCall in fixture.toolCalls {
+            try toolCall.asRecord().insert(db)
+        }
+        for fact in fixture.archivalFacts {
+            try fact.asRecord().insert(db)
+        }
+        for card in fixture.agentCards {
+            try card.asRecord().insert(db)
+        }
+        for agent in fixture.savedAgents {
+            try agent.asRecord().insert(db)
         }
     }
 }
+
+/// Private anchor class used only for `Bundle(for:)` resolution in unit tests.
+/// Must be a class (not a struct or enum) — `Bundle(for:)` accepts only `AnyClass`.
+private final class SeedLoaderBundleAnchor {}
 #endif
