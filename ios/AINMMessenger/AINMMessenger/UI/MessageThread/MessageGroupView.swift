@@ -15,6 +15,10 @@ struct MessageGroupView: View {
     var onNavigateToSubThread: ((_ threadId: String) -> Void)? = nil
     /// Called when user long-presses to branch a thread from a message.
     var onBranchThread: ((_ messageId: String) -> Void)? = nil
+    /// Thread-level: more than one non-current-user participant (drives name-tinting).
+    var isMultiParticipant: Bool = false
+    /// The current user's home host, for foreign-host provenance suffixes.
+    var homeHost: String? = nil
 
     var body: some View {
         VStack(alignment: group.isFromCurrentUser ? .trailing : .leading, spacing: 4) {
@@ -40,6 +44,9 @@ struct MessageGroupView: View {
                             senderAddress: group.senderAddress,
                             showHeader: isFirst,
                             timestamp: isLast ? timestampFormatter(message.timestamp) : nil,
+                            directedTo: group.directedTo,
+                            isMultiParticipant: isMultiParticipant,
+                            homeHost: homeHost,
                             onAction: { blockIndex, actionId, data in
                                 onAction?(message.id, blockIndex, actionId, data)
                             }

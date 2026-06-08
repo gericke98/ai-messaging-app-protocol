@@ -13,6 +13,12 @@ struct MessageThreadView: View {
     @State private var parentThreadInfo: (parentThreadId: String, parentMessageId: String, senderName: String)?
     @State private var showMessageNotFound = false
 
+    /// The current user's home host (for foreign-host provenance). nil when not connected.
+    private var homeHost: String? {
+        guard let identity = appState.connectedIdentity else { return nil }
+        return ParticipantProvenance.homeHost(from: identity)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Sub-thread banner (pinned, not scrolling)
@@ -55,7 +61,9 @@ struct MessageThreadView: View {
                                 },
                                 onBranchThread: { messageId in
                                     Task { await branchThread(fromMessageId: messageId) }
-                                }
+                                },
+                                isMultiParticipant: viewModel.isMultiParticipant,
+                                homeHost: homeHost
                             )
                         }
 

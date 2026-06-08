@@ -10,6 +10,9 @@ struct AgentMessageView: View {
     var senderAddress: String? = nil
     var showHeader: Bool = false
     var timestamp: String?
+    var directedTo: String? = nil
+    var isMultiParticipant: Bool = false
+    var homeHost: String? = nil
     var onAction: ((_ blockIndex: Int, _ actionId: String, _ data: [String: Any]) -> Void)? = nil
 
     var body: some View {
@@ -22,9 +25,13 @@ struct AgentMessageView: View {
                         address: senderAddress,
                         displayName: senderName
                     )
-                    Text(senderName)
-                        .font(Theme.Typography.senderName())
-                        .foregroundStyle(Theme.Color.inkPrimary)
+                    ParticipantByline(
+                        senderAddress: senderAddress ?? senderName,
+                        senderName: senderName,
+                        directedTo: directedTo,
+                        isMultiParticipant: isMultiParticipant,
+                        homeHost: homeHost
+                    )
                 }
             }
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in

@@ -56,4 +56,14 @@ final class ParticipantBylineRenderTests: XCTestCase {
             senderAddress: "assistant@localhost", senderName: "Assistant",
             directedTo: "analyst@acme.test", isMultiParticipant: true, homeHost: "localhost"))
     }
+
+    func test_agentMessage_directionalHeaderRenders() {
+        let blocks: [ContentBlock] = [.text(.init(
+            version: "1.0", source: "agent", text: "On it.", mentions: nil, fallback: "On it."))]
+        let view = AgentMessageView(
+            blocks: blocks, senderName: "Assistant", senderType: "agent",
+            senderAddress: "assistant@localhost", showHeader: true, timestamp: "9:41 AM",
+            directedTo: "researcher@acme.test", isMultiParticipant: true, homeHost: "localhost")
+        renderBothSchemes(view)
+    }
 }
