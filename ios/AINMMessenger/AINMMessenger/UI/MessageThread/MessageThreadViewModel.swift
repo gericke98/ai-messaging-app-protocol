@@ -37,6 +37,10 @@ struct MessageGroup: Identifiable {
 @Observable
 final class MessageThreadViewModel {
     var messageGroups: [MessageGroup] = []
+    /// Render list derived from messageGroups: normal groups + collapsed A2A capsules.
+    var threadItems: [ThreadItem] = []
+    /// Capsule ids (== first folded group id) the user has expanded this session. Default collapsed.
+    var expandedCapsuleIDs: Set<String> = []
     var isLoadingMore = false
     var hasMoreMessages = true
     var threadTitle: String = ""
@@ -159,6 +163,15 @@ final class MessageThreadViewModel {
         observationTask = nil
     }
 
+    /// Toggle a capsule's expansion. Id is the capsule's first group id (stable across rebuilds).
+    func toggleCapsule(_ id: String) {
+        if expandedCapsuleIDs.contains(id) {
+            expandedCapsuleIDs.remove(id)
+        } else {
+            expandedCapsuleIDs.insert(id)
+        }
+    }
+
     private func startObservingNewMessages() {
         guard let newest = newestTimestamp else { return }
         observationTask = Task {
@@ -206,6 +219,10 @@ final class MessageThreadViewModel {
             groups.append(makeGroup(messages: current, sender: sender))
         }
         messageGroups = groups
+        threadItems = A2ACapsuleFolder.fold(
+            groups: groups,
+            currentUserIdentity: currentUserIdentity,
+            isMultiParticipant: isMultiParticipant)
     }
 
     private func makeGroup(messages: [MessageRecord], sender: String) -> MessageGroup {
