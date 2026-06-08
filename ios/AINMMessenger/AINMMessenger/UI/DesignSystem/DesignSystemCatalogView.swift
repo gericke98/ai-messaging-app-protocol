@@ -50,6 +50,7 @@ struct DesignSystemCatalogView: View {
                     Text("Sender Name").font(Theme.Typography.senderName())
                     Text("Agent prose — considered, serif.").font(Theme.Typography.agentProse())
                     Text("Body text in SF.").font(Theme.Typography.body())
+                    Text("Callout").font(Theme.Typography.callout())
                     Text("LABEL").font(Theme.Typography.label())
                     Text("Caption").font(Theme.Typography.caption())
                 }
