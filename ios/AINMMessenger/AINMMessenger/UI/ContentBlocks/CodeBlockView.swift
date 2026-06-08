@@ -14,7 +14,7 @@ struct CodeBlockView: View {
                 Text(content.language.uppercased())
                     .font(.caption)
                     .fontWeight(.bold)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.Color.inkSecondary)
 
                 Spacer()
 
@@ -28,7 +28,7 @@ struct CodeBlockView: View {
                 } label: {
                     Text(showCopied ? "Copied!" : "Copy")
                         .font(.caption)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Theme.Color.accent)
                 }
                 .accessibilityLabel("Copy code")
             }
@@ -44,7 +44,8 @@ struct CodeBlockView: View {
                     .padding(.bottom, 12)
             }
         }
-        .background(Color(.tertiarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(Theme.Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .overlay { RoundedRectangle(cornerRadius: Theme.Radius.chip).stroke(Theme.Color.surfaceBorder, lineWidth: 1) }
     }
 }

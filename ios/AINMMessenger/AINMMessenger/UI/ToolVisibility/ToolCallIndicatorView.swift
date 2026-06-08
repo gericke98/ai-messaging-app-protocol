@@ -22,31 +22,31 @@ struct ToolCallIndicatorView: View {
                     statusIcon
                     Text(state.name)
                         .font(.subheadline.bold())
-                        .foregroundStyle(Color(.label))
+                        .foregroundStyle(Theme.Color.inkPrimary)
                         .lineLimit(1)
                     Spacer()
                     if state.status == .completed || state.status == .error,
                        let durationMs = state.durationMs {
                         Text(durationMs.formattedDuration)
                             .font(.caption)
-                            .foregroundStyle(Color(.secondaryLabel))
+                            .foregroundStyle(Theme.Color.inkSecondary)
                     }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(.tertiaryLabel))
+                        .foregroundStyle(Theme.Color.inkSecondary)
                         .rotationEffect(.degrees(state.isExpanded ? 90 : 0))
                         .accessibilityIdentifier(UITestID.ToolCall.expandButton)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(minHeight: 44)
-                .background(Color(.tertiarySystemBackground))
+                .background(Theme.Color.accentSoft)
                 .clipShape(
                     UnevenRoundedRectangle(
-                        topLeadingRadius: 8,
-                        bottomLeadingRadius: state.isExpanded ? 0 : 8,
-                        bottomTrailingRadius: state.isExpanded ? 0 : 8,
-                        topTrailingRadius: 8
+                        topLeadingRadius: Theme.Radius.chip,
+                        bottomLeadingRadius: state.isExpanded ? 0 : Theme.Radius.chip,
+                        bottomTrailingRadius: state.isExpanded ? 0 : Theme.Radius.chip,
+                        topTrailingRadius: Theme.Radius.chip
                     )
                 )
             }
@@ -60,12 +60,12 @@ struct ToolCallIndicatorView: View {
             if state.isExpanded {
                 ToolCallDetailView(state: state)
                     .padding(12)
-                    .background(Color(.secondarySystemBackground))
+                    .background(Theme.Color.surface)
                     .clipShape(
                         UnevenRoundedRectangle(
                             topLeadingRadius: 0,
-                            bottomLeadingRadius: 8,
-                            bottomTrailingRadius: 8,
+                            bottomLeadingRadius: Theme.Radius.chip,
+                            bottomTrailingRadius: Theme.Radius.chip,
                             topTrailingRadius: 0
                         )
                     )
