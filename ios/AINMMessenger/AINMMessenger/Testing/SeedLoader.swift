@@ -67,13 +67,14 @@ enum SeedLoader {
         fixture name: String,
         into appState: AppState
     ) async throws {
-        guard let dbPool = appState.appDatabase?.dbPool else {
-            throw SeedError.databaseNotReady
+        // Check fixture existence first so a missing-fixture name always surfaces
+        // as fixtureNotFound rather than databaseNotReady (mirrors original order).
+        guard let resolvedURL = bundleURL(forFixture: name) else {
+            throw SeedError.fixtureNotFound(name)
         }
 
-        let url = bundleURL(forFixture: name)
-        guard let resolvedURL = url else {
-            throw SeedError.fixtureNotFound(name)
+        guard let dbPool = appState.appDatabase?.dbPool else {
+            throw SeedError.databaseNotReady
         }
         let data = try Data(contentsOf: resolvedURL)
         let fixture: ScenarioFixture
