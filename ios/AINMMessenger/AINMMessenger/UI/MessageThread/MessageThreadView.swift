@@ -80,7 +80,11 @@ struct MessageThreadView: View {
 
                         // Streaming messages (ephemeral, below permanent messages)
                         ForEach(appState.streamingViewModel.activeStreamsForThread(threadId)) { stream in
-                            StreamingMessageView(state: stream)
+                            StreamingMessageView(
+                                state: stream,
+                                isMultiParticipant: viewModel.isMultiParticipant,
+                                homeHost: homeHost
+                            )
                         }
 
                         // Typing/processing indicators from active presence

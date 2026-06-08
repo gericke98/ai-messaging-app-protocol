@@ -66,4 +66,13 @@ final class ParticipantBylineRenderTests: XCTestCase {
             directedTo: "researcher@acme.test", isMultiParticipant: true, homeHost: "localhost")
         renderBothSchemes(view)
     }
+
+    func test_streamingMessage_tintedBylineNoDirectionalTag() {
+        let state = StreamingViewModel.StreamingMessageState(
+            id: "s3", messageId: "m9", from: "researcher@acme.test", threadId: "t1",
+            blocks: [.init(type: "text", content: "Pulling the numbers…")],
+            status: .streaming, finalizingStartTime: nil)
+        let view = StreamingMessageView(state: state, isMultiParticipant: true, homeHost: "localhost")
+        renderBothSchemes(view)
+    }
 }

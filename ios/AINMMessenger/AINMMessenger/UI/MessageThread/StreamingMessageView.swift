@@ -7,6 +7,8 @@ import SwiftUI
 /// appears if the signed message does not arrive within 5s of stream.end.
 struct StreamingMessageView: View {
     let state: StreamingViewModel.StreamingMessageState
+    var isMultiParticipant: Bool = false
+    var homeHost: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Spacing.sm) {
@@ -19,9 +21,13 @@ struct StreamingMessageView: View {
             )
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text(senderName)
-                    .font(Theme.Typography.senderName())
-                    .foregroundStyle(Theme.Color.inkPrimary)
+                ParticipantByline(
+                    senderAddress: state.from,
+                    senderName: senderName,
+                    directedTo: nil,
+                    isMultiParticipant: isMultiParticipant,
+                    homeHost: homeHost
+                )
 
                 if showCursor {
                     Text("✺ thinking…")
