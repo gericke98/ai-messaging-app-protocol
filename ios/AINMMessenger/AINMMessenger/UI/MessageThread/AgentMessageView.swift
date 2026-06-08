@@ -6,6 +6,7 @@ struct AgentMessageView: View {
     let blocks: [ContentBlock]
     let senderName: String
     let senderType: String
+    var senderAddress: String? = nil
     var showHeader: Bool = false
     var timestamp: String?
     var onAction: ((_ blockIndex: Int, _ actionId: String, _ data: [String: Any]) -> Void)? = nil
@@ -14,7 +15,12 @@ struct AgentMessageView: View {
         VStack(alignment: .leading, spacing: 4) {
             if showHeader {
                 HStack(spacing: 6) {
-                    AvatarView(participantType: senderType, size: 24)
+                    AvatarView(
+                        participantType: senderType,
+                        size: 24,
+                        address: senderAddress,
+                        displayName: senderName
+                    )
                     Text(senderName)
                         .font(.subheadline.bold())
                     if senderType == "agent" {

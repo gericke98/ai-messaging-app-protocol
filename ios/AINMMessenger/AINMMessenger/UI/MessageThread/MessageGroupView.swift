@@ -37,6 +37,7 @@ struct MessageGroupView: View {
                             blocks: blocks,
                             senderName: group.senderName,
                             senderType: group.senderType,
+                            senderAddress: group.senderAddress,
                             showHeader: isFirst,
                             timestamp: isLast ? timestampFormatter(message.timestamp) : nil,
                             onAction: { blockIndex, actionId, data in
