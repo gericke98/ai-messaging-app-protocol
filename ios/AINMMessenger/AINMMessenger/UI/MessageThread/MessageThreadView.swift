@@ -44,27 +44,19 @@ struct MessageThreadView: View {
                                 .padding()
                         }
 
-                        ForEach(viewModel.messageGroups) { group in
-                            MessageGroupView(
-                                group: group,
-                                contentBlocksProvider: { viewModel.contentBlocks(for: $0) },
-                                timestampFormatter: { viewModel.formatTimestamp($0) },
-                                onAction: { messageId, blockIndex, actionId, data in
-                                    handleAction(messageId: messageId, blockIndex: blockIndex, actionId: actionId, data: data)
-                                },
-                                isInSubThread: parentThreadInfo != nil,
-                                subThreadInfo: { messageId in
-                                    viewModel.subThreadInfo(forMessageId: messageId)
-                                },
-                                onNavigateToSubThread: { subThreadId in
-                                    appState.selectedThreadId = subThreadId
-                                },
-                                onBranchThread: { messageId in
-                                    Task { await branchThread(fromMessageId: messageId) }
-                                },
-                                isMultiParticipant: viewModel.isMultiParticipant,
-                                homeHost: homeHost
-                            )
+                        ForEach(viewModel.threadItems) { item in
+                            switch item {
+                            case .group(let group):
+                                messageGroupView(for: group, viewModel: viewModel)
+                            case .capsule(let capsule):
+                                A2ACapsuleView(
+                                    capsule: capsule,
+                                    isExpanded: viewModel.expandedCapsuleIDs.contains(capsule.id),
+                                    homeHost: homeHost,
+                                    onToggle: { viewModel.toggleCapsule(capsule.id) },
+                                    groupContent: { messageGroupView(for: $0, viewModel: viewModel) }
+                                )
+                            }
                         }
 
                         // Tool call indicators (below permanent messages, above streams).
@@ -235,6 +227,32 @@ struct MessageThreadView: View {
             appState.currentViewingThreadId = nil
             viewModel?.stopObserving()
         }
+    }
+
+    /// Builds the standard message-group row. Reused by both the `.group` render case and the
+    /// expanded body of an A2A capsule, so a capsule's messages render identically to inline ones.
+    @ViewBuilder
+    private func messageGroupView(for group: MessageGroup, viewModel: MessageThreadViewModel) -> some View {
+        MessageGroupView(
+            group: group,
+            contentBlocksProvider: { viewModel.contentBlocks(for: $0) },
+            timestampFormatter: { viewModel.formatTimestamp($0) },
+            onAction: { messageId, blockIndex, actionId, data in
+                handleAction(messageId: messageId, blockIndex: blockIndex, actionId: actionId, data: data)
+            },
+            isInSubThread: parentThreadInfo != nil,
+            subThreadInfo: { messageId in
+                viewModel.subThreadInfo(forMessageId: messageId)
+            },
+            onNavigateToSubThread: { subThreadId in
+                appState.selectedThreadId = subThreadId
+            },
+            onBranchThread: { messageId in
+                Task { await branchThread(fromMessageId: messageId) }
+            },
+            isMultiParticipant: viewModel.isMultiParticipant,
+            homeHost: homeHost
+        )
     }
 
     /// Handle interactive block action from ContentBlockRenderer onAction chain.
