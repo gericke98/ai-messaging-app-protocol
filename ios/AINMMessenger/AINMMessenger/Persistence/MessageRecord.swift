@@ -16,6 +16,7 @@ struct MessageRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
     let contentJson: String    // JSON-encoded [ContentBlock]
     let signature: String      // base64url Ed25519 signature
     var serverTimestamp: String?
+    var toAddress: String?     // explicit recipient from envelope.to; nil = none
 
     /// Create from protocol MessageEnvelope.
     /// Encodes the content array to JSON for storage.
@@ -29,6 +30,7 @@ struct MessageRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.contentJson = String(data: jsonData, encoding: .utf8)!
         self.signature = envelope.signature ?? ""
         self.serverTimestamp = nil
+        self.toAddress = envelope.to
     }
 
     /// Memberwise initializer for direct construction.
@@ -40,7 +42,8 @@ struct MessageRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         type: String,
         contentJson: String,
         signature: String,
-        serverTimestamp: String?
+        serverTimestamp: String?,
+        toAddress: String? = nil
     ) {
         self.id = id
         self.threadId = threadId
@@ -50,6 +53,7 @@ struct MessageRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
         self.contentJson = contentJson
         self.signature = signature
         self.serverTimestamp = serverTimestamp
+        self.toAddress = toAddress
     }
 }
 

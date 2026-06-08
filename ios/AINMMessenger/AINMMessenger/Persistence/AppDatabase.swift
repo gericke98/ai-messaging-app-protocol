@@ -214,6 +214,12 @@ struct AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v9_add_message_toAddress") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "toAddress", .text)   // nullable; nil = no explicit recipient
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 }
