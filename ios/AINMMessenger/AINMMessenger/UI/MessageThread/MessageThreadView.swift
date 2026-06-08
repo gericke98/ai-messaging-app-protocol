@@ -92,6 +92,7 @@ struct MessageThreadView: View {
                     Task { await viewModel?.loadOlderMessages() }
                 }
             }
+            .background(Theme.Color.paper)
 
             // Stop Generating button (visible only when streams are active)
             if appState.streamingViewModel.hasActiveStreams(inThread: threadId) {
@@ -127,6 +128,7 @@ struct MessageThreadView: View {
                 .accessibilityHidden(true)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .background(Theme.Color.paper)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
@@ -191,6 +193,9 @@ struct MessageThreadView: View {
                     .transition(.opacity)
                     .accessibilityIdentifier(UITestID.DeepLink.toastMessageNotFound)
             }
+        }
+        .onChange(of: appState.streamingViewModel.activeStreamsForThread(threadId).count) { oldCount, newCount in
+            if newCount > oldCount { Haptics.receive() }
         }
         .onAppear {
             appState.currentViewingThreadId = threadId

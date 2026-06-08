@@ -26,7 +26,7 @@ struct ComposerView: View {
                 axis: .vertical
             )
             .lineLimit(1...4)
-            .font(.body)
+            .font(Theme.Typography.body())
             .disabled(isOffline)
             .onChange(of: text) { _, newValue in
                 detectMentionTrigger(in: newValue)
@@ -36,6 +36,7 @@ struct ComposerView: View {
             Button {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
+                Haptics.send()
                 if let onSendWithMentions, !mentions.isEmpty {
                     onSendWithMentions(trimmed, mentions)
                 } else {
@@ -47,7 +48,7 @@ struct ComposerView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundStyle(canSend ? Color.accentColor : .secondary)
+                    .foregroundStyle(canSend ? Theme.Color.accent : Theme.Color.inkSecondary)
             }
             .disabled(!canSend)
             .accessibilityLabel("Send message")
@@ -55,7 +56,7 @@ struct ComposerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Color(.systemBackground))
+        .background(Theme.Color.paper)
         .overlay(alignment: .top) {
             if showMentionPopup {
                 MentionAutocompleteView(
