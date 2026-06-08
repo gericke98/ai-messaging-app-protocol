@@ -48,4 +48,13 @@ final class ConversationSurfaceRenderTests: XCTestCase {
         let clipped = avatar.frame(width: 36, height: 36).clipped()
         renderBothSchemes(clipped)
     }
+
+    func test_streamingMessage_rendersLivingTreatment() {
+        let state = StreamingViewModel.StreamingMessageState(
+            id: "s1", messageId: "m1", from: "assistant@localhost", threadId: "t1",
+            blocks: [.init(type: "text", content: "Monday is your clearest block")],
+            status: .streaming, finalizingStartTime: nil
+        )
+        renderBothSchemes(StreamingMessageView(state: state))
+    }
 }
