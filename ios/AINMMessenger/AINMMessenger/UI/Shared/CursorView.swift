@@ -1,16 +1,18 @@
 import SwiftUI
 
-/// Blinking cursor animation for streaming text (UI-SPEC Component 2).
-/// 2pt-wide rounded rectangle that blinks at 0.5s cycle.
-/// Respects the accessibilityReduceMotion setting -- stays solid when reduce-motion is on.
+/// Blinking caret for streaming text (UI-SPEC Component 2).
+/// 2pt-wide rounded rectangle that blinks at a 0.5s cycle in the supplied color
+/// (the message's identity color, or Accent by default). Stays solid under
+/// `accessibilityReduceMotion`.
 struct CursorView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var opacity: Double = 1.0
     var height: CGFloat = 12  // matches body cap height
+    var color: Color = Theme.Color.accent
 
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
-            .fill(Color.accentColor)
+            .fill(color)
             .frame(width: 2, height: height)
             .opacity(opacity)
             .onAppear {
