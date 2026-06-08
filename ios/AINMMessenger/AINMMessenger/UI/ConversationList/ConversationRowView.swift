@@ -49,8 +49,9 @@ struct ConversationRowView: View {
         .contentShape(Rectangle())
     }
 
-    /// Address driving the identity avatar; nil → legacy avatar (no regression).
+    /// Address driving the identity avatar: the thread's primary agent address
+    /// (LOOP-1 `thread.agentAddress`). nil → legacy avatar fallback (no regression).
     private var rowAddress: String? {
-        nil
+        conversation.agentAddress
     }
 }

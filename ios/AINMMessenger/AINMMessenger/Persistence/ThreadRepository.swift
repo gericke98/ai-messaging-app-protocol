@@ -12,6 +12,7 @@ struct ConversationRow: Codable, Sendable, FetchableRecord {
     var lastMessageTimestamp: String?
     var lastMessageContent: String?
     var lastMessageFrom: String?
+    var agentAddress: String? = nil   // defaulted so existing call sites/tests compile unchanged
 }
 
 /// Repository for thread-level GRDB queries.
@@ -45,7 +46,8 @@ struct ThreadRepository: Sendable {
                     hasUnread: row["hasUnread"],
                     lastMessageTimestamp: row["lastMessageTimestamp"],
                     lastMessageContent: row["lastMessageContent"],
-                    lastMessageFrom: row["lastMessageFrom"]
+                    lastMessageFrom: row["lastMessageFrom"],
+                    agentAddress: row["agentAddress"]
                 )
             }
         }

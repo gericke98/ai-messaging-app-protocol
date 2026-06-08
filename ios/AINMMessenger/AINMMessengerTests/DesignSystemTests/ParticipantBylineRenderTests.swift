@@ -75,4 +75,15 @@ final class ParticipantBylineRenderTests: XCTestCase {
         let view = StreamingMessageView(state: state, isMultiParticipant: true, homeHost: "localhost")
         renderBothSchemes(view)
     }
+
+    func test_conversationRow_usesAgentAddressForAvatar() {
+        let row = ConversationRow(
+            id: "t-9", title: "Assistant", createdAt: "2026-06-08T09:41:00Z",
+            createdBy: "me@localhost", hasUnread: false,
+            lastMessageTimestamp: "2026-06-08T09:41:00Z",
+            lastMessageContent: nil, lastMessageFrom: nil,
+            agentAddress: "assistant@localhost")
+        renderBothSchemes(ConversationRowView(
+            conversation: row, previewText: "On it", relativeTime: "9:41 AM"))
+    }
 }

@@ -173,8 +173,8 @@ struct MessageThreadView: View {
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.12))
-                            .foregroundStyle(Color.accentColor)
+                            .background(Theme.Color.accentSoft)
+                            .foregroundStyle(Theme.Color.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .accessibilityLabel("View memory context")
