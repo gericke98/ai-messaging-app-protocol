@@ -70,4 +70,12 @@ final class ConversationSurfaceRenderTests: XCTestCase {
         )
         renderBothSchemes(view)
     }
+
+    func test_humanBubble_rendersInkTokens() {
+        let view = MessageBubbleView(
+            blocks: textBlocks("Plan my week around the launch", source: "user"),
+            senderName: "You", showHeader: false, timestamp: "9:40 AM", messageId: "m0"
+        )
+        renderBothSchemes(view)
+    }
 }
