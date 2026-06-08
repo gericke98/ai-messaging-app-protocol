@@ -68,4 +68,34 @@ final class ParticipantPopulationTests: XCTestCase {
         XCTAssertEqual(p?.type, "human")
         XCTAssertEqual(p?.role, "creator")
     }
+
+    func test_backfill_populatesRosterFromMessages_andFlipsMultiParticipant() async throws {
+        let db = try AppDatabase.makeInMemory()
+        try await db.dbPool.write { dbx in
+            try ThreadRecord(id: "tC", title: nil, createdAt: "2026-06-08T09:00:00.000Z",
+                createdBy: "me@localhost", parentThreadId: nil, parentMessageId: nil,
+                agentAddress: "assistant@localhost").save(dbx)
+            for (i, from) in ["assistant@localhost", "researcher@acme.test"].enumerated() {
+                try MessageRecord(
+                    id: "m\(i)", threadId: "tC", fromAddress: from,
+                    timestamp: "2026-06-08T10:0\(i):00.000Z", type: "message",
+                    contentJson: "[]", signature: "s", serverTimestamp: nil).save(dbx)
+            }
+            try SavedAgentRecord(address: "researcher@acme.test", displayName: "Researcher",
+                cardJson: "{}", addedAt: "2026-06-08T09:00:00.000Z").save(dbx)
+        }
+        let vm = MessageThreadViewModel(threadId: "tC", currentUserIdentity: "me@localhost", database: db)
+        vm.savedAgentAddresses = ["assistant@localhost", "researcher@acme.test"]
+        await vm.loadInitial()
+
+        let count = try await db.dbPool.read { dbx in
+            try ParticipantRecord.filter(Column("threadId") == "tC").fetchCount(dbx) }
+        XCTAssertGreaterThanOrEqual(count, 2)
+        XCTAssertTrue(vm.isMultiParticipant)
+
+        await vm.loadInitial()
+        let count2 = try await db.dbPool.read { dbx in
+            try ParticipantRecord.filter(Column("threadId") == "tC").fetchCount(dbx) }
+        XCTAssertEqual(count, count2)   // idempotent: no dupes on re-open
+    }
 }

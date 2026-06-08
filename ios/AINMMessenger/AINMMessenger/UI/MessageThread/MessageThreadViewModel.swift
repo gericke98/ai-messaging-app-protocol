@@ -49,6 +49,10 @@ final class MessageThreadViewModel {
         participants.values.filter { $0.identity != currentUserIdentity }.count > 1
     }
 
+    /// Card-resolved agent addresses (from AppState.savedAgents), used to classify
+    /// participants during lazy backfill. Set by the view before/at load.
+    var savedAgentAddresses: Set<String> = []
+
     /// Weak reference to StreamingViewModel for ephemeral-to-permanent transition.
     /// Set by MessageThreadView on appear.
     weak var streamingViewModel: StreamingViewModel?
@@ -119,6 +123,19 @@ final class MessageThreadViewModel {
         self.oldestTimestamp = allMessages.first?.timestamp
         self.newestTimestamp = allMessages.last?.timestamp
         self.hasMoreMessages = messages.count == 50
+
+        // Lazy backfill: a thread with no participant rows (pre-roster-feature data, or a thread
+        // auto-created on delivery) gets its roster derived from the loaded messages + the current
+        // user + the thread's agent address, classified with in-memory savedAgents.
+        if parts.isEmpty {
+            await backfillParticipantsFromMessages()
+            let refreshed = (try? await repository.fetchParticipants(threadId: threadId)) ?? []
+            participants.removeAll()
+            for p in refreshed { participants[p.identity] = p }
+            participantCount = refreshed.count
+            hasAgentParticipant = refreshed.contains { $0.type == "agent" }
+        }
+
         rebuildGroups()
 
         // Load sub-thread cache for indicator badges
@@ -263,6 +280,50 @@ final class MessageThreadViewModel {
             subThreadCache = cache
         } catch {
             // Non-critical -- indicators just won't show
+        }
+    }
+
+    /// Derive + upsert participant rows from the loaded messages. Idempotent.
+    private func backfillParticipantsFromMessages() async {
+        let thread: ThreadRecord? = (try? await database.dbPool.read { db in
+            try ThreadRecord.fetchOne(db, key: self.threadId)
+        }) ?? nil
+        let createdBy = thread?.createdBy
+        let agentAddress = thread?.agentAddress
+        let fallbackJoinedAt = allMessages.first?.timestamp ?? thread?.createdAt ?? currentUserIdentity
+
+        struct Seen { var joinedAt: String; var source: String? }
+        var seen: [String: Seen] = [:]
+        for m in allMessages {
+            let src = contentBlocks(for: m).compactMap { block -> String? in
+                if case .text(let c) = block { return c.source }; return nil
+            }.first
+            if let existing = seen[m.fromAddress] {
+                if m.timestamp < existing.joinedAt {
+                    seen[m.fromAddress] = Seen(joinedAt: m.timestamp, source: src)
+                }
+            } else {
+                seen[m.fromAddress] = Seen(joinedAt: m.timestamp, source: src)
+            }
+        }
+        if seen[currentUserIdentity] == nil {
+            seen[currentUserIdentity] = Seen(joinedAt: fallbackJoinedAt, source: "user")
+        }
+        if let agentAddress, seen[agentAddress] == nil {
+            seen[agentAddress] = Seen(joinedAt: fallbackJoinedAt, source: "agent")
+        }
+
+        let repo = ParticipantRepository(dbPool: database.dbPool)
+        for (identity, info) in seen {
+            let type = ParticipantClassifier.classify(
+                address: identity,
+                isSelf: identity == currentUserIdentity,
+                agentAddress: agentAddress,
+                savedAgentAddresses: savedAgentAddresses,
+                contentSource: info.source)
+            let role = (identity == createdBy) ? "creator" : "member"
+            try? await repo.upsert(
+                threadId: threadId, identity: identity, type: type, role: role, joinedAt: info.joinedAt)
         }
     }
 
