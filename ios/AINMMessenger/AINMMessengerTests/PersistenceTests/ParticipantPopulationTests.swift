@@ -43,7 +43,7 @@ final class ParticipantPopulationTests: XCTestCase {
         }
         try await AINMClient.recordParticipant(
             in: db, threadId: "tA", from: "researcher@acme.test",
-            timestamp: "2026-06-08T10:00:00.000Z", contentSource: nil,
+            timestamp: "2026-06-08T10:00:00.000Z",
             currentUserIdentity: "me@localhost", threadCreatedBy: "me@localhost", agentAddress: nil)
 
         let p = try await db.dbPool.read { dbx in
@@ -60,7 +60,7 @@ final class ParticipantPopulationTests: XCTestCase {
         }
         try await AINMClient.recordParticipant(
             in: db, threadId: "tB", from: "me@localhost",
-            timestamp: "2026-06-08T10:00:00.000Z", contentSource: "user",
+            timestamp: "2026-06-08T10:00:00.000Z",
             currentUserIdentity: "me@localhost", threadCreatedBy: "me@localhost", agentAddress: nil)
 
         let p = try await db.dbPool.read { dbx in
@@ -84,8 +84,9 @@ final class ParticipantPopulationTests: XCTestCase {
             try SavedAgentRecord(address: "researcher@acme.test", displayName: "Researcher",
                 cardJson: "{}", addedAt: "2026-06-08T09:00:00.000Z").save(dbx)
         }
+        // researcher is an agent via the savedAgent DB row (read by backfill); assistant is an
+        // agent via the thread's agentAddress — both classify agent with no injected snapshot.
         let vm = MessageThreadViewModel(threadId: "tC", currentUserIdentity: "me@localhost", database: db)
-        vm.savedAgentAddresses = ["assistant@localhost", "researcher@acme.test"]
         await vm.loadInitial()
 
         let count = try await db.dbPool.read { dbx in

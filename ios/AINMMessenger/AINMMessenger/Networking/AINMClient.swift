@@ -699,7 +699,6 @@ actor AINMClient {
         threadId: String,
         from address: String,
         timestamp: String,
-        contentSource: String?,
         currentUserIdentity: String?,
         threadCreatedBy: String?,
         agentAddress: String?
@@ -711,8 +710,7 @@ actor AINMClient {
                 address: address,
                 isSelf: address == currentUserIdentity,
                 agentAddress: agentAddress,
-                savedAgentAddresses: savedAgentAddresses,
-                contentSource: contentSource)
+                savedAgentAddresses: savedAgentAddresses)
             let role = (address == threadCreatedBy) ? "creator" : "member"
             try ParticipantRepository.upsert(
                 db, threadId: threadId, identity: address,
@@ -756,16 +754,12 @@ actor AINMClient {
             }
             // Best-effort: record the sender in the thread roster. A failure here must never
             // drop the message, so it runs in its own write and swallows errors.
-            let contentSource: String? = envelope.content.compactMap { block -> String? in
-                if case .text(let c) = block { return c.source }
-                return nil
-            }.first
             let thread = (try? await appDatabase.dbPool.read { db in
                 try ThreadRecord.fetchOne(db, key: envelope.threadId)
             }) ?? nil
             try? await AINMClient.recordParticipant(
                 in: appDatabase, threadId: envelope.threadId, from: envelope.from,
-                timestamp: envelope.timestamp, contentSource: contentSource,
+                timestamp: envelope.timestamp,
                 currentUserIdentity: connectedIdentity,
                 threadCreatedBy: thread?.createdBy, agentAddress: thread?.agentAddress)
         } catch {

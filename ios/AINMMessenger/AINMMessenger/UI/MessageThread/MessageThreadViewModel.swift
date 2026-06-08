@@ -49,10 +49,6 @@ final class MessageThreadViewModel {
         participants.values.filter { $0.identity != currentUserIdentity }.count > 1
     }
 
-    /// Card-resolved agent addresses (from AppState.savedAgents), used to classify
-    /// participants during lazy backfill. Set by the view before/at load.
-    var savedAgentAddresses: Set<String> = []
-
     /// Weak reference to StreamingViewModel for ephemeral-to-permanent transition.
     /// Set by MessageThreadView on appear.
     weak var streamingViewModel: StreamingViewModel?
@@ -290,42 +286,36 @@ final class MessageThreadViewModel {
         }) ?? nil
         let createdBy = thread?.createdBy
         let agentAddress = thread?.agentAddress
+        // Authoritative card-resolved agents, read fresh from the DB (never a stale snapshot).
+        let savedAgentAddresses: Set<String> = (try? await database.dbPool.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT address FROM savedAgent"))
+        }) ?? []
         // Epoch sentinel keeps the timestamp-column invariant when a thread has neither
         // messages nor a createdAt (orphaned). Earliest-wins replaces it on any real signal.
         let fallbackJoinedAt = allMessages.first?.timestamp ?? thread?.createdAt ?? "1970-01-01T00:00:00.000Z"
 
-        struct Seen { var joinedAt: String; var source: String? }
-        var seen: [String: Seen] = [:]
+        // Earliest message timestamp per identity (for joinedAt).
+        var joinedAt: [String: String] = [:]
         for m in allMessages {
-            let src = contentBlocks(for: m).compactMap { block -> String? in
-                if case .text(let c) = block { return c.source }; return nil
-            }.first
-            if let existing = seen[m.fromAddress] {
-                if m.timestamp < existing.joinedAt {
-                    seen[m.fromAddress] = Seen(joinedAt: m.timestamp, source: src)
-                }
+            if let existing = joinedAt[m.fromAddress] {
+                if m.timestamp < existing { joinedAt[m.fromAddress] = m.timestamp }
             } else {
-                seen[m.fromAddress] = Seen(joinedAt: m.timestamp, source: src)
+                joinedAt[m.fromAddress] = m.timestamp
             }
         }
-        if seen[currentUserIdentity] == nil {
-            seen[currentUserIdentity] = Seen(joinedAt: fallbackJoinedAt, source: "user")
-        }
-        if let agentAddress, seen[agentAddress] == nil {
-            seen[agentAddress] = Seen(joinedAt: fallbackJoinedAt, source: "agent")
-        }
+        if joinedAt[currentUserIdentity] == nil { joinedAt[currentUserIdentity] = fallbackJoinedAt }
+        if let agentAddress, joinedAt[agentAddress] == nil { joinedAt[agentAddress] = fallbackJoinedAt }
 
         let repo = ParticipantRepository(dbPool: database.dbPool)
-        for (identity, info) in seen {
+        for (identity, joined) in joinedAt {
             let type = ParticipantClassifier.classify(
                 address: identity,
                 isSelf: identity == currentUserIdentity,
                 agentAddress: agentAddress,
-                savedAgentAddresses: savedAgentAddresses,
-                contentSource: info.source)
+                savedAgentAddresses: savedAgentAddresses)
             let role = (identity == createdBy) ? "creator" : "member"
             try? await repo.upsert(
-                threadId: threadId, identity: identity, type: type, role: role, joinedAt: info.joinedAt)
+                threadId: threadId, identity: identity, type: type, role: role, joinedAt: joined)
         }
     }
 

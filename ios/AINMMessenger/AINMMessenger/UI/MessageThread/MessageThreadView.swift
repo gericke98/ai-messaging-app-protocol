@@ -218,7 +218,6 @@ struct MessageThreadView: View {
                     database: db
                 )
                 vm.streamingViewModel = appState.streamingViewModel
-                vm.savedAgentAddresses = Set(appState.savedAgents.map(\.address))
                 self.viewModel = vm
                 Task {
                     await vm.loadInitial()
