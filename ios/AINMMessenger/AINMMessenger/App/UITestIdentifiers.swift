@@ -87,4 +87,9 @@ enum UITestID {
     enum ConversationList {
         static func cell(threadId: String) -> String { "conversationList.cell.\(threadId)" }
     }
+
+    // MARK: - SP4: A2A digest capsule
+    enum A2ACapsule {
+        static func capsule(capsuleId: String) -> String { "thread.a2aCapsule.\(capsuleId)" }
+    }
 }

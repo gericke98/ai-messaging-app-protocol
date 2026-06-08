@@ -47,6 +47,7 @@ struct A2ACapsuleView<GroupContent: View>: View {
         .accessibilityElement(children: isExpanded ? .contain : .ignore)
         .accessibilityLabel(isExpanded ? "Agent deliberation, expanded" : accessibilityLabel)
         .accessibilityHint(isExpanded ? "" : "Double-tap to expand")
+        .accessibilityIdentifier(UITestID.A2ACapsule.capsule(capsuleId: capsule.id))
     }
 
     private var header: some View {
