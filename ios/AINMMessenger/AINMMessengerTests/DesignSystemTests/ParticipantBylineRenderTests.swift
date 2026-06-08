@@ -86,4 +86,18 @@ final class ParticipantBylineRenderTests: XCTestCase {
         renderBothSchemes(ConversationRowView(
             conversation: row, previewText: "On it", relativeTime: "9:41 AM"))
     }
+
+    func test_byline_rendersUnderReduceMotion() {
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        let stack = VStack(alignment: .leading) {
+            ParticipantByline(
+                senderAddress: "assistant@localhost", senderName: "Assistant",
+                directedTo: "analyst@acme.test", isMultiParticipant: true, homeHost: "localhost")
+            ParticipantByline(
+                senderAddress: "analyst@acme.test", senderName: "Analyst",
+                directedTo: nil, isMultiParticipant: true, homeHost: "localhost")
+        }
+        renderBothSchemes(stack)
+    }
 }
