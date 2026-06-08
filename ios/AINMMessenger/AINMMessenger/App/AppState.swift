@@ -693,7 +693,15 @@ final class AppState {
             agentAddress: address
         )
         do {
-            try await db.dbPool.write { db in try record.save(db) }
+            try await db.dbPool.write { db in
+                try record.save(db)
+                try ParticipantRepository.upsert(
+                    db, threadId: threadId, identity: identity,
+                    type: "human", role: "creator", joinedAt: timestamp)
+                try ParticipantRepository.upsert(
+                    db, threadId: threadId, identity: address,
+                    type: "agent", role: "member", joinedAt: timestamp)
+            }
         } catch {
             return nil
         }
