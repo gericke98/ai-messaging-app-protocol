@@ -11,7 +11,7 @@ struct ConversationRowView: View {
     var body: some View {
         HStack(spacing: Theme.Spacing.md) {
             AvatarView(
-                participantType: "agent",
+                participantType: participantType,
                 size: 36,
                 address: rowAddress,
                 displayName: conversation.title
@@ -53,5 +53,11 @@ struct ConversationRowView: View {
     /// (LOOP-1 `thread.agentAddress`). nil → legacy avatar fallback (no regression).
     private var rowAddress: String? {
         conversation.agentAddress
+    }
+
+    /// Legacy-fallback glyph type (only used by AvatarView when `rowAddress` is nil):
+    /// an agent thread (has a primary agent address) → "agent"; otherwise a human thread.
+    private var participantType: String {
+        conversation.agentAddress != nil ? "agent" : "human"
     }
 }

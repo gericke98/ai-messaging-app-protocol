@@ -33,4 +33,12 @@ final class ParticipantProvenanceTests: XCTestCase {
     func testIsForeignHostFalseWhenAddressHasNoHost() {
         XCTAssertFalse(ParticipantProvenance.isForeignHost("bob", homeHost: "localhost"))
     }
+
+    func testIsForeignHostIsCaseInsensitive() {
+        // DNS hostnames are case-insensitive: differing case must NOT read as foreign.
+        XCTAssertFalse(ParticipantProvenance.isForeignHost("bob@Acme.Test", homeHost: "acme.test"))
+        XCTAssertFalse(ParticipantProvenance.isForeignHost("bob@LOCALHOST", homeHost: "localhost"))
+        // Genuinely different hosts still read as foreign regardless of case.
+        XCTAssertTrue(ParticipantProvenance.isForeignHost("bob@Acme.Test", homeHost: "localhost"))
+    }
 }

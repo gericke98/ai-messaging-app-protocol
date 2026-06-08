@@ -18,9 +18,11 @@ enum ParticipantProvenance {
 
     /// True when `address`'s host differs from `homeHost`. False when `homeHost`
     /// is nil (not connected → treat all as local) or the address has no host.
+    /// Hostnames are compared case-insensitively (DNS is case-insensitive), so a stray
+    /// `Acme.test` vs `acme.test` from different address sources never reads as foreign.
     static func isForeignHost(_ address: String, homeHost: String?) -> Bool {
         guard let homeHost else { return false }
         guard let host = hostSuffix(of: address) else { return false }
-        return host != homeHost
+        return host.lowercased() != homeHost.lowercased()
     }
 }
