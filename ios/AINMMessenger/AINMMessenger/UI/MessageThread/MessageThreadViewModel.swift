@@ -290,7 +290,9 @@ final class MessageThreadViewModel {
         }) ?? nil
         let createdBy = thread?.createdBy
         let agentAddress = thread?.agentAddress
-        let fallbackJoinedAt = allMessages.first?.timestamp ?? thread?.createdAt ?? currentUserIdentity
+        // Epoch sentinel keeps the timestamp-column invariant when a thread has neither
+        // messages nor a createdAt (orphaned). Earliest-wins replaces it on any real signal.
+        let fallbackJoinedAt = allMessages.first?.timestamp ?? thread?.createdAt ?? "1970-01-01T00:00:00.000Z"
 
         struct Seen { var joinedAt: String; var source: String? }
         var seen: [String: Seen] = [:]

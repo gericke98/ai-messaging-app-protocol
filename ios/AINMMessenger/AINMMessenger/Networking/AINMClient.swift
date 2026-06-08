@@ -760,17 +760,14 @@ actor AINMClient {
                 if case .text(let c) = block { return c.source }
                 return nil
             }.first
-            let threadCreatedBy = (try? await appDatabase.dbPool.read { db in
-                try ThreadRecord.fetchOne(db, key: envelope.threadId)?.createdBy
-            }) ?? nil
-            let agentAddress = (try? await appDatabase.dbPool.read { db in
-                try ThreadRecord.fetchOne(db, key: envelope.threadId)?.agentAddress
+            let thread = (try? await appDatabase.dbPool.read { db in
+                try ThreadRecord.fetchOne(db, key: envelope.threadId)
             }) ?? nil
             try? await AINMClient.recordParticipant(
                 in: appDatabase, threadId: envelope.threadId, from: envelope.from,
                 timestamp: envelope.timestamp, contentSource: contentSource,
                 currentUserIdentity: connectedIdentity,
-                threadCreatedBy: threadCreatedBy, agentAddress: agentAddress)
+                threadCreatedBy: thread?.createdBy, agentAddress: thread?.agentAddress)
         } catch {
             // Log error but don't crash -- malformed messages are skipped
         }
