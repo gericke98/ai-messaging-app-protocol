@@ -10,6 +10,27 @@ struct MessageGroup: Identifiable {
     let senderName: String  // display name portion of AINM address
     let messages: [MessageRecord]
     let isFromCurrentUser: Bool
+    let directedTo: String?  // resolved A2A target address, or nil (no tag)
+
+    /// Pure derivation of a directional target for a group's first message:
+    /// `toAddress` (if non-empty) else the first mention; suppressed when the
+    /// target is the sender itself or the current user (those are noise).
+    static func deriveDirectedTo(
+        toAddress: String?,
+        contentBlocks: [ContentBlock],
+        senderAddress: String,
+        currentUserIdentity: String
+    ) -> String? {
+        let raw: String?
+        if let to = toAddress, !to.isEmpty {
+            raw = to
+        } else {
+            raw = MentionTarget.firstMentionAddress(in: contentBlocks)
+        }
+        guard let target = raw, !target.isEmpty else { return nil }
+        if target == senderAddress || target == currentUserIdentity { return nil }
+        return target
+    }
 }
 
 @MainActor
@@ -21,6 +42,12 @@ final class MessageThreadViewModel {
     var threadTitle: String = ""
     var participantCount: Int = 0
     var hasAgentParticipant: Bool = false
+
+    /// True when the thread has more than one non-current-user participant — drives
+    /// multi-agent name-tinting. 1:1 human↔agent threads stay calm (false).
+    var isMultiParticipant: Bool {
+        participants.values.filter { $0.identity != currentUserIdentity }.count > 1
+    }
 
     /// Weak reference to StreamingViewModel for ephemeral-to-permanent transition.
     /// Set by MessageThreadView on appear.
@@ -173,13 +200,21 @@ final class MessageThreadViewModel {
         let senderType = participant?.type ?? "human"
         // Extract display name from AINM address (part before @)
         let senderName = sender.components(separatedBy: "@").first ?? sender
+        let firstMessage = messages[0]
+        let directedTo = MessageGroup.deriveDirectedTo(
+            toAddress: firstMessage.toAddress,
+            contentBlocks: contentBlocks(for: firstMessage),
+            senderAddress: sender,
+            currentUserIdentity: currentUserIdentity
+        )
         return MessageGroup(
-            id: messages[0].id,
+            id: firstMessage.id,
             senderAddress: sender,
             senderType: senderType,
             senderName: senderName,
             messages: messages,
-            isFromCurrentUser: sender == currentUserIdentity
+            isFromCurrentUser: sender == currentUserIdentity,
+            directedTo: directedTo
         )
     }
 
