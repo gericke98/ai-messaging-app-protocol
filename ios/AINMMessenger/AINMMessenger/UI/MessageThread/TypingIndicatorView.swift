@@ -1,33 +1,40 @@
 import SwiftUI
 
-/// Typing/processing indicator with bouncing dots animation.
-/// Per UI-SPEC Component 4: shows avatar, animated dots, and descriptive label.
-/// Respects `accessibilityReduceMotion` to disable animation when requested.
+/// Typing/processing indicator with bouncing dots (UI-SPEC Component 4).
+/// Uses the participant's identity-colored avatar (agents get a halo) and the
+/// Editorial Warm tokens. Respects `accessibilityReduceMotion`.
 struct TypingIndicatorView: View {
     let name: String
     let isAgent: Bool
+    var address: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dotOffsets: [CGFloat] = [0, 0, 0]
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            AvatarView(participantType: isAgent ? "agent" : "human", size: 24)
+        HStack(alignment: .center, spacing: Theme.Spacing.sm) {
+            AvatarView(
+                participantType: isAgent ? "agent" : "human",
+                size: 24,
+                address: address,
+                displayName: name,
+                showAgentHalo: isAgent
+            )
 
-            HStack(spacing: 4) {
+            HStack(spacing: Theme.Spacing.xs) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(Color(.tertiaryLabel))
+                        .fill(Theme.Color.inkSecondary)
                         .frame(width: 6, height: 6)
                         .offset(y: dotOffsets[index])
                 }
             }
 
             Text("\(name) is \(isAgent ? "processing" : "typing")...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.caption())
+                .foregroundStyle(Theme.Color.inkSecondary)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 16)
+        .padding(.vertical, Theme.Spacing.sm)
+        .padding(.horizontal, Theme.Spacing.lg)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name) is \(isAgent ? "processing" : "typing")")
         .onAppear {

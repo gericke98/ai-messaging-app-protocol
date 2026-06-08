@@ -77,7 +77,7 @@ struct MessageThreadView: View {
 
                         // Typing/processing indicators from active presence
                         ForEach(appState.presenceEntries(forThread: threadId)) { entry in
-                            TypingIndicatorView(name: entry.name, isAgent: entry.isAgent)
+                            TypingIndicatorView(name: entry.name, isAgent: entry.isAgent, address: entry.id)
                         }
                     }
                 }

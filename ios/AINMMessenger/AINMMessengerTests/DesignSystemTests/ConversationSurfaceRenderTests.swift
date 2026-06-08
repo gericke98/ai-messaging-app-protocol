@@ -57,4 +57,8 @@ final class ConversationSurfaceRenderTests: XCTestCase {
         )
         renderBothSchemes(StreamingMessageView(state: state))
     }
+
+    func test_typingIndicator_rendersIdentityAvatar() {
+        renderBothSchemes(TypingIndicatorView(name: "Assistant", isAgent: true, address: "assistant@localhost"))
+    }
 }
