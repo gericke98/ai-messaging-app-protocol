@@ -36,4 +36,16 @@ final class ConversationSurfaceRenderTests: XCTestCase {
     func textBlocks(_ s: String, source: String) -> [ContentBlock] {
         [.text(ContentBlock.TextContent(version: "1.0", source: source, text: s, mentions: nil, fallback: s))]
     }
+
+    func test_haloedAvatar_rendersInsideClippedParent() {
+        let avatar = AvatarView(
+            participantType: "agent", size: 36,
+            address: "assistant@localhost", displayName: "Assistant",
+            showAgentHalo: true
+        )
+        // Clip to exactly the avatar's footprint: a clip-unsafe ring would be cut off,
+        // but rendering must still succeed and lay out at full size.
+        let clipped = avatar.frame(width: 36, height: 36).clipped()
+        renderBothSchemes(clipped)
+    }
 }

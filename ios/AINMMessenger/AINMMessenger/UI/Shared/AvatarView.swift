@@ -30,20 +30,28 @@ struct AvatarView: View {
     private func identityAvatar(address: String) -> some View {
         let fill = ParticipantColor.color(for: address)
         let initials = ParticipantColor.initials(for: displayName ?? address)
-        Circle()
-            .fill(fill)
-            .frame(width: size, height: size)
-            .overlay {
-                Text(initials)
-                    .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+        let haloed = showAgentHalo && isAgent
+        // Reserve a margin for the ring so it never draws outside `size` (clip-safe).
+        let ringWidth: CGFloat = max(2, size * 0.06)
+        let margin: CGFloat = haloed ? ringWidth + 2 : 0
+        let discSize = size - margin * 2
+
+        ZStack {
+            if haloed {
+                Circle()
+                    .strokeBorder(fill.opacity(0.35), lineWidth: ringWidth)
+                    .frame(width: size, height: size)
             }
-            .overlay {
-                if showAgentHalo && isAgent {
-                    Circle().stroke(fill.opacity(0.35), lineWidth: max(2, size * 0.06))
-                        .scaleEffect(1.18)
+            Circle()
+                .fill(fill)
+                .frame(width: discSize, height: discSize)
+                .overlay {
+                    Text(initials)
+                        .font(.system(size: discSize * 0.42, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
                 }
-            }
+        }
+        .frame(width: size, height: size)
     }
 
     // MARK: Legacy type-tinted avatar (unchanged behavior)
