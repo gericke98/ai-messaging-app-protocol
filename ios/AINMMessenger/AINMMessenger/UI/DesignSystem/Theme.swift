@@ -6,6 +6,7 @@ import SwiftUI
 enum Theme {
 
     // MARK: - Color
+    /// Namespace (not a type) — use `Theme.Color.paper`, not `Color`.
     enum Color {
         private static func ds(_ name: String) -> SwiftUI.Color {
             SwiftUI.Color(name, bundle: .designSystem)
@@ -22,9 +23,8 @@ enum Theme {
         static var separator: SwiftUI.Color       { ds("Separator") }
 
         /// Per-identity palette. Index order MUST match Identity0…9 in the asset catalog.
-        static var identityPalette: [SwiftUI.Color] {
-            (0..<10).map { ds("Identity\($0)") }
-        }
+        static let identityPalette: [SwiftUI.Color] =
+            (0..<10).map { SwiftUI.Color("Identity\($0)", bundle: .designSystem) }
     }
 
     // MARK: - Typography (text styles only — Dynamic Type preserved)
