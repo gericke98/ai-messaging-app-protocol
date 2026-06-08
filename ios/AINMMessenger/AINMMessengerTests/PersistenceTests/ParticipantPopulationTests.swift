@@ -31,4 +31,41 @@ final class ParticipantPopulationTests: XCTestCase {
         XCTAssertEqual(try participant(db, tid, "assistant@localhost")?.type, "agent")
         XCTAssertEqual(try participant(db, tid, "assistant@localhost")?.role, "member")
     }
+
+    func test_delivery_recordsSenderParticipant_agentViaSavedAgent() async throws {
+        let db = try AppDatabase.makeInMemory()
+        try await db.dbPool.write { dbx in
+            try ThreadRecord(id: "tA", title: nil, createdAt: "2026-06-08T09:00:00.000Z",
+                createdBy: "me@localhost", parentThreadId: nil, parentMessageId: nil,
+                agentAddress: nil).save(dbx)
+            try SavedAgentRecord(address: "researcher@acme.test", displayName: "Researcher",
+                cardJson: "{}", addedAt: "2026-06-08T09:00:00.000Z").save(dbx)
+        }
+        try await AINMClient.recordParticipant(
+            in: db, threadId: "tA", from: "researcher@acme.test",
+            timestamp: "2026-06-08T10:00:00.000Z", contentSource: nil,
+            currentUserIdentity: "me@localhost", threadCreatedBy: "me@localhost", agentAddress: nil)
+
+        let p = try await db.dbPool.read { dbx in
+            try ParticipantRecord.fetchOne(dbx, key: ["threadId": "tA", "identity": "researcher@acme.test"]) }
+        XCTAssertEqual(p?.type, "agent")
+        XCTAssertEqual(p?.role, "member")
+    }
+
+    func test_delivery_selfSenderIsHumanCreator() async throws {
+        let db = try AppDatabase.makeInMemory()
+        try await db.dbPool.write { dbx in
+            try ThreadRecord(id: "tB", title: nil, createdAt: "2026-06-08T09:00:00.000Z",
+                createdBy: "me@localhost", parentThreadId: nil, parentMessageId: nil).save(dbx)
+        }
+        try await AINMClient.recordParticipant(
+            in: db, threadId: "tB", from: "me@localhost",
+            timestamp: "2026-06-08T10:00:00.000Z", contentSource: "user",
+            currentUserIdentity: "me@localhost", threadCreatedBy: "me@localhost", agentAddress: nil)
+
+        let p = try await db.dbPool.read { dbx in
+            try ParticipantRecord.fetchOne(dbx, key: ["threadId": "tB", "identity": "me@localhost"]) }
+        XCTAssertEqual(p?.type, "human")
+        XCTAssertEqual(p?.role, "creator")
+    }
 }

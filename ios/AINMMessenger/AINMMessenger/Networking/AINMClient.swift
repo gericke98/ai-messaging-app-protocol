@@ -40,6 +40,8 @@ actor AINMClient {
     /// socket drop can re-run the full handshake without re-prompting the user.
     private var lastServerURL: String?
     private var lastDisplayName: String?
+    /// The identity string formed at handshake (`displayName@host`); used to mark self on delivery.
+    private(set) var connectedIdentity: String?
     /// True while a user-initiated `disconnect()` is in effect; suppresses auto-reconnect
     /// on a drop (Sign out / explicit disconnect must not bounce back online).
     private var isUserDisconnect: Bool = false
@@ -145,6 +147,7 @@ actor AINMClient {
 
         // 3. Build ainm.initialize request (NET-02)
         let identity = "\(displayName)@\(extractHost(from: serverURL))"
+        self.connectedIdentity = identity
         let timestamp = ISO8601DateFormatter.ainm.string(from: Date())
         let initSignature = try MessageSigner.signInit(
             identity: identity,
@@ -688,6 +691,35 @@ actor AINMClient {
         }
     }
 
+    /// Record/refresh the participant row for a delivered (or seeded) sender. Best-effort:
+    /// classification uses the only client-side signals available. Runs its own write so a
+    /// failure here can never regress message persistence.
+    static func recordParticipant(
+        in appDatabase: AppDatabase,
+        threadId: String,
+        from address: String,
+        timestamp: String,
+        contentSource: String?,
+        currentUserIdentity: String?,
+        threadCreatedBy: String?,
+        agentAddress: String?
+    ) async throws {
+        try await appDatabase.dbPool.write { db in
+            let savedAgentAddresses = Set(
+                try String.fetchAll(db, sql: "SELECT address FROM savedAgent"))
+            let type = ParticipantClassifier.classify(
+                address: address,
+                isSelf: address == currentUserIdentity,
+                agentAddress: agentAddress,
+                savedAgentAddresses: savedAgentAddresses,
+                contentSource: contentSource)
+            let role = (address == threadCreatedBy) ? "creator" : "member"
+            try ParticipantRepository.upsert(
+                db, threadId: threadId, identity: address,
+                type: type, role: role, joinedAt: timestamp)
+        }
+    }
+
     private func handleMessageDelivery(_ params: [String: Any]) async {
         // Write-through pattern: persist to GRDB first, then UI observes GRDB
         do {
@@ -722,6 +754,23 @@ actor AINMClient {
                     arguments: [envelope.threadId]
                 )
             }
+            // Best-effort: record the sender in the thread roster. A failure here must never
+            // drop the message, so it runs in its own write and swallows errors.
+            let contentSource: String? = envelope.content.compactMap { block -> String? in
+                if case .text(let c) = block { return c.source }
+                return nil
+            }.first
+            let threadCreatedBy = (try? await appDatabase.dbPool.read { db in
+                try ThreadRecord.fetchOne(db, key: envelope.threadId)?.createdBy
+            }) ?? nil
+            let agentAddress = (try? await appDatabase.dbPool.read { db in
+                try ThreadRecord.fetchOne(db, key: envelope.threadId)?.agentAddress
+            }) ?? nil
+            try? await AINMClient.recordParticipant(
+                in: appDatabase, threadId: envelope.threadId, from: envelope.from,
+                timestamp: envelope.timestamp, contentSource: contentSource,
+                currentUserIdentity: connectedIdentity,
+                threadCreatedBy: threadCreatedBy, agentAddress: agentAddress)
         } catch {
             // Log error but don't crash -- malformed messages are skipped
         }
