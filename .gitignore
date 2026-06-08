@@ -39,3 +39,6 @@ ios/Frameworks/*.xcframework
 
 # Phase 14 UAT automation harness runtime output (server log, PID, xcresult bundle)
 tmp/
+
+# Visual brainstorming companion
+.superpowers/
