@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Renders a TextBlock with Markdown support via AttributedString.
-/// Supports bold, italic, code spans, and tappable links.
-/// Accepts isHumanBubble to set white text on accent background.
+/// Renders a TextBlock with Markdown (bold/italic/code/links) via AttributedString.
+/// Agent prose uses the editorial serif on ink; human-bubble text uses SF on the
+/// human-bubble text color.
 struct TextBlockView: View {
     let content: ContentBlock.TextContent
     var isHumanBubble: Bool = false
+
+    private var proseFont: Font { isHumanBubble ? Theme.Typography.body() : Theme.Typography.agentProse() }
+    private var proseColor: Color { isHumanBubble ? Theme.Color.humanBubbleText : Theme.Color.inkPrimary }
 
     var body: some View {
         Group {
@@ -20,11 +23,12 @@ struct TextBlockView: View {
                     isHumanBubble: isHumanBubble
                 )
                 Text(highlighted)
-                    .font(.body)
+                    .font(proseFont)
+                    .foregroundStyle(proseColor)
             } else {
                 Text(content.text)
-                    .font(.body)
-                    .foregroundStyle(isHumanBubble ? Color.white : Color(.label))
+                    .font(proseFont)
+                    .foregroundStyle(proseColor)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -32,9 +36,7 @@ struct TextBlockView: View {
 
     private func applyBubbleStyle(to attributed: AttributedString) -> AttributedString {
         var result = attributed
-        if isHumanBubble {
-            result.foregroundColor = .white
-        }
+        result.foregroundColor = isHumanBubble ? Theme.Color.humanBubbleText : Theme.Color.inkPrimary
         return result
     }
 }

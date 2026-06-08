@@ -61,4 +61,13 @@ final class ConversationSurfaceRenderTests: XCTestCase {
     func test_typingIndicator_rendersIdentityAvatar() {
         renderBothSchemes(TypingIndicatorView(name: "Assistant", isAgent: true, address: "assistant@localhost"))
     }
+
+    func test_agentMessage_rendersAiry() {
+        let view = AgentMessageView(
+            blocks: textBlocks("Here's a plan. I checked your calendar.", source: "agent"),
+            senderName: "Assistant", senderType: "agent",
+            senderAddress: "assistant@localhost", showHeader: true, timestamp: "9:41 AM"
+        )
+        renderBothSchemes(view)
+    }
 }

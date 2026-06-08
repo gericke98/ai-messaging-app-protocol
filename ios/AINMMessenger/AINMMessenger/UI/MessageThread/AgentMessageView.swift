@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Left-aligned agent/other-user message container per UI-SPEC D-01, D-02.
-/// Full-width flat container with secondary background, agent badge when senderType == "agent".
+/// Left-aligned agent / other-participant message (UI-SPEC D-01, D-02), Editorial Warm.
+/// Airy: no wrapping card. Identity avatar + serif sender name on the first message of a
+/// run; serif prose laid open on the paper. Rich blocks keep their own tokenized container.
 struct AgentMessageView: View {
     let blocks: [ContentBlock]
     let senderName: String
@@ -12,22 +13,18 @@ struct AgentMessageView: View {
     var onAction: ((_ blockIndex: Int, _ actionId: String, _ data: [String: Any]) -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             if showHeader {
-                HStack(spacing: 6) {
+                HStack(spacing: Theme.Spacing.sm) {
                     AvatarView(
                         participantType: senderType,
-                        size: 24,
+                        size: 30,
                         address: senderAddress,
                         displayName: senderName
                     )
                     Text(senderName)
-                        .font(.subheadline.bold())
-                    if senderType == "agent" {
-                        Text("Agent")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                    }
+                        .font(Theme.Typography.senderName())
+                        .foregroundStyle(Theme.Color.inkPrimary)
                 }
             }
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
@@ -37,12 +34,10 @@ struct AgentMessageView: View {
             }
             if let timestamp {
                 Text(timestamp)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundStyle(Theme.Color.inkSecondary)
             }
         }
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
