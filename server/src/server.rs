@@ -356,6 +356,36 @@ pub struct ServerState {
     pub shutdown: crate::lifecycle::ShutdownController,
 }
 
+/// The exact dependencies `deliver_message` needs, decoupled from `ServerState` so both the
+/// WS handlers and the federation relay handler can drive the same delivery orchestrator.
+pub struct DeliverDeps<'a> {
+    pub human_registry: &'a HumanRegistry,
+    pub agent_registry: &'a AgentRegistry,
+    pub a2a_hops: &'a Arc<Mutex<HashMap<String, u32>>>,
+    pub a2a_hop_cap: u32,
+    pub hosted_agent: Option<&'a crate::hosted_agent::HostedAgent>,
+    pub to_agent_tx: &'a broadcast::Sender<String>,
+    /// The hosted-assistant branch needs a full owned `ServerState` (it does
+    /// `state.clone()` + `state.shutdown.spawn_turn` + `runtime_server::handle_turn(&ServerState,...)`).
+    /// WS callers pass `Some(self)`; the relay handler (no ServerState) passes `None`, in which case
+    /// a hosted-assistant target is NOT spawned (logged) — connector-agent delivery does not need it.
+    pub state_for_hosted_turn: Option<&'a ServerState>,
+}
+
+impl ServerState {
+    fn deliver_deps(&self) -> DeliverDeps<'_> {
+        DeliverDeps {
+            human_registry: &self.human_registry,
+            agent_registry: &self.agent_registry,
+            a2a_hops: &self.a2a_hops,
+            a2a_hop_cap: self.a2a_hop_cap,
+            hosted_agent: self.hosted_agent.as_deref(),
+            to_agent_tx: &self.to_agent_tx,
+            state_for_hosted_turn: Some(self),
+        }
+    }
+}
+
 // --- Account REST handlers (signup / verify / bind-key) ---
 
 #[derive(serde::Deserialize)]
@@ -1451,10 +1481,10 @@ async fn store_and_maybe_compile(
 /// Union of known participant addresses in a thread (humans + agents + the
 /// hosted assistant if enabled). Used only for `@mention` resolution; an explicit
 /// `to` does not need this list.
-async fn thread_participants(state: &ServerState, thread_id: &str) -> Vec<String> {
-    let mut v = state.human_registry.participants_of(thread_id).await;
-    v.extend(state.agent_registry.participants_of(thread_id).await);
-    if let Some(agent) = state.hosted_agent.as_ref() {
+async fn thread_participants(deps: &DeliverDeps<'_>, thread_id: &str) -> Vec<String> {
+    let mut v = deps.human_registry.participants_of(thread_id).await;
+    v.extend(deps.agent_registry.participants_of(thread_id).await);
+    if let Some(agent) = deps.hosted_agent {
         if agent.enabled {
             v.push(agent.address.clone());
         }
@@ -1538,7 +1568,7 @@ fn a2a_consent_notice(thread_id: &str, target: &str) -> String {
 ///     legacy `to_agent_tx` broadcast (preserves 1:1 connector flow for clients that
 ///     do not set `to`). Agent senders never trigger this fallback.
 async fn deliver_message(
-    state: &ServerState,
+    deps: &DeliverDeps<'_>,
     params: &serde_json::Value,
     sender_type: &str,
     verified: bool,
@@ -1563,48 +1593,46 @@ async fn deliver_message(
 
     // Agent-originated messages are always shown to humans (this is what SP3/SP4 render).
     if sender_is_agent {
-        state.human_registry.send_to_thread(thread_id, &deliver_text).await;
+        deps.human_registry.send_to_thread(thread_id, &deliver_text).await;
     }
 
     // Record the sender's thread membership (agents only; humans are tracked elsewhere).
     if sender_is_agent && !from.is_empty() && !thread_id.is_empty() {
-        state.agent_registry.join_thread(from, thread_id).await;
+        deps.agent_registry.join_thread(from, thread_id).await;
     }
 
     // Resolve the target.
-    let participants = thread_participants(state, thread_id).await;
+    let participants = thread_participants(deps, thread_id).await;
     let content_text = content_to_plain(&content);
     let target = crate::routing::resolve_recipient(to_field, &content_text, &participants);
 
-    let hosted_addr = state
-        .hosted_agent
-        .as_ref()
+    let hosted_addr = deps.hosted_agent
         .filter(|a| a.enabled)
         .map(|a| a.address.clone());
 
     let Some(t) = target else {
         // No target. Legacy fallback only for human senders (1:1 connector reach).
         if !sender_is_agent {
-            let _ = state.to_agent_tx.send(deliver_text);
+            let _ = deps.to_agent_tx.send(deliver_text);
         }
         return;
     };
 
     let target_is_hosted = hosted_addr.as_deref() == Some(t.as_str());
-    let target_is_connected_agent = state.agent_registry.is_connected(&t).await;
+    let target_is_connected_agent = deps.agent_registry.is_connected(&t).await;
     let target_is_agent = target_is_hosted || target_is_connected_agent;
 
     // P2 consent: a human addressing an agent INVITES it into the thread (human curates membership).
     if !sender_is_agent && target_is_agent && !thread_id.is_empty() {
-        state.agent_registry.invite_to_thread(&t, thread_id).await;
+        deps.agent_registry.invite_to_thread(&t, thread_id).await;
     }
 
     // Hop guard (pure decision over the stored per-thread counter).
-    let current = { *state.a2a_hops.lock().await.get(thread_id).unwrap_or(&0) };
+    let current = { *deps.a2a_hops.lock().await.get(thread_id).unwrap_or(&0) };
     let decision =
-        crate::routing::a2a_hop_decision(current, sender_is_agent, target_is_agent, state.a2a_hop_cap);
+        crate::routing::a2a_hop_decision(current, sender_is_agent, target_is_agent, deps.a2a_hop_cap);
     {
-        let mut hops = state.a2a_hops.lock().await;
+        let mut hops = deps.a2a_hops.lock().await;
         if decision.new_count == 0 {
             hops.remove(thread_id);
         } else {
@@ -1612,8 +1640,8 @@ async fn deliver_message(
         }
     }
     if decision.tripped {
-        let notice = a2a_limit_notice(thread_id, state.a2a_hop_cap);
-        state.human_registry.send_to_thread(thread_id, &notice).await;
+        let notice = a2a_limit_notice(thread_id, deps.a2a_hop_cap);
+        deps.human_registry.send_to_thread(thread_id, &notice).await;
         return;
     }
     if !decision.deliver_to_target {
@@ -1623,35 +1651,39 @@ async fn deliver_message(
     // P2 consent gate (agent→agent only): both endpoints must be human-invited, and the
     // target must not have opted out via `acceptsA2A`. Denials are visible to humans.
     if sender_is_agent && target_is_agent {
-        let from_invited = state.agent_registry.is_invited(from, thread_id).await;
-        let to_invited = state.agent_registry.is_invited(&t, thread_id).await;
+        let from_invited = deps.agent_registry.is_invited(from, thread_id).await;
+        let to_invited = deps.agent_registry.is_invited(&t, thread_id).await;
         let to_accepts = if target_is_hosted {
             true
         } else {
-            state.agent_registry.accepts_a2a(&t).await
+            deps.agent_registry.accepts_a2a(&t).await
         };
         if !crate::routing::consent_ok(from_invited, to_invited, to_accepts) {
             let notice = a2a_consent_notice(thread_id, &t);
-            state.human_registry.send_to_thread(thread_id, &notice).await;
+            deps.human_registry.send_to_thread(thread_id, &notice).await;
             return;
         }
     }
 
     if target_is_hosted {
-        state.agent_registry.join_thread(&t, thread_id).await;
-        let state2 = state.clone();
-        let tid = thread_id.to_string();
-        let requester = from.to_string();
-        let user_text = content_text.clone();
-        state.shutdown.spawn_turn(async move {
-            crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
-        });
+        deps.agent_registry.join_thread(&t, thread_id).await;
+        if let Some(state) = deps.state_for_hosted_turn {
+            let state2 = state.clone();
+            let tid = thread_id.to_string();
+            let requester = from.to_string();
+            let user_text = content_text.clone();
+            state.shutdown.spawn_turn(async move {
+                crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
+            });
+        } else {
+            tracing::debug!("[a2a] hosted-assistant target with no ServerState (federation path); not spawning");
+        }
     } else if target_is_connected_agent {
-        state.agent_registry.join_thread(&t, thread_id).await;
-        state.agent_registry.send_to_agent(&t, &deliver_text).await;
+        deps.agent_registry.join_thread(&t, thread_id).await;
+        deps.agent_registry.send_to_agent(&t, &deliver_text).await;
     } else if !sender_is_agent {
         // Target named but not a reachable agent; human sender → legacy fallback.
-        let _ = state.to_agent_tx.send(deliver_text);
+        let _ = deps.to_agent_tx.send(deliver_text);
     }
 }
 
@@ -2091,11 +2123,11 @@ async fn handle_agent_connection(
                                     fed.relay_sender.enqueue(origin, params.clone());
                                 } else {
                                     // Local thread: targeted delivery (humans + addressed agent / hosted).
-                                    deliver_message(&state, params, "agent", verified).await;
+                                    deliver_message(&state.deliver_deps(), params, "agent", verified).await;
                                 }
                             } else {
                                 // Legacy mode: targeted local delivery.
-                                deliver_message(&state, params, "agent", verified).await;
+                                deliver_message(&state.deliver_deps(), params, "agent", verified).await;
                             }
 
                             if has_id {
@@ -2810,7 +2842,7 @@ async fn handle_human_connection(
                                     );
                                     let deliver_text = serde_json::to_string(&deliver).unwrap();
                                     // Targeted local delivery (humans-fallback broadcast inside).
-                                    deliver_message(&state, params, "human", verified).await;
+                                    deliver_message(&state.deliver_deps(), params, "human", verified).await;
                                     // Also deliver via federation local_delivery_tx (unchanged).
                                     let _ = fed.local_delivery_tx.send(deliver_text);
 
@@ -2844,7 +2876,7 @@ async fn handle_human_connection(
                                 }
                             } else {
                                 // Legacy mode: targeted local delivery (humans-fallback broadcast inside).
-                                deliver_message(&state, params, "human", verified).await;
+                                deliver_message(&state.deliver_deps(), params, "human", verified).await;
                             }
 
                             let resp = protocol::new_response(
