@@ -1428,14 +1428,24 @@ pub async fn start_federation(
         )
         .with_state(state.clone());
 
+    // M2: per-client-IP rate limiting on the production listener (REST + the WS
+    // upgrade request). SmartIp keying reads proxy headers on Fly and falls back
+    // to the peer IP locally — hence the connect-info service below.
+    let (replenish_ms, burst) = crate::rate_limit::settings_from_env();
+    tracing::info!("[rate-limit] GCRA per-client-IP: 1/{replenish_ms}ms sustained, burst {burst}");
+    let app = app.layer(crate::rate_limit::layer(replenish_ms, burst));
+
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(crate::lifecycle::wait_for_shutdown(shutdown_rx))
-            .await
-            .ok();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(crate::lifecycle::wait_for_shutdown(shutdown_rx))
+        .await
+        .ok();
     });
 
     Ok((addr, handle, state))

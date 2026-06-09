@@ -23,6 +23,7 @@ mod persistence;
 mod prod_guard;
 mod protocol;
 mod quota;
+mod rate_limit;
 mod relay;
 mod render;
 mod repl;

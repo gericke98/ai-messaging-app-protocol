@@ -20,6 +20,7 @@ pub mod persistence;
 pub mod prod_guard;
 pub mod protocol;
 pub mod quota;
+pub mod rate_limit;
 pub mod repository;
 pub mod retrieval;
 pub mod routing;

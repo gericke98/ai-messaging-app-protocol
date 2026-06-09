@@ -91,6 +91,8 @@ hex = "0.4"
 
 # Sandboxing (sub-project D): URL parsing for the HTTP-transport SSRF guard
 url = "2"
+tower_governor = "0.8.0"
+governor = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Compile the baseline seccomp denylist to BPF (Firecracker's pure-Rust seccomp compiler)
@@ -99,6 +101,7 @@ seccompiler = "0.5"
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 toml = "0.8"
+tower = { version = "0.5", features = ["util"] }
 
 [[example]]
 name = "generate_vectors"
