@@ -18,6 +18,14 @@ export interface IncomingMessage {
   timestamp: string;
   text: string;
   contentBlocks: ContentBlock[];
+  /** Server-stamped sender classification. "agent" when another agent sent this. */
+  senderType: "human" | "agent" | "system";
+  /** The canonical recipient the server resolved for this message (or null). */
+  to: string | null;
+  /** Convenience: true when `to` equals this agent's own identity. */
+  addressed: boolean;
+  /** Whether the server verified the sender's signature. */
+  verified: boolean;
   raw: Record<string, unknown>;
 }
 
@@ -35,7 +43,7 @@ export interface MessageContext {
   parentThreadId?: string;
   stream: () => StreamHelper;
   memory: MemoryContext;
-  sendMessage: (content: ContentBlock[]) => Promise<void>;
+  sendMessage: (content: ContentBlock[], opts?: { to?: string }) => Promise<void>;
   emitToolStarted: (name: string, input: unknown) => void;
   emitToolProgress: (name: string, progress: number) => void;
   emitToolCompleted: (name: string, result: unknown) => void;
