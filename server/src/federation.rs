@@ -499,6 +499,18 @@ pub async fn relay_handler(
                 Some("agent") => "agent",
                 _ => "human",
             };
+
+            // Runtime A2A P3b: a signature-verified relayed AGENT sender is auto-invited into the
+            // thread on THIS (receiving) server. The relay arrived over mTLS and the per-message
+            // Ed25519 signature was verified above (step 3), so the origin server vouches for the
+            // sender as a real thread participant. This satisfies the P2 consent gate's
+            // "sender is human-invited" half for cross-server peers without a redundant manual
+            // invite on the receiving side. (The TARGET's invitation remains B's own
+            // human-curated membership — established when a human's relayed message invited it.)
+            if sender_type == "agent" && !sender.is_empty() && !thread_id.is_empty() {
+                state.agent_registry.invite_to_thread(sender, thread_id).await;
+            }
+
             let deps = crate::server::DeliverDeps {
                 human_registry: &state.human_registry,
                 agent_registry: &state.agent_registry,
@@ -944,10 +956,9 @@ mod tests {
         // 6. Thread ID with origin server-a.local (so B is NOT origin → relay_sender not needed)
         let thread_id = format!("server-a.local:{}", uuid::Uuid::now_v7());
 
-        // 7. P2 consent: simulate prior human invitation for both alpha and beta
-        agent_registry
-            .invite_to_thread("alpha@server-a.local", &thread_id)
-            .await;
+        // 7. P2 consent: a human on B invited the TARGET (beta). The foreign SENDER (alpha) is
+        //    deliberately NOT invited here — P3b must auto-invite the verified relayed agent
+        //    sender, or consent_ok would deny this agent→agent message.
         agent_registry
             .invite_to_thread("beta@server-b.local", &thread_id)
             .await;
@@ -1029,6 +1040,93 @@ mod tests {
             got.contains("hello from alpha"),
             "Expected message content in delivery, got: {}",
             got
+        );
+    }
+
+    /// P3b: when the TARGET agent was never human-invited on B, the auto-invited foreign
+    /// sender is not enough — consent_ok still denies (both endpoints must be invited).
+    /// Asserts beta receives NOTHING (the message drops to humans-only with a notice).
+    #[tokio::test]
+    async fn relay_denied_when_target_not_invited() {
+        let persistence = make_persistence();
+
+        let server_b_kp =
+            crate::identity::generate_keypair("server-b.local").expect("server-b keypair");
+        let server_b_identity = crate::identity::build_server_identity(
+            "server-b.local",
+            &server_b_kp,
+            8443,
+            vec![],
+        );
+
+        let server_a_kp =
+            crate::identity::generate_keypair("server-a.local").expect("server-a keypair");
+        let remote_cache = crate::identity::RemoteServerCache::new();
+        remote_cache.insert(crate::identity::ServerIdentity {
+            server_id: "server-a.local".to_string(),
+            public_key_b64: server_a_kp.public_key_b64(),
+            relay_endpoint: "https://server-a.local:8443/ainm/v1/relay".to_string(),
+            tls_fingerprints: vec![],
+            supported_versions: vec!["0.1.0".to_string()],
+        });
+
+        let alpha_kp =
+            crate::identity::generate_keypair("alpha@server-a.local").expect("alpha keypair");
+        let identity_store = crate::identity::IdentityStore::new();
+        identity_store.register(
+            "alpha@server-a.local",
+            &alpha_kp.public_key_b64(),
+            "agent",
+            "server-a.local",
+            None,
+        );
+
+        let agent_registry = crate::server::AgentRegistry::new();
+        let beta_card = serde_json::json!({ "name": "beta", "ainm": { "acceptsA2A": true } });
+        let mut beta_rx = agent_registry
+            .register("beta@server-b.local", &beta_card)
+            .await;
+
+        let thread_id = format!("server-a.local:{}", uuid::Uuid::now_v7());
+
+        // NOTE: beta is NOT invited here. alpha will be auto-invited by relay_handler, but
+        // consent requires BOTH — so delivery to beta must be denied.
+
+        let (local_delivery_tx, _rx) = tokio::sync::broadcast::channel::<String>(64);
+        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(
+            std::collections::HashMap::<String, u32>::new(),
+        ));
+        let fed_state = FederationState {
+            server_id: "server-b.local".to_string(),
+            server_keypair: std::sync::Arc::new(server_b_kp),
+            server_identity: std::sync::Arc::new(server_b_identity),
+            thread_registry: ThreadRegistry::new(),
+            identity_store,
+            remote_cache,
+            relay_sender: None,
+            local_delivery_tx,
+            persistence,
+            http_client: None,
+            agent_registry: agent_registry.clone(),
+            human_registry: crate::server::HumanRegistry::new(),
+            a2a_hops,
+            a2a_hop_cap: 6,
+            hosted_agent: None,
+        };
+
+        let inner_msg = build_inner_msg(&alpha_kp, &thread_id, "beta@server-b.local");
+        let payload = build_relay_payload(&server_a_kp, vec![inner_msg]);
+
+        let (status, body) = relay_handler(State(fed_state), Json(payload)).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(body.0.get("error").is_none(), "relay returned error: {:?}", body.0);
+
+        // beta must NOT receive the message (consent denied — target not invited).
+        let res = tokio::time::timeout(Duration::from_millis(300), beta_rx.recv()).await;
+        assert!(
+            res.is_err(),
+            "expected NO delivery to beta (consent denied), but got: {:?}",
+            res
         );
     }
 }
