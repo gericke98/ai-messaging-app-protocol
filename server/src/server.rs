@@ -2061,6 +2061,14 @@ async fn handle_agent_connection(
                                 .get("from")
                                 .and_then(|f| f.as_str())
                                 .unwrap_or("");
+
+                            // Security (P2 consent integrity): the message `from` must match the
+                            // connection's verified handshake identity. A connected agent may not
+                            // assert another address as the sender (which would forge the
+                            // "sender is invited" half of the A2A consent check).
+                            // Empty `from` is tolerated as legacy/unset — only a non-empty
+                            // mismatched `from` is rejected.
+                            if from.is_empty() || from == from_addr.as_str() {
                             let thread_id = params
                                 .get("thread_id")
                                 .and_then(|t| t.as_str())
@@ -2130,6 +2138,26 @@ async fn handle_agent_connection(
                                     true, // trigger compilation on agent responses
                                 )
                                 .await;
+                            }
+                            } else {
+                                // Security (P2 consent integrity): the message `from` must match the
+                                // connection's verified handshake identity. A connected agent may not
+                                // assert another address as the sender (which would forge the
+                                // "sender is invited" half of the A2A consent check).
+                                tracing::warn!(
+                                    "[security] agent connection {from_addr} asserted from={from}; rejecting spoofed sender"
+                                );
+                                if has_id {
+                                    let err = protocol::new_error(
+                                        parsed.get("id").cloned().unwrap(),
+                                        -32020,
+                                        "sender does not match connection identity",
+                                    );
+                                    let mut sender = ws_sender.lock().await;
+                                    let _ = sender
+                                        .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                        .await;
+                                }
                             }
                         }
                     }
