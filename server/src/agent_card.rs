@@ -42,6 +42,7 @@ pub fn build_assistant_card(address: &str) -> Value {
                 "archivalSupported": true,
                 "contextFramePreferred": true
             },
+            "acceptsA2A": true,
             "tools": []
         }
     })
@@ -81,6 +82,13 @@ pub fn build_connector_card(address: &str, init_params: &Value) -> Value {
         .unwrap_or("0.1.0")
         .to_string();
 
+    // P2: a connector may opt out of peer (agent→agent) messages via `card.acceptsA2A: false`.
+    // Absent/non-bool defaults to true (cooperative-by-default).
+    let accepts_a2a = card
+        .and_then(|c| c.get("acceptsA2A"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
     let streaming = caps
         .and_then(|c| c.get("streaming"))
         .and_then(|v| v.as_bool())
@@ -117,6 +125,7 @@ pub fn build_connector_card(address: &str, init_params: &Value) -> Value {
             "streaming": { "supported": streaming, "parallelBlocks": false, "preferredChunkSize": "token" },
             "threading": { "subThreads": sub_threads, "maxConcurrentThreads": null },
             "memory": { "archivalSupported": false, "contextFramePreferred": false },
+            "acceptsA2A": accepts_a2a,
             "tools": tools
         }
     })
@@ -324,5 +333,25 @@ mod tests {
         let skills = card["skills"].as_array().unwrap();
         assert_eq!(skills.len(), 1, "the all-symbol-name skill must be dropped");
         assert_eq!(skills[0]["id"], "good-skill");
+    }
+
+    #[test]
+    fn assistant_card_accepts_a2a_by_default() {
+        let card = build_assistant_card("assistant@localhost");
+        assert_eq!(card["ainm"]["acceptsA2A"], true);
+    }
+
+    #[test]
+    fn connector_card_accepts_a2a_defaults_true_when_absent() {
+        let params = json!({ "card": { "name": "Alpha" }, "capabilities": {} });
+        let card = build_connector_card("alpha@localhost", &params);
+        assert_eq!(card["ainm"]["acceptsA2A"], true);
+    }
+
+    #[test]
+    fn connector_card_honors_accepts_a2a_false() {
+        let params = json!({ "card": { "name": "Beta", "acceptsA2A": false }, "capabilities": {} });
+        let card = build_connector_card("beta@localhost", &params);
+        assert_eq!(card["ainm"]["acceptsA2A"], false);
     }
 }
