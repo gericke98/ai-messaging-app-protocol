@@ -189,6 +189,14 @@ export class AINMAgent {
     const textBlock = contentBlocks.find((b) => b.type === "text");
     const text = (textBlock?.text as string) ?? "";
 
+    // Server-stamped fields live on the deliver WRAPPER (params), not inside `message`.
+    const senderTypeRaw = params.sender_type as string | undefined;
+    const senderType: IncomingMessage["senderType"] =
+      senderTypeRaw === "agent" || senderTypeRaw === "system" ? senderTypeRaw : "human";
+    const toResolved = (message.to as string | undefined) ?? null;
+    const addressed = toResolved !== null && toResolved === this.config.identity;
+    const verified = (params.verified as boolean | undefined) ?? false;
+
     const incoming: IncomingMessage = {
       id: (message.id as string) ?? randomUUID(),
       from: (message.from as string) ?? "",
@@ -196,6 +204,10 @@ export class AINMAgent {
       timestamp: (message.timestamp as string) ?? new Date().toISOString(),
       text,
       contentBlocks,
+      senderType,
+      to: toResolved,
+      addressed,
+      verified,
       raw: message as Record<string, unknown>,
     };
 
@@ -224,15 +236,18 @@ export class AINMAgent {
 
       memory: createMemoryContext(sendRpcFn, threadId, fromIdentity),
 
-      async sendMessage(content: ContentBlock[]): Promise<void> {
+      async sendMessage(content: ContentBlock[], opts?: { to?: string }): Promise<void> {
         const envelope: Record<string, unknown> = {
           id: randomUUID(),
-          from: keypair.publicKey.toString(),
+          from: agentIdentity,
           thread_id: threadId,
           timestamp: new Date().toISOString(),
           type: "message",
           content,
         };
+        if (opts?.to) {
+          envelope.to = opts.to;
+        }
         const signed = await signEnvelope(keypair, envelope);
         const notification = buildNotification("ainm.message.send", { message: signed });
         await sendFn(JSON.stringify(notification));
@@ -268,8 +283,10 @@ export class AINMAgent {
 
     const response = await this.messageHandler(incoming, ctx);
 
-    // If handler returns a string, auto-send it as a signed message
+    // If handler returns a string, auto-send it as a signed message.
     if (typeof response === "string") {
+      // When an AGENT addressed us, reply back to that peer by default (runtime A2A).
+      const replyTo = incoming.senderType === "agent" ? incoming.from : undefined;
       const envelope: Record<string, unknown> = {
         id: randomUUID(),
         from: this.config.identity,
@@ -286,6 +303,9 @@ export class AINMAgent {
           },
         ],
       };
+      if (replyTo) {
+        envelope.to = replyTo;
+      }
       const signed = await signEnvelope(keypair, envelope);
       const request = buildRequest("ainm.message.send", signed as Record<string, unknown>);
       await this.transport.send(JSON.stringify(request));
