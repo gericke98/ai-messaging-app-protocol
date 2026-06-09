@@ -50,6 +50,10 @@ export async function startClaudeCodeConnector(
       message: IncomingMessage,
       ctx: MessageContext
     ): Promise<string | void> => {
+      // Runtime A2A: only respond when this agent was actually addressed.
+      if (!message.addressed) {
+        return;
+      }
       try {
         // Pull compound memory briefing for context
         let briefingContext = "";

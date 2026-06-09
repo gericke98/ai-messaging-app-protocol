@@ -35,6 +35,12 @@ export async function startOpenAIConnector(
 
   agent.onMessage(
     async (message: IncomingMessage, ctx: MessageContext): Promise<string | void> => {
+      // Runtime A2A: only respond when this agent was actually addressed. Prevents
+      // every connected agent from answering every message in a multi-agent thread.
+      // (A 1:1 thread where the human set `to` to this agent is still `addressed`.)
+      if (!message.addressed) {
+        return;
+      }
       try {
         // Pull compound memory briefing for context
         let briefingContext = "";
