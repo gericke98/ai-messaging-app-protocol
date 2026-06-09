@@ -32,6 +32,7 @@ pub enum ConsentLevel {
 }
 
 impl ConsentLevel {
+    #[allow(clippy::should_implement_trait)] // infallible (defaults on unknown), unlike FromStr
     pub fn from_str(s: &str) -> Self {
         match s {
             "minimal" => Self::Minimal,
@@ -265,7 +266,7 @@ pub async fn generate_briefing(
     // 1) Broad candidate set: all CURRENT facts within the allowed categories.
     let candidates = graph::query_nodes(
         db, user_addr, None, None, Some(allowed.as_slice()), "current", 0.0, 200,
-    ).await.map_err(|e| AppError::Storage(e))?;
+    ).await.map_err(AppError::Storage)?;
 
     // 2) Query-matched ids (used as a ranking BOOST, not a filter).
     let recent = graph::fetch_recent_thread_texts(db, thread_id, 8).await.unwrap_or_default();

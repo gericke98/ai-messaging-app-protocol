@@ -135,6 +135,36 @@ async fn test_insert_and_query_edges() {
     assert_eq!(edges[0].target_id, n2);
 }
 
+// ── Graph: Cross-identity isolation ───────────────────────────────────────
+// Pins the security invariant behind `ainm.memory.graph.query`: the handler
+// passes the authenticated caller as the owner, so query_nodes must never
+// return another identity's nodes regardless of filters.
+
+#[tokio::test]
+async fn test_query_nodes_never_leaks_other_identities() {
+    let Some(pool) = test_pool().await else { return };
+    let alice = unique_addr("iso_alice");
+    let bob = unique_addr("iso_bob");
+
+    graph::insert_node(&pool, &alice, "semantic", "fact", "Alice private fact", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let b1 = graph::insert_node(&pool, &bob, "semantic", "fact", "Bob secret fact", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let b2 = graph::insert_node(&pool, &bob, "semantic", "fact", "Bob other secret", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    graph::insert_edge(&pool, &bob, b1, b2, "related_to", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+
+    // Broadest possible query as Alice: no text filter, zero confidence floor.
+    let nodes = graph::query_nodes(&pool, &alice, None, None, None, "all", 0.0, 100).await.unwrap();
+    assert!(!nodes.is_empty(), "Alice must see her own node");
+    assert!(nodes.iter().all(|n| n.user_addr == alice), "query must only return the caller's nodes");
+
+    // Text query targeting Bob's content must return nothing for Alice.
+    let probe = graph::query_nodes(&pool, &alice, Some("Bob secret"), None, None, "all", 0.0, 100).await.unwrap();
+    assert!(probe.is_empty(), "cross-identity text probe must return nothing");
+
+    // Edge fetch as Alice over Bob's node ids must return nothing.
+    let edges = graph::get_edges_for_nodes(&pool, &alice, &[b1, b2]).await.unwrap();
+    assert!(edges.is_empty(), "cross-identity edge fetch must return nothing");
+}
+
 // ── Graph: Traversal ──────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -150,13 +180,21 @@ async fn test_graph_traversal() {
     graph::insert_edge(&pool, &user, a, b, "uses", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
     graph::insert_edge(&pool, &user, b, c, "related_to", 1.0, 0.85, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
 
-    // Traverse from A, depth 2 — should reach B and C
-    let (nodes, edges) = graph::traverse(&pool, &user, a, 2, "outbound", None).await.unwrap();
-    assert!(nodes.len() >= 2, "Should reach at least B and C, got {}", nodes.len());
+    // Traverse from A, depth 2 — subgraph is start node + reached nodes: {A, B, C}.
+    // "outgoing" per compound-memory.schema.json (the old "outbound" silently fell
+    // into the "both" arm); traverse() includes the start node in the subgraph by
+    // contract (the WS handler renders it).
+    let (nodes, edges) = graph::traverse(&pool, &user, a, 2, "outgoing", None).await.unwrap();
+    let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
+    assert_eq!(nodes.len(), 3, "Depth 2 subgraph should be A+B+C, got {}", nodes.len());
+    assert!(ids.contains(&a) && ids.contains(&b) && ids.contains(&c));
+    assert_eq!(edges.len(), 2, "Both edges connect the subgraph");
 
-    // Traverse from A, depth 1 — should reach only B
-    let (nodes_d1, _) = graph::traverse(&pool, &user, a, 1, "outbound", None).await.unwrap();
-    assert_eq!(nodes_d1.len(), 1, "Depth 1 should reach only B");
+    // Traverse from A, depth 1 — subgraph is {A, B}; C must NOT be reached.
+    let (nodes_d1, _) = graph::traverse(&pool, &user, a, 1, "outgoing", None).await.unwrap();
+    let ids_d1: Vec<_> = nodes_d1.iter().map(|n| n.id).collect();
+    assert_eq!(nodes_d1.len(), 2, "Depth 1 subgraph should be A+B, got {}", nodes_d1.len());
+    assert!(!ids_d1.contains(&c), "Depth 1 must not reach C");
 }
 
 // ── Graph: Lint ───────────────────────────────────────────────────────────

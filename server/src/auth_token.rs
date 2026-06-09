@@ -55,9 +55,45 @@ impl TokenSigner {
     }
 }
 
+/// Resolve the token-signing secret from `AINM_TOKEN_SECRET`, falling back to a
+/// random per-process secret (tokens won't survive a restart). The fallback is
+/// never a fixed literal; `prod_guard` requires the env var in production.
+pub fn secret_from_env() -> Vec<u8> {
+    secret_with(&|k| std::env::var(k).ok())
+}
+
+/// Pure core of `secret_from_env` — `get(name)` returns the env value or `None`.
+pub fn secret_with(get: &dyn Fn(&str) -> Option<String>) -> Vec<u8> {
+    match get("AINM_TOKEN_SECRET") {
+        Some(s) => s.into_bytes(),
+        None => {
+            use rand::RngCore;
+            let mut b = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut b);
+            tracing::warn!("[accounts] AINM_TOKEN_SECRET unset; using a random per-process secret (tokens won't survive restart)");
+            b.to_vec()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_with_uses_env_value_when_set() {
+        let get = |k: &str| (k == "AINM_TOKEN_SECRET").then(|| "x".repeat(32));
+        assert_eq!(secret_with(&get), "x".repeat(32).into_bytes());
+    }
+
+    #[test]
+    fn secret_with_falls_back_to_random_per_call() {
+        let get = |_: &str| None;
+        let a = secret_with(&get);
+        let b = secret_with(&get);
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b, "fallback secrets must be random, not a fixed literal");
+    }
 
     #[test]
     fn round_trips_and_returns_account() {

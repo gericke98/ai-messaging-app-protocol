@@ -45,7 +45,7 @@ impl BackoffState {
     }
 
     fn can_retry(&self) -> bool {
-        self.next_retry.map_or(true, |t| Instant::now() >= t)
+        self.next_retry.is_none_or(|t| Instant::now() >= t)
     }
 }
 

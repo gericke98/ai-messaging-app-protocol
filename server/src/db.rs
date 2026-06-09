@@ -1,7 +1,10 @@
 use crate::config::DatabaseConfig;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use std::path::Path;
 use std::time::Duration;
+
+/// Migrations embedded at compile time so the binary carries its own schema
+/// regardless of the working directory it is launched from.
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 /// Initialize the PostgreSQL connection pool and run migrations.
 pub async fn init_pool(config: &DatabaseConfig) -> Result<PgPool, sqlx::Error> {
@@ -15,17 +18,9 @@ pub async fn init_pool(config: &DatabaseConfig) -> Result<PgPool, sqlx::Error> {
         .connect(url)
         .await?;
 
-    // Run pending migrations from the migrations/ directory
-    let migrations_dir = Path::new("migrations");
-    if migrations_dir.exists() {
-        let migrator = sqlx::migrate::Migrator::new(migrations_dir).await
-            .expect("failed to load migrations");
-        migrator.run(&pool).await
-            .expect("failed to run database migrations");
-        tracing::info!("[db] Migrations applied successfully");
-    } else {
-        tracing::warn!("[db] No migrations directory found, skipping migrations");
-    }
+    // Run pending migrations from the compile-time embedded set.
+    MIGRATOR.run(&pool).await?;
+    tracing::info!("[db] Migrations applied successfully");
 
     tracing::info!(
         max_connections = config.max_connections,
@@ -41,4 +36,17 @@ pub async fn health_check(pool: &PgPool) -> bool {
         .fetch_one(pool)
         .await
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrations_are_embedded_in_the_binary() {
+        // The binary must carry its own schema — resolving `migrations/` from CWD
+        // silently skips migrations when launched from anywhere but server/.
+        assert!(MIGRATOR.iter().count() >= 7);
+        assert!(MIGRATOR.iter().any(|m| m.description.contains("compound_memory") || m.description.contains("compound memory")));
+    }
 }

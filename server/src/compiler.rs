@@ -94,12 +94,12 @@ pub async fn run_compilation(
         .collect();
 
     // Step 2: Dedup candidates against existing graph
-    let (new_nodes, updated_count, superseded_count) =
+    let (node_map, created_count, updated_count, superseded_count) =
         dedup_and_integrate_nodes(&db, &req.user_addr, &req.thread_id, &valid_nodes).await?;
 
     // Step 3: Create edges between nodes
     let edges_created =
-        integrate_edges(&db, &req.user_addr, &req.thread_id, &extraction.edges, &new_nodes)
+        integrate_edges(&db, &req.user_addr, &req.thread_id, &extraction.edges, &node_map)
             .await?;
 
     // Step 4: Record compilation pass
@@ -107,7 +107,7 @@ pub async fn run_compilation(
         &db,
         &req.user_addr,
         &req.thread_id,
-        new_nodes.len(),
+        created_count,
         updated_count,
         superseded_count,
         edges_created,
@@ -117,7 +117,7 @@ pub async fn run_compilation(
 
     let result = CompileResult {
         compilation_id: compilation_id.clone(),
-        nodes_created: new_nodes.len(),
+        nodes_created: created_count,
         nodes_updated: updated_count,
         nodes_superseded: superseded_count,
         edges_created,
@@ -147,14 +147,16 @@ fn is_meaningful(content: &str) -> bool {
 }
 
 /// Dedup candidate nodes against the existing graph and insert new ones.
-/// Returns (map of label→node_id for newly created nodes, updated_count, superseded_count).
+/// Returns (map of label→node_id for ALL candidates — existing and new — so edge
+/// integration can resolve labels, created_count, updated_count, superseded_count).
 async fn dedup_and_integrate_nodes(
     db: &PgPool,
     user_addr: &str,
     thread_id: &str,
     candidates: &[CandidateNode],
-) -> Result<(HashMap<String, Uuid>, usize, usize), AppError> {
+) -> Result<(HashMap<String, Uuid>, usize, usize, usize), AppError> {
     let mut node_map: HashMap<String, Uuid> = HashMap::new();
+    let mut created = 0usize;
     let mut updated = 0usize;
     let mut superseded = 0usize;
 
@@ -209,13 +211,13 @@ async fn dedup_and_integrate_nodes(
                     &tags,
                 )
                 .await
-                .map_err(|e| AppError::Storage(e))?;
+                .map_err(AppError::Storage)?;
 
                 // If there's a contradicting node, supersede it
                 if let Some(old_id) = contradicted {
                     graph::supersede_node(db, old_id, new_id)
                         .await
-                        .map_err(|e| AppError::Storage(e))?;
+                        .map_err(AppError::Storage)?;
 
                     // Create a 'contradicts' edge for auditability
                     let edge_prov = serde_json::json!({
@@ -239,11 +241,12 @@ async fn dedup_and_integrate_nodes(
                 }
 
                 node_map.insert(candidate.label.clone(), new_id);
+                created += 1;
             }
         }
     }
 
-    Ok((node_map, updated, superseded))
+    Ok((node_map, created, updated, superseded))
 }
 
 /// Find an existing node with the same label and type (case-insensitive).
@@ -389,6 +392,7 @@ async fn integrate_edges(
 }
 
 /// Record the compilation pass in the database for audit.
+#[allow(clippy::too_many_arguments)]
 async fn record_compilation(
     db: &PgPool,
     user_addr: &str,

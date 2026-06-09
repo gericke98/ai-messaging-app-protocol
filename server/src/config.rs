@@ -188,6 +188,7 @@ fn default_acquire_timeout() -> u64 { 5 }
 fn default_idle_timeout() -> u64 { 600 }
 
 /// Load configuration from TOML files and environment variables.
+#[allow(clippy::result_large_err)] // figment::Error is large; load() runs once at startup
 pub fn load() -> Result<AppConfig, figment::Error> {
     use figment::{Figment, providers::{Format, Toml, Env}};
 

@@ -500,16 +500,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     };
 
     // 7d. Account identity: token signer + email sender
-    let token_secret = std::env::var("AINM_TOKEN_SECRET")
-        .map(|s| s.into_bytes())
-        .unwrap_or_else(|_| {
-            use rand::RngCore;
-            let mut b = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut b);
-            tracing::warn!("[accounts] AINM_TOKEN_SECRET unset; using a random per-process secret (tokens won't survive restart)");
-            b.to_vec()
-        });
-    let token_signer = auth_token::TokenSigner::new(&token_secret);
+    let token_signer = auth_token::TokenSigner::new(&auth_token::secret_from_env());
 
     let email_sender: std::sync::Arc<dyn email::EmailSender> =
         match (std::env::var("AINM_EMAIL__RESEND_API_KEY").ok(), std::env::var("AINM_EMAIL__FROM").ok()) {
@@ -551,7 +542,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 Err(_) => None,
             }
         };
-        let providers = mcp::build_providers_from_config(&app_config).await;
+        let providers =
+            mcp::build_providers_checked(&app_config, prod_guard::is_production()).await?;
         (agent, llm, std::sync::Arc::new(providers))
     } else {
         (None, None, std::sync::Arc::new(vec![]))

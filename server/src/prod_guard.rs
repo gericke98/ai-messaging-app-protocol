@@ -44,6 +44,12 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
         problems.push("AINM_DATABASE__URL is required in production".to_string());
     }
 
+    if get("AINM_LLM__API_KEY").map(|s| s.trim().is_empty()).unwrap_or(true) {
+        problems.push(
+            "AINM_LLM__API_KEY is required in production (otherwise the compilation worker and hosted agent silently degrade to a mock LLM)".to_string(),
+        );
+    }
+
     if get("AINM_LLM__MOCK")
         .map(|v| {
             let v = v.trim().to_ascii_lowercase();
@@ -83,6 +89,7 @@ mod tests {
             base64::engine::general_purpose::STANDARD.encode([0u8; 32]),
         );
         m.insert("AINM_DATABASE__URL".into(), "postgres://u@h/db".into());
+        m.insert("AINM_LLM__API_KEY".into(), "sk-test-123".into());
         m.insert("AINM_EMAIL__RESEND_API_KEY".into(), "re_123".into());
         m.insert("AINM_EMAIL__FROM".into(), "noreply@example.com".into());
         m
@@ -155,6 +162,22 @@ mod tests {
         m.insert("AINM_LLM__MOCK".into(), "1".into());
         let err = validate_with(&getter(m)).unwrap_err();
         assert!(err.iter().any(|p| p.contains("AINM_LLM__MOCK")));
+    }
+
+    #[test]
+    fn missing_llm_api_key_is_reported() {
+        let mut m = good();
+        m.remove("AINM_LLM__API_KEY");
+        let err = validate_with(&getter(m)).unwrap_err();
+        assert!(err.iter().any(|p| p.contains("AINM_LLM__API_KEY")));
+    }
+
+    #[test]
+    fn blank_llm_api_key_is_reported() {
+        let mut m = good();
+        m.insert("AINM_LLM__API_KEY".into(), "   ".into());
+        let err = validate_with(&getter(m)).unwrap_err();
+        assert!(err.iter().any(|p| p.contains("AINM_LLM__API_KEY")));
     }
 
     #[test]

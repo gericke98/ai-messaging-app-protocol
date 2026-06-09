@@ -193,7 +193,7 @@ async fn test_e2e_message_store_and_graph_query() {
     let trav_edges = subgraph["edges"].as_array().unwrap();
     println!("[E2E] Traversal from {}: {} nodes, {} edges",
         &node_id[..8], trav_nodes.len(), trav_edges.len());
-    assert!(trav_nodes.len() >= 1, "Traversal should find connected nodes");
+    assert!(!trav_nodes.is_empty(), "Traversal should find connected nodes");
 
     // 7. Run lint
     let lint = rpc_request(60, "ainm.memory.lint", json!({}));

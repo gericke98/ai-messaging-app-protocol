@@ -16,7 +16,19 @@ pub fn server_is_permitted(cfg: &McpServerConfig, scopes: &[String]) -> bool {
 
 /// Build one ToolProvider per configured curated MCP server. Connection failures are
 /// logged and that server is skipped (the runtime still works without it).
+#[allow(dead_code)] // unused in the binary's module tree (main.rs uses build_providers_checked); lib consumers and tests use it
 pub async fn build_providers_from_config(config: &AppConfig) -> Vec<Arc<dyn ToolProvider>> {
+    build_providers_checked(config, false)
+        .await
+        .expect("lenient mode never errors")
+}
+
+/// Core builder. In `strict` mode (production) a configured server that fails to
+/// start aborts startup instead of silently shrinking the tool surface.
+pub async fn build_providers_checked(
+    config: &AppConfig,
+    strict: bool,
+) -> anyhow::Result<Vec<Arc<dyn ToolProvider>>> {
     let mut providers: Vec<Arc<dyn ToolProvider>> = Vec::new();
     for cfg in &config.mcp_servers {
         match McpToolProvider::connect(cfg.clone()).await {
@@ -28,12 +40,15 @@ pub async fn build_providers_from_config(config: &AppConfig) -> Vec<Arc<dyn Tool
                 );
                 providers.push(Arc::new(p));
             }
+            Err(e) if strict => {
+                anyhow::bail!("configured MCP server '{}' failed to start: {e}", cfg.name)
+            }
             Err(e) => {
                 tracing::warn!("[mcp] skipping server '{}' (not started): {e}", cfg.name)
             }
         }
     }
-    providers
+    Ok(providers)
 }
 
 /// A connected curated MCP server exposed as a ToolProvider.
@@ -245,5 +260,36 @@ mod tests {
             let providers = build_providers_from_config(&config).await;
             assert!(providers.is_empty(), "unsandboxed bubblewrap server must be skipped");
         }
+    }
+
+    fn unstartable_config() -> crate::config::AppConfig {
+        crate::config::AppConfig {
+            database: Default::default(),
+            mcp_servers: vec![crate::config::McpServerConfig {
+                name: "broken".into(),
+                transport: "stdio".into(),
+                command: Some("/nonexistent-ainm-test-binary".into()),
+                args: vec![],
+                required_capability: "patterns".into(),
+                sandbox: crate::config::SandboxMode::None,
+                ..Default::default()
+            }],
+            quota: Default::default(),
+            a2a: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn strict_mode_errors_when_configured_server_cannot_start() {
+        match build_providers_checked(&unstartable_config(), true).await {
+            Ok(_) => panic!("a configured server silently vanishing is not acceptable in production"),
+            Err(e) => assert!(format!("{e:#}").contains("broken")),
+        }
+    }
+
+    #[tokio::test]
+    async fn lenient_mode_skips_unstartable_server() {
+        let providers = build_providers_checked(&unstartable_config(), false).await.unwrap();
+        assert!(providers.is_empty());
     }
 }

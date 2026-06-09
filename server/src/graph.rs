@@ -90,6 +90,7 @@ impl EdgeRow {
 // ── Node CRUD ──────────────────────────────────────────────────────────────
 
 /// Insert a new memory node. Returns the generated UUID.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_node(
     pool: &PgPool,
     user_addr: &str,
@@ -123,6 +124,7 @@ pub async fn insert_node(
 }
 
 /// Insert a new memory edge. Returns the generated UUID.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_edge(
     pool: &PgPool,
     user_addr: &str,
@@ -188,6 +190,7 @@ pub async fn delete_node(pool: &PgPool, node_id: Uuid) -> Result<bool, StorageEr
 // ── Query ──────────────────────────────────────────────────────────────────
 
 /// Query nodes with optional filters.
+#[allow(clippy::too_many_arguments)]
 pub async fn query_nodes(
     pool: &PgPool,
     user_addr: &str,

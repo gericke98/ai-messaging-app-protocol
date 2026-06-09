@@ -234,7 +234,7 @@ impl PersistenceLayer {
                 let entry = entry.map_err(s)?;
                 let key = entry.0.value();
                 // Extract UUIDv7 from key "destination:uuidv7"
-                if let Some(uuid_str) = key.split(':').last() {
+                if let Some(uuid_str) = key.split(':').next_back() {
                     if let Ok(uuid) = uuid::Uuid::parse_str(uuid_str) {
                         if let Some(ts) = uuid.get_timestamp() {
                             let (secs, _) = ts.to_unix();
@@ -300,7 +300,7 @@ impl PersistenceLayer {
             if !key.starts_with(&prefix) {
                 break;
             }
-            if entries.len() >= limit + 1 {
+            if entries.len() > limit {
                 break; // Read one extra to detect has_more
             }
             let value: serde_json::Value =

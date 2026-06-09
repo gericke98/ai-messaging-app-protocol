@@ -29,6 +29,7 @@ impl ArchivalFactRow {
 }
 
 /// Store a fact. On key collision for the same participant, replaces the existing fact.
+#[allow(clippy::too_many_arguments)]
 pub async fn store_fact(
     pool: &PgPool,
     fact_id: &str,
