@@ -153,6 +153,10 @@ pub struct AgentRegistry {
     agent_cards: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     /// thread_id → set of agent identities participating in that thread (runtime A2A).
     thread_agents: Arc<Mutex<HashMap<String, std::collections::HashSet<String>>>>,
+    /// thread_id → set of agent identities a HUMAN has invited into that thread (P2 consent).
+    /// Distinct from `thread_agents`: invitation requires a human message to have targeted the
+    /// agent, so consent is meaningful (an agent cannot self-admit by being peer-addressed).
+    thread_invited: Arc<Mutex<HashMap<String, std::collections::HashSet<String>>>>,
 }
 
 impl AgentRegistry {
@@ -161,6 +165,7 @@ impl AgentRegistry {
             connections: Arc::new(Mutex::new(HashMap::new())),
             agent_cards: Arc::new(Mutex::new(HashMap::new())),
             thread_agents: Arc::new(Mutex::new(HashMap::new())),
+            thread_invited: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -200,9 +205,14 @@ impl AgentRegistry {
         };
         if now_empty {
             // No connections remain: drop the cached card so the well-known route 404s,
-            // and remove this agent from every thread membership set (runtime A2A).
+            // and remove this agent from every thread membership/invitation set (runtime A2A).
             self.agent_cards.lock().await.remove(identity);
             self.leave_all_threads(identity).await;
+            let mut invited = self.thread_invited.lock().await;
+            invited.retain(|_, members| {
+                members.remove(identity);
+                !members.is_empty()
+            });
         }
     }
 
@@ -260,6 +270,32 @@ impl AgentRegistry {
             members.remove(identity);
             !members.is_empty()
         });
+    }
+
+    /// Record that a HUMAN invited an agent into a thread (P2 consent membership).
+    pub async fn invite_to_thread(&self, identity: &str, thread_id: &str) {
+        let mut map = self.thread_invited.lock().await;
+        map.entry(thread_id.to_string())
+            .or_default()
+            .insert(identity.to_string());
+    }
+
+    /// True when `identity` was human-invited into `thread_id` (P2 consent membership).
+    pub async fn is_invited(&self, identity: &str, thread_id: &str) -> bool {
+        let map = self.thread_invited.lock().await;
+        map.get(thread_id).map(|s| s.contains(identity)).unwrap_or(false)
+    }
+
+    /// Whether a connected agent's published card permits peer (A2A) messages.
+    /// Reads `ainm.acceptsA2A` from the cached card; absent/non-bool defaults to true.
+    pub async fn accepts_a2a(&self, identity: &str) -> bool {
+        let cards = self.agent_cards.lock().await;
+        cards
+            .get(identity)
+            .and_then(|c| c.get("ainm"))
+            .and_then(|a| a.get("acceptsA2A"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
     }
 
     /// Broadcast a message to all connected agents.
