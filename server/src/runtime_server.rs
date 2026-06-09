@@ -124,7 +124,7 @@ pub async fn handle_turn(
         "[runtime] agent turn complete: delivering {} chars to thread {thread_id}",
         outcome.final_text.len()
     );
-    stream_reply(state, agent, thread_id, &outcome.final_text).await;
+    stream_reply(state, agent, thread_id, requester, &outcome.final_text).await;
 }
 
 /// Wrap an Arc<dyn ToolProvider> so it can join the Box<dyn> registry.
@@ -204,7 +204,13 @@ fn content_to_text(content: &serde_json::Value) -> String {
 
 /// Stream the reply to thread participants: start → one delta with full text → end,
 /// then a final signed `ainm.message.deliver`.
-async fn stream_reply(state: &ServerState, agent: &crate::hosted_agent::HostedAgent, thread_id: &str, text: &str) {
+async fn stream_reply(
+    state: &ServerState,
+    agent: &crate::hosted_agent::HostedAgent,
+    thread_id: &str,
+    requester: &str,
+    text: &str,
+) {
     let stream_id = uuid::Uuid::now_v7().to_string();
 
     let start = serde_json::json!({
@@ -232,6 +238,7 @@ async fn stream_reply(state: &ServerState, agent: &crate::hosted_agent::HostedAg
     let mut message = serde_json::json!({
         "id": uuid::Uuid::now_v7().to_string(),
         "from": agent.address,
+        "to": requester,
         "thread_id": thread_id,
         "type": "message",
         "content": [{
@@ -251,9 +258,24 @@ async fn stream_reply(state: &ServerState, agent: &crate::hosted_agent::HostedAg
     let envelope = serde_json::json!({
         "jsonrpc": "2.0", "method": "ainm.message.deliver",
         "params": {
-            "message": message,
+            "message": message.clone(),
             "verified": true,
         }
     });
     state.human_registry.send_to_thread(thread_id, &envelope.to_string()).await;
+
+    // Runtime A2A P3b: if this thread originated on another server, relay the hosted agent's
+    // reply back to the origin so it reaches the federated thread (humans + the addressing peer
+    // on the origin side). `message` is the signed inner envelope the relay queue expects.
+    if let Some(fed) = &state.federation {
+        if let Some(origin) = crate::federation::parse_origin_domain(thread_id) {
+            if !origin.is_empty() && origin != fed.server_id {
+                fed.relay_sender.enqueue(origin, message.clone());
+                tracing::info!(
+                    "[a2a-p3b] relayed hosted reply home to origin {} (thread {})",
+                    origin, thread_id
+                );
+            }
+        }
+    }
 }
