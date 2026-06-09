@@ -62,6 +62,46 @@ pub fn resolve_recipient(
         .cloned()
 }
 
+/// Outcome of one A2A hop-counter transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HopDecision {
+    /// New consecutive-A2A-hop count to store for the thread (0 = cleared).
+    pub new_count: u32,
+    /// Whether the target agent should be invoked. `false` = circuit tripped.
+    pub deliver_to_target: bool,
+    /// Whether THIS message tripped the cap (used to emit the one-shot notice).
+    pub tripped: bool,
+}
+
+/// Pure A2A hop-counter transition for one inbound message in a thread.
+///
+/// `current` is the stored count of consecutive agent→agent hops with no human
+/// message between, for this thread. `cap` is the configured maximum.
+///
+/// Rules:
+/// - Non-agent (human) sender: resets the counter to 0 and always delivers.
+/// - Agent sender, non-agent target (agent→human / no agent target): counter
+///   unchanged, always delivers.
+/// - Agent sender, agent target (the A2A case): if `current >= cap`, do NOT
+///   deliver and report `tripped`; otherwise increment and deliver.
+pub fn a2a_hop_decision(
+    current: u32,
+    sender_is_agent: bool,
+    target_is_agent: bool,
+    cap: u32,
+) -> HopDecision {
+    if !sender_is_agent {
+        return HopDecision { new_count: 0, deliver_to_target: true, tripped: false };
+    }
+    if !target_is_agent {
+        return HopDecision { new_count: current, deliver_to_target: true, tripped: false };
+    }
+    if current >= cap {
+        return HopDecision { new_count: current, deliver_to_target: false, tripped: true };
+    }
+    HopDecision { new_count: current + 1, deliver_to_target: true, tripped: false }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +153,39 @@ mod tests {
         assert_eq!(resolve_recipient(None, "hi @ghost", &parts), None);
         assert_eq!(resolve_recipient(None, "plain text", &parts), None);
         assert_eq!(resolve_recipient(None, "plain text", &[]), None);
+    }
+
+    #[test]
+    fn human_sender_resets_and_delivers() {
+        let d = a2a_hop_decision(5, false, true, 6);
+        assert_eq!(d, HopDecision { new_count: 0, deliver_to_target: true, tripped: false });
+        // even targeting a human
+        let d2 = a2a_hop_decision(3, false, false, 6);
+        assert_eq!(d2.new_count, 0);
+        assert!(d2.deliver_to_target);
+    }
+
+    #[test]
+    fn agent_to_human_leaves_counter_unchanged() {
+        let d = a2a_hop_decision(4, true, false, 6);
+        assert_eq!(d, HopDecision { new_count: 4, deliver_to_target: true, tripped: false });
+    }
+
+    #[test]
+    fn agent_to_agent_increments_until_cap() {
+        let d = a2a_hop_decision(0, true, true, 6);
+        assert_eq!(d, HopDecision { new_count: 1, deliver_to_target: true, tripped: false });
+        let d5 = a2a_hop_decision(5, true, true, 6);
+        assert_eq!(d5, HopDecision { new_count: 6, deliver_to_target: true, tripped: false });
+    }
+
+    #[test]
+    fn agent_to_agent_trips_at_cap() {
+        let d = a2a_hop_decision(6, true, true, 6);
+        assert_eq!(d, HopDecision { new_count: 6, deliver_to_target: false, tripped: true });
+        // and stays tripped above cap
+        let d2 = a2a_hop_decision(9, true, true, 6);
+        assert!(!d2.deliver_to_target);
+        assert!(d2.tripped);
     }
 }
