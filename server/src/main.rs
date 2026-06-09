@@ -590,7 +590,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     let a2a_hops: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
-    let fed_state = federation::FederationState {
+    let mut fed_state = federation::FederationState {
         server_id: server_id.to_string(),
         server_keypair: server_keypair.clone(),
         server_identity: server_identity.clone(),
@@ -606,6 +606,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         a2a_hops: a2a_hops.clone(),
         a2a_hop_cap: app_config.a2a.hop_cap,
         hosted_agent: hosted_agent_for_fed.clone(),
+        hosted_turn_state: None,
     };
 
     // 10. Start Listener 1: Plain TCP (local WebSocket)
@@ -617,7 +618,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         remote_cache: remote_cache.clone(),
     };
 
-    let (server_addr, server_handle) = server::start_federation(
+    let (server_addr, server_handle, ws_listener_state) = server::start_federation(
         identity_store.clone(),
         agent_card.clone(),
         Some(fed_context),
@@ -640,6 +641,10 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         a2a_hops.clone(),
     )
     .await?;
+
+    // P3b: share the WS listener's ServerState with the relay path so a relayed message
+    // addressed to the hosted assistant can spawn its turn (same db / hosted_agent / llm).
+    fed_state.hosted_turn_state = Some(std::sync::Arc::new(ws_listener_state));
 
     // 11. Start Listener 2: mTLS TCP (federation relay) with FAUT-02 cert fingerprint verification
     let mtls_config = tls::build_mtls_server_config(ca_cert_path, cert_path, key_path);

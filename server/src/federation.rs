@@ -175,6 +175,10 @@ pub struct FederationState {
     pub a2a_hops: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
     pub a2a_hop_cap: u32,
     pub hosted_agent: Option<std::sync::Arc<crate::hosted_agent::HostedAgent>>,
+    /// P3b: the WS listener's `ServerState`, shared so the relay path can spawn a hosted
+    /// assistant turn for a relayed message addressed to this server's hosted agent.
+    /// `None` in tests / when no hosted agent is provisioned.
+    pub hosted_turn_state: Option<std::sync::Arc<crate::server::ServerState>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +522,7 @@ pub async fn relay_handler(
                 a2a_hop_cap: state.a2a_hop_cap,
                 hosted_agent: state.hosted_agent.as_deref(),
                 to_agent_tx: &state.local_delivery_tx,
-                state_for_hosted_turn: None,
+                state_for_hosted_turn: state.hosted_turn_state.as_deref(),
             };
             crate::server::deliver_message(&deps, msg, sender_type, true).await;
         }
@@ -985,6 +989,7 @@ mod tests {
             a2a_hops,
             a2a_hop_cap: 6,
             hosted_agent: None,
+            hosted_turn_state: None,
         };
 
         // 9. Build signed inner message (alpha → beta)
@@ -1112,6 +1117,7 @@ mod tests {
             a2a_hops,
             a2a_hop_cap: 6,
             hosted_agent: None,
+            hosted_turn_state: None,
         };
 
         let inner_msg = build_inner_msg(&alpha_kp, &thread_id, "beta@server-b.local");

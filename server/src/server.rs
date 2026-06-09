@@ -1041,7 +1041,7 @@ pub async fn start_federation(
     a2a_hop_cap: u32,
     human_registry: HumanRegistry,
     a2a_hops: Arc<Mutex<HashMap<String, u32>>>,
-) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>, ServerState)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
     let shutdown_rx = shutdown.subscribe();
@@ -1094,7 +1094,7 @@ pub async fn start_federation(
         .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
         .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
         .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
-        .with_state(state);
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     let addr = listener.local_addr()?;
@@ -1106,7 +1106,7 @@ pub async fn start_federation(
             .ok();
     });
 
-    Ok((addr, handle))
+    Ok((addr, handle, state))
 }
 
 /// The agent card this server publishes for `agent_name`, or `None` (→ 404).
