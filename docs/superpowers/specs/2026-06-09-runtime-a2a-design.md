@@ -226,6 +226,12 @@ Membership-as-consent enforcement in `route_message`; `acceptsA2A` card capabili
 **P3 — Federation**
 Generalize fed relay to carry agent `to`; second guard+consent checkpoint on receiving server; foreign-sender signature verification via `.well-known/ainm-identity`; per-server hop accounting.
 
+> **P3 REVISION (2026-06-09, after federation code exploration):** the original framing above ("reuse the relay, not rebuild") rested on an assumption the code contradicts. Verified reality: federation runs as a **separate `run_federation` binary** whose "agent" is a **hard-coded echo loop** in `main.rs`; inbound `relay_handler` (`federation.rs`) **bypasses `deliver_message` entirely** (it only re-injects into a `local_delivery_tx` broadcast consumed by that echo loop), so the P2 consent gate, the A2A hop counter, and `AgentRegistry` invitation logic **do not apply on the receiving server**; and `FederationState` has **no `AgentRegistry`** — a relayed message can never reach a connected connector agent (only the agent's *card* is reachable cross-server, via FCP). Foreign-sender pubkey resolution, however, **already exists** in the relay path (`/.well-known/ainm/participant/{sender}` lazy fetch + `RemoteServerCache` for peer-server keys); mTLS transport is solid; but there is **no automated two-server test** (federation is manual-only).
+>
+> Consequently P3 is **decomposed** (user decision: integration-first):
+> - **P3a — Federation Integration (precursor):** make the seam production-grade — route inbound relays through `deliver_message` (so consent + hop guard apply on the receiving server for free), wire `AgentRegistry` into the relay path so a relayed message can reach a connected connector agent, promote the existing foreign-key resolver into the shared verification path, and build the **first automated two-server test harness** (the safety net that does not exist today). **Keystone architectural decision:** how `relay_handler` (which holds `FederationState`) reaches `deliver_message` (which lives on `ServerState`) — see the P3a plan.
+> - **P3b — Cross-server A2A semantics:** on the now-real seam, add agent `to` relay routing, the second-server consent/hop re-check, and reply-routing-home. Delivers success criterion 3.
+
 ---
 
 ## 6. Testing Strategy
