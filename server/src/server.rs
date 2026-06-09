@@ -1689,6 +1689,33 @@ pub async fn deliver_message(
     }
 }
 
+/// Runtime A2A P3b: if `params.to` is addressed to an agent on another server, relay the
+/// message to that agent's home domain and register the domain as a thread participant
+/// (so later origin fan-out also reaches it). Returns `true` if a foreign relay was enqueued.
+/// A local target (or no `to`) returns `false`; the caller delivers it locally as usual.
+///
+/// Used by the AGENT send branch, which (unlike the human branch) has no participating-server
+/// fan-out of its own — this is the only outbound path for an agent addressing a foreign peer.
+fn relay_to_foreign_target(
+    fed: &FederationContext,
+    thread_id: &str,
+    params: &serde_json::Value,
+) -> bool {
+    let to = params.get("to").and_then(|t| t.as_str());
+    match crate::routing::foreign_relay_target(to, &fed.server_id) {
+        Some(domain) => {
+            fed.thread_registry.add_server(thread_id, &domain);
+            fed.relay_sender.enqueue(&domain, params.clone());
+            tracing::info!(
+                "[a2a-p3b] relayed agent message to foreign target domain {} (thread {})",
+                domain, thread_id
+            );
+            true
+        }
+        None => false,
+    }
+}
+
 /// Handle compound memory JSON-RPC methods.
 /// Shared by both human and agent connection handlers.
 async fn handle_compound_memory(
@@ -2121,10 +2148,14 @@ async fn handle_agent_connection(
                                     .unwrap_or("");
 
                                 if origin != fed.server_id && !origin.is_empty() {
-                                    // Thread originated on remote server: relay response back (P3 generalizes this).
+                                    // Thread originated on remote server: relay response back to origin.
                                     fed.relay_sender.enqueue(origin, params.clone());
                                 } else {
-                                    // Local thread: targeted delivery (humans + addressed agent / hosted).
+                                    // Local-origin thread. P3b: if addressed to a foreign-host agent,
+                                    // relay to that agent's home domain, THEN deliver locally (humans
+                                    // on this server still see the message; a local addressed agent is
+                                    // also invoked). A purely-local target just delivers locally.
+                                    relay_to_foreign_target(fed, thread_id, params);
                                     deliver_message(&state.deliver_deps(), params, "agent", verified).await;
                                 }
                             } else {
