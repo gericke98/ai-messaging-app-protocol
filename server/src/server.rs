@@ -98,6 +98,14 @@ impl HumanRegistry {
             .insert(user_addr.to_string());
     }
 
+    /// User addresses participating in a thread.
+    pub async fn participants_of(&self, thread_id: &str) -> Vec<String> {
+        let map = self.thread_participants.lock().await;
+        map.get(thread_id)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     #[allow(dead_code)]
     pub async fn send_to_user(&self, user_addr: &str, msg: &str) {
         let map = self.connections.lock().await;
@@ -148,6 +156,8 @@ impl HumanRegistry {
 pub struct AgentRegistry {
     connections: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<String>>>>>,
     agent_cards: Arc<Mutex<HashMap<String, serde_json::Value>>>,
+    /// thread_id → set of agent identities participating in that thread (runtime A2A).
+    thread_agents: Arc<Mutex<HashMap<String, std::collections::HashSet<String>>>>,
 }
 
 impl AgentRegistry {
@@ -155,6 +165,7 @@ impl AgentRegistry {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             agent_cards: Arc::new(Mutex::new(HashMap::new())),
+            thread_agents: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -193,8 +204,10 @@ impl AgentRegistry {
             }
         };
         if now_empty {
-            // No connections remain: drop the cached card so the well-known route 404s.
+            // No connections remain: drop the cached card so the well-known route 404s,
+            // and remove this agent from every thread membership set (runtime A2A).
             self.agent_cards.lock().await.remove(identity);
+            self.leave_all_threads(identity).await;
         }
     }
 
@@ -213,8 +226,7 @@ impl AgentRegistry {
         conns.keys().cloned().collect()
     }
 
-    /// Send a message to a specific agent.
-    #[allow(dead_code)]
+    /// Send a message to a specific connected agent (runtime A2A targeted delivery).
     pub async fn send_to_agent(&self, identity: &str, msg: &str) {
         let conns = self.connections.lock().await;
         if let Some(senders) = conns.get(identity) {
@@ -222,6 +234,37 @@ impl AgentRegistry {
                 let _ = tx.send(msg.to_string());
             }
         }
+    }
+
+    /// True when `identity` has at least one live connection.
+    pub async fn is_connected(&self, identity: &str) -> bool {
+        let conns = self.connections.lock().await;
+        conns.get(identity).map(|s| !s.is_empty()).unwrap_or(false)
+    }
+
+    /// Record that an agent participates in a thread (runtime A2A membership).
+    pub async fn join_thread(&self, identity: &str, thread_id: &str) {
+        let mut map = self.thread_agents.lock().await;
+        map.entry(thread_id.to_string())
+            .or_default()
+            .insert(identity.to_string());
+    }
+
+    /// Agent identities participating in a thread.
+    pub async fn participants_of(&self, thread_id: &str) -> Vec<String> {
+        let map = self.thread_agents.lock().await;
+        map.get(thread_id)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Remove an agent identity from every thread's membership set (disconnect cleanup).
+    pub async fn leave_all_threads(&self, identity: &str) {
+        let mut map = self.thread_agents.lock().await;
+        map.retain(|_, members| {
+            members.remove(identity);
+            !members.is_empty()
+        });
     }
 
     /// Broadcast a message to all connected agents.
