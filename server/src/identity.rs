@@ -53,17 +53,46 @@ pub struct IdentityRecord {
     pub key_history: Vec<serde_json::Value>,
 }
 
-/// In-memory identity store.
+/// Identity store: in-memory registrations (legacy/federation pre-seeds) with an
+/// optional durable fallback to the accounts store (`accounts` + `account_keys`).
+/// The DB fallback is what makes identity resolution survive a server restart —
+/// production never populates the in-memory map.
 #[derive(Clone, Default)]
 pub struct IdentityStore {
     inner: Arc<Mutex<HashMap<String, IdentityRecord>>>,
+    db: Option<sqlx::PgPool>,
 }
 
 impl IdentityStore {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
+            db: None,
         }
+    }
+
+    /// Attach the durable accounts store as a resolution fallback.
+    pub fn with_db(mut self, pool: sqlx::PgPool) -> Self {
+        self.db = Some(pool);
+        self
+    }
+
+    /// Resolve an address's public key: in-memory registrations first, then the
+    /// durable accounts store (active account, active key).
+    pub async fn resolve_public_key_bytes(&self, address: &str) -> Option<Vec<u8>> {
+        if let Some(bytes) = self.get_public_key_bytes(address) {
+            if !bytes.is_empty() {
+                return Some(bytes);
+            }
+        }
+        let pool = self.db.as_ref()?;
+        let acct = crate::accounts::find_account_by_address(pool, address)
+            .await
+            .ok()??;
+        let key = crate::accounts::find_active_key(pool, acct.id)
+            .await
+            .ok()??;
+        URL_SAFE_NO_PAD.decode(&key.public_key).ok()
     }
 
     /// Register an identity with the store.

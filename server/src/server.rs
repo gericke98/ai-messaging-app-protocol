@@ -2779,7 +2779,7 @@ async fn handle_agent_connection(
                                 .and_then(|t| t.as_str())
                                 .unwrap_or("");
                             let verified = if let Some(pk) =
-                                identity_store.get_public_key_bytes(from)
+                                identity_store.resolve_public_key_bytes(from).await
                             {
                                 signing::verify_signature(&pk, params).unwrap_or(false)
                             } else {
@@ -3483,7 +3483,7 @@ async fn handle_human_connection(
                                 .and_then(|f| f.as_str())
                                 .unwrap_or("");
                             let verified = if let Some(pk) =
-                                identity_store.get_public_key_bytes(from)
+                                identity_store.resolve_public_key_bytes(from).await
                             {
                                 signing::verify_signature(&pk, params).unwrap_or(false)
                             } else {

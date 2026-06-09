@@ -481,6 +481,14 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         None
     };
 
+    // Durable identity resolution (M2 single-node reliability): with a DB attached,
+    // per-message signature verification resolves keys from accounts/account_keys —
+    // which survive restarts — instead of only the in-memory map.
+    let identity_store = match db_pool {
+        Some(ref pool) => identity_store.with_db(pool.clone()),
+        None => identity_store,
+    };
+
     // 7c. Initialize LLM client and compilation worker (if DB is available)
     let (compile_tx, compile_notify_tx): (
         Option<tokio::sync::mpsc::Sender<compiler::CompileRequest>>,
