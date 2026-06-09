@@ -250,7 +250,10 @@ export class AINMAgent {
           envelope.to = opts.to;
         }
         const signed = await signEnvelope(keypair, envelope);
-        const notification = buildNotification("ainm.message.send", { message: signed });
+        // ainm.message.send carries the signed envelope FLAT as params (the server reads
+        // from/thread_id/to/content off params and verifies the signature over params).
+        // Wrapping as {message: signed} would null every field and break verification.
+        const notification = buildNotification("ainm.message.send", signed as Record<string, unknown>);
         await sendFn(JSON.stringify(notification));
       },
 
@@ -383,7 +386,9 @@ export class AINMAgent {
           content,
         };
         const signed = await signEnvelope(keypair, envelope);
-        const notification = buildNotification("ainm.message.send", { message: signed });
+        // ainm.message.send carries the signed envelope FLAT as params (see the message-handler
+        // context's sendMessage above). Wrapping as {message: signed} breaks server parsing + verify.
+        const notification = buildNotification("ainm.message.send", signed as Record<string, unknown>);
         await sendFn(JSON.stringify(notification));
       },
       emitToolStarted(name: string, input: unknown): void {
