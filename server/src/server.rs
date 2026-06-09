@@ -1039,6 +1039,8 @@ pub async fn start_federation(
     agent_registry: AgentRegistry,
     shutdown: crate::lifecycle::ShutdownController,
     a2a_hop_cap: u32,
+    human_registry: HumanRegistry,
+    a2a_hops: Arc<Mutex<HashMap<String, u32>>>,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -1047,9 +1049,9 @@ pub async fn start_federation(
         identity_store,
         agent_card,
         to_agent_tx,
-        human_registry: HumanRegistry::new(),
+        human_registry,
         agent_registry,
-        a2a_hops: Arc::new(Mutex::new(HashMap::new())),
+        a2a_hops,
         a2a_hop_cap,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),

@@ -168,6 +168,13 @@ pub struct FederationState {
     pub persistence: crate::persistence::PersistenceLayer,
     /// HTTP client for lazy identity resolution (mTLS-configured).
     pub http_client: Option<reqwest::Client>,
+    /// Shared with the WS listener's ServerState (P3a) so relayed messages reach connected agents
+    /// and apply the same consent + hop guard. Same Arc-backed instances as the WS listener.
+    pub agent_registry: crate::server::AgentRegistry,
+    pub human_registry: crate::server::HumanRegistry,
+    pub a2a_hops: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
+    pub a2a_hop_cap: u32,
+    pub hosted_agent: Option<std::sync::Arc<crate::hosted_agent::HostedAgent>>,
 }
 
 // ---------------------------------------------------------------------------

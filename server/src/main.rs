@@ -579,6 +579,17 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
 
     // 9. Build FederationState
     let thread_registry = federation::ThreadRegistry::new();
+
+    // Shared agent registry: one instance backs both the local listener (inside start_federation)
+    // and the federation listener's card handler, so connector cards are visible over federation.
+    let agent_registry = server::AgentRegistry::new();
+    // Keep a hosted-agent handle for the federation card handler (hosted_agent is moved below).
+    let hosted_agent_for_fed = hosted_agent.clone();
+    // Shared HumanRegistry and hop counter: same Arc-backed instances for WS listener and relay.
+    let human_registry = server::HumanRegistry::new();
+    let a2a_hops: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+
     let fed_state = federation::FederationState {
         server_id: server_id.to_string(),
         server_keypair: server_keypair.clone(),
@@ -590,6 +601,11 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         local_delivery_tx: local_delivery_tx.clone(),
         persistence: persistence.clone(),
         http_client: Some(http_client.clone()),
+        agent_registry: agent_registry.clone(),
+        human_registry: human_registry.clone(),
+        a2a_hops: a2a_hops.clone(),
+        a2a_hop_cap: app_config.a2a.hop_cap,
+        hosted_agent: hosted_agent_for_fed.clone(),
     };
 
     // 10. Start Listener 1: Plain TCP (local WebSocket)
@@ -600,12 +616,6 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         local_delivery_tx: local_delivery_tx.clone(),
         remote_cache: remote_cache.clone(),
     };
-
-    // Shared agent registry: one instance backs both the local listener (inside start_federation)
-    // and the federation listener's card handler, so connector cards are visible over federation.
-    let agent_registry = server::AgentRegistry::new();
-    // Keep a hosted-agent handle for the federation card handler (hosted_agent is moved below).
-    let hosted_agent_for_fed = hosted_agent.clone();
 
     let (server_addr, server_handle) = server::start_federation(
         identity_store.clone(),
@@ -626,6 +636,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         agent_registry.clone(),
         controller.clone(),
         app_config.a2a.hop_cap,
+        human_registry.clone(),
+        a2a_hops.clone(),
     )
     .await?;
 
