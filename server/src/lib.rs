@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod persistence;
 pub mod prod_guard;
 pub mod protocol;
+pub mod routing;
 pub mod quota;
 pub mod repository;
 pub mod retrieval;
