@@ -102,6 +102,21 @@ pub fn a2a_hop_decision(
     HopDecision { new_count: current + 1, deliver_to_target: true, tripped: false }
 }
 
+/// Pure A2A consent predicate (P2). An agent→agent message may be delivered only when:
+/// 1. the SENDER agent was human-invited into the thread,
+/// 2. the TARGET agent was human-invited into the thread, AND
+/// 3. the target has not opted out of peer messages (`acceptsA2A != false`).
+///
+/// Human-invited membership is established elsewhere (a human message targeting the agent);
+/// this predicate is pure over the three resolved booleans.
+pub fn consent_ok(
+    from_is_human_invited: bool,
+    to_is_human_invited: bool,
+    to_accepts_a2a: bool,
+) -> bool {
+    from_is_human_invited && to_is_human_invited && to_accepts_a2a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +202,25 @@ mod tests {
         let d2 = a2a_hop_decision(9, true, true, 6);
         assert!(!d2.deliver_to_target);
         assert!(d2.tripped);
+    }
+
+    #[test]
+    fn consent_requires_both_invited_and_accept() {
+        assert!(consent_ok(true, true, true));
+    }
+
+    #[test]
+    fn consent_denied_when_sender_not_invited() {
+        assert!(!consent_ok(false, true, true));
+    }
+
+    #[test]
+    fn consent_denied_when_target_not_invited() {
+        assert!(!consent_ok(true, false, true));
+    }
+
+    #[test]
+    fn consent_denied_when_target_opts_out() {
+        assert!(!consent_ok(true, true, false));
     }
 }
