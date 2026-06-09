@@ -1416,6 +1416,160 @@ async fn store_and_maybe_compile(
     }
 }
 
+/// Union of known participant addresses in a thread (humans + agents + the
+/// hosted assistant if enabled). Used only for `@mention` resolution; an explicit
+/// `to` does not need this list.
+async fn thread_participants(state: &ServerState, thread_id: &str) -> Vec<String> {
+    let mut v = state.human_registry.participants_of(thread_id).await;
+    v.extend(state.agent_registry.participants_of(thread_id).await);
+    if let Some(agent) = state.hosted_agent.as_ref() {
+        if agent.enabled {
+            v.push(agent.address.clone());
+        }
+    }
+    v
+}
+
+/// Build the one-shot "agents paused" system notice delivered to humans when the
+/// A2A hop cap trips. It is a normal `ainm.message.deliver` with a system sender so
+/// the existing client renders it inline (no new client surface — P1 constraint).
+fn a2a_limit_notice(thread_id: &str, cap: u32) -> String {
+    let text = format!(
+        "Agents paused after {cap} consecutive exchanges — reply to continue."
+    );
+    let deliver = protocol::new_notification(
+        "ainm.message.deliver",
+        serde_json::json!({
+            "message": {
+                "id": protocol::new_message_id(),
+                "from": "system@local",
+                "thread_id": thread_id,
+                "timestamp": protocol::now_rfc3339(),
+                "type": "message",
+                "content": [{
+                    "type": "text",
+                    "version": "1.0",
+                    "source": "system",
+                    "text": text,
+                    "fallback": text,
+                }],
+            },
+            "verified": false,
+            "sender_type": "system",
+        }),
+    );
+    serde_json::to_string(&deliver).unwrap()
+}
+
+/// Local delivery orchestrator for runtime A2A (P1, same-server core).
+///
+/// Replaces the blind `to_agent_tx` broadcast. Given an inbound message envelope
+/// (`params`) and the server-classified `sender_type` ("human" | "agent"):
+///   - agent-originated messages are shown to humans in the thread (A2A display copy);
+///   - the routing target is resolved (`to` → mention → none);
+///   - the A2A hop guard is applied (human-resettable, capped); on trip a visible
+///     system notice goes to humans and the target is NOT invoked;
+///   - a connected agent target is delivered to via `AgentRegistry::send_to_agent`;
+///   - the hosted assistant target spawns `runtime_server::handle_turn`;
+///   - a HUMAN sender whose message resolves to no reachable agent falls back to the
+///     legacy `to_agent_tx` broadcast (preserves 1:1 connector flow for clients that
+///     do not set `to`). Agent senders never trigger this fallback.
+async fn deliver_message(
+    state: &ServerState,
+    params: &serde_json::Value,
+    sender_type: &str,
+    verified: bool,
+) {
+    let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("");
+    let from = params.get("from").and_then(|f| f.as_str()).unwrap_or("");
+    let to_field = params.get("to").and_then(|t| t.as_str());
+    let content = params.get("content").cloned().unwrap_or(serde_json::json!([]));
+
+    let sender_is_agent = sender_type == "agent";
+
+    // Stamp sender_type onto the deliver wrapper (server-authoritative; never from payload).
+    let deliver = protocol::new_notification(
+        "ainm.message.deliver",
+        serde_json::json!({
+            "message": params,
+            "verified": verified,
+            "sender_type": sender_type,
+        }),
+    );
+    let deliver_text = serde_json::to_string(&deliver).unwrap();
+
+    // Agent-originated messages are always shown to humans (this is what SP3/SP4 render).
+    if sender_is_agent {
+        state.human_registry.send_to_thread(thread_id, &deliver_text).await;
+    }
+
+    // Record the sender's thread membership (agents only; humans are tracked elsewhere).
+    if sender_is_agent && !from.is_empty() && !thread_id.is_empty() {
+        state.agent_registry.join_thread(from, thread_id).await;
+    }
+
+    // Resolve the target.
+    let participants = thread_participants(state, thread_id).await;
+    let content_text = content_to_plain(&content);
+    let target = crate::routing::resolve_recipient(to_field, &content_text, &participants);
+
+    let hosted_addr = state
+        .hosted_agent
+        .as_ref()
+        .filter(|a| a.enabled)
+        .map(|a| a.address.clone());
+
+    let Some(t) = target else {
+        // No target. Legacy fallback only for human senders (1:1 connector reach).
+        if !sender_is_agent {
+            let _ = state.to_agent_tx.send(deliver_text);
+        }
+        return;
+    };
+
+    let target_is_hosted = hosted_addr.as_deref() == Some(t.as_str());
+    let target_is_connected_agent = state.agent_registry.is_connected(&t).await;
+    let target_is_agent = target_is_hosted || target_is_connected_agent;
+
+    // Hop guard (pure decision over the stored per-thread counter).
+    let current = { *state.a2a_hops.lock().await.get(thread_id).unwrap_or(&0) };
+    let decision =
+        crate::routing::a2a_hop_decision(current, sender_is_agent, target_is_agent, state.a2a_hop_cap);
+    {
+        let mut hops = state.a2a_hops.lock().await;
+        if decision.new_count == 0 {
+            hops.remove(thread_id);
+        } else {
+            hops.insert(thread_id.to_string(), decision.new_count);
+        }
+    }
+    if decision.tripped {
+        let notice = a2a_limit_notice(thread_id, state.a2a_hop_cap);
+        state.human_registry.send_to_thread(thread_id, &notice).await;
+        return;
+    }
+    if !decision.deliver_to_target {
+        return;
+    }
+
+    if target_is_hosted {
+        state.agent_registry.join_thread(&t, thread_id).await;
+        let state2 = state.clone();
+        let tid = thread_id.to_string();
+        let requester = from.to_string();
+        let user_text = content_text.clone();
+        state.shutdown.spawn_turn(async move {
+            crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
+        });
+    } else if target_is_connected_agent {
+        state.agent_registry.join_thread(&t, thread_id).await;
+        state.agent_registry.send_to_agent(&t, &deliver_text).await;
+    } else if !sender_is_agent {
+        // Target named but not a reachable agent; human sender → legacy fallback.
+        let _ = state.to_agent_tx.send(deliver_text);
+    }
+}
+
 /// Handle compound memory JSON-RPC methods.
 /// Shared by both human and agent connection handlers.
 async fn handle_compound_memory(

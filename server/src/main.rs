@@ -28,6 +28,7 @@ mod render;
 mod repl;
 mod repository;
 mod retrieval;
+mod routing;
 mod runtime;
 mod runtime_server;
 mod sandbox;
