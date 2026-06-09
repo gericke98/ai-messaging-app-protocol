@@ -568,6 +568,9 @@ pub async fn relay_handler(
                 a2a_hop_cap: state.a2a_hop_cap,
                 hosted_agent: state.hosted_agent.as_deref(),
                 to_agent_tx: &state.local_delivery_tx,
+                // Federation relay has no DB handle (cross-server is v2); block
+                // filtering applies on the local single-server delivery path.
+                db: None,
                 state_for_hosted_turn: state.hosted_turn_state.as_deref(),
             };
             crate::server::deliver_message(&deps, msg, sender_type, true).await;

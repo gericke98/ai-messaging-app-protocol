@@ -114,11 +114,20 @@ impl HumanRegistry {
     /// Send a message to all humans participating in a specific thread.
     /// Falls back to all connected humans if the thread has no tracked participants.
     pub async fn send_to_thread(&self, thread_id: &str, msg: &str) {
+        self.send_to_thread_except(thread_id, msg, &[]).await;
+    }
+
+    /// `send_to_thread` minus `excluded` recipients — the UGC-1.2 block filter:
+    /// recipients who blocked the sender must not receive the sender's content.
+    pub async fn send_to_thread_except(&self, thread_id: &str, msg: &str, excluded: &[String]) {
         let participants = self.thread_participants.lock().await;
         if let Some(users) = participants.get(thread_id) {
             if !users.is_empty() {
                 let conns = self.connections.lock().await;
                 for user_addr in users {
+                    if excluded.iter().any(|e| e == user_addr) {
+                        continue;
+                    }
                     if let Some(senders) = conns.get(user_addr) {
                         for tx in senders {
                             let _ = tx.send(msg.to_string());
@@ -129,8 +138,20 @@ impl HumanRegistry {
             }
         }
         drop(participants);
-        // Fallback: deliver to all (thread not yet tracked, e.g. legacy mode)
-        self.send_to_all(msg).await;
+        // Fallback: deliver to all except excluded (thread not yet tracked, e.g. legacy mode)
+        if excluded.is_empty() {
+            self.send_to_all(msg).await;
+        } else {
+            let conns = self.connections.lock().await;
+            for (user_addr, senders) in conns.iter() {
+                if excluded.iter().any(|e| e == user_addr) {
+                    continue;
+                }
+                for tx in senders {
+                    let _ = tx.send(msg.to_string());
+                }
+            }
+        }
     }
 
     /// Send a message to all connected humans.
@@ -367,6 +388,9 @@ pub struct DeliverDeps<'a> {
     pub a2a_hop_cap: u32,
     pub hosted_agent: Option<&'a crate::hosted_agent::HostedAgent>,
     pub to_agent_tx: &'a broadcast::Sender<String>,
+    /// UGC 1.2: recipients who block the sender are excluded from human fan-out.
+    /// `None` (no DB) keeps legacy behavior — nothing is filtered.
+    pub db: Option<&'a sqlx::PgPool>,
     /// The hosted-assistant branch needs a full owned `ServerState` (it does
     /// `state.clone()` + `state.shutdown.spawn_turn` + `runtime_server::handle_turn(&ServerState,...)`).
     /// WS callers pass `Some(self)`; the relay handler (no ServerState) passes `None`, in which case
@@ -383,9 +407,112 @@ impl ServerState {
             a2a_hop_cap: self.a2a_hop_cap,
             hosted_agent: self.hosted_agent.as_deref(),
             to_agent_tx: &self.to_agent_tx,
+            db: self.db.as_ref(),
             state_for_hosted_turn: Some(self),
         }
     }
+}
+
+// --- UGC safety handlers (App Store guideline 1.2): block users, report content ---
+
+/// Resolve the bearer caller's AINM address.
+async fn caller_address(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Result<(sqlx::PgPool, String), (StatusCode, String)> {
+    let caller = caller_from_bearer(state, headers).await?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let acct = crate::accounts::find_account_by_id(&pool, caller.account_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::UNAUTHORIZED, "unknown account".into()))?;
+    Ok((pool, acct.address))
+}
+
+pub async fn block_put_handler(
+    State(state): State<ServerState>,
+    Path(address): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (pool, caller_addr) = caller_address(&state, &headers).await?;
+    if address == caller_addr {
+        return Err((StatusCode::BAD_REQUEST, "cannot block yourself".into()));
+    }
+    if !address.contains('@') {
+        return Err((StatusCode::BAD_REQUEST, "not an AINM address".into()));
+    }
+    crate::blocks::block(&pool, &caller_addr, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn block_delete_handler(
+    State(state): State<ServerState>,
+    Path(address): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (pool, caller_addr) = caller_address(&state, &headers).await?;
+    crate::blocks::unblock(&pool, &caller_addr, &address)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn blocks_list_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let (pool, caller_addr) = caller_address(&state, &headers).await?;
+    let list = crate::blocks::list_blocks(&pool, &caller_addr)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(list))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ReportBody {
+    pub subject: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub message_id: Option<String>,
+    pub reason: String,
+}
+
+pub async fn report_post_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(body): Json<ReportBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    let (pool, caller_addr) = caller_address(&state, &headers).await?;
+    let reason = body.reason.trim();
+    if reason.is_empty() || reason.len() > 2000 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "reason must be 1-2000 characters".into(),
+        ));
+    }
+    if !body.subject.contains('@') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "subject must be an AINM address".into(),
+        ));
+    }
+    let id = crate::blocks::report(
+        &pool,
+        &caller_addr,
+        &body.subject,
+        body.thread_id.as_deref(),
+        body.message_id.as_deref(),
+        reason,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
 // --- Account REST handlers (signup / verify / bind-key) ---
@@ -1166,6 +1293,15 @@ pub async fn start(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
+        .route("/accounts/blocks", get(blocks_list_handler))
+        .route(
+            "/accounts/blocks/{address}",
+            axum::routing::put(block_put_handler).delete(block_delete_handler),
+        )
+        .route(
+            "/accounts/reports",
+            axum::routing::post(report_post_handler),
+        )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route(
             "/accounts/auth/token",
@@ -1278,6 +1414,15 @@ pub async fn start_with_port(
         .route(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
+        )
+        .route("/accounts/blocks", get(blocks_list_handler))
+        .route(
+            "/accounts/blocks/{address}",
+            axum::routing::put(block_put_handler).delete(block_delete_handler),
+        )
+        .route(
+            "/accounts/reports",
+            axum::routing::post(report_post_handler),
         )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route(
@@ -1404,6 +1549,15 @@ pub async fn start_federation(
         .route(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
+        )
+        .route("/accounts/blocks", get(blocks_list_handler))
+        .route(
+            "/accounts/blocks/{address}",
+            axum::routing::put(block_put_handler).delete(block_delete_handler),
+        )
+        .route(
+            "/accounts/reports",
+            axum::routing::post(report_post_handler),
         )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
         .route(
@@ -1945,10 +2099,18 @@ pub async fn deliver_message(
     );
     let deliver_text = serde_json::to_string(&deliver).unwrap();
 
+    // UGC 1.2: humans who blocked the sender never receive the sender's content.
+    let blocked_recipients = match deps.db {
+        Some(pool) if !from.is_empty() => crate::blocks::blockers_of(pool, from)
+            .await
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+
     // Agent-originated messages are always shown to humans (this is what SP3/SP4 render).
     if sender_is_agent {
         deps.human_registry
-            .send_to_thread(thread_id, &deliver_text)
+            .send_to_thread_except(thread_id, &deliver_text, &blocked_recipients)
             .await;
     }
 
@@ -3662,6 +3824,42 @@ async fn handle_human_connection(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn send_to_thread_except_skips_excluded_recipients() {
+        let registry = HumanRegistry::new();
+        let mut rx_a = registry.register("alice@x").await;
+        let mut rx_b = registry.register("bob@x").await;
+        registry.join_thread("alice@x", "t1").await;
+        registry.join_thread("bob@x", "t1").await;
+
+        let excluded = vec!["alice@x".to_string()];
+        registry
+            .send_to_thread_except("t1", "hello", &excluded)
+            .await;
+
+        assert_eq!(rx_b.try_recv().unwrap(), "hello");
+        assert!(
+            rx_a.try_recv().is_err(),
+            "blocked recipient must receive nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_to_thread_except_filters_legacy_broadcast_fallback_too() {
+        let registry = HumanRegistry::new();
+        let mut rx_a = registry.register("alice@x").await;
+        let mut rx_b = registry.register("bob@x").await;
+        // No thread membership tracked -> legacy broadcast fallback path.
+
+        let excluded = vec!["alice@x".to_string()];
+        registry
+            .send_to_thread_except("untracked", "hello", &excluded)
+            .await;
+
+        assert_eq!(rx_b.try_recv().unwrap(), "hello");
+        assert!(rx_a.try_recv().is_err());
+    }
 
     #[tokio::test]
     async fn published_card_for_resolves_static_connector_and_unknown() {

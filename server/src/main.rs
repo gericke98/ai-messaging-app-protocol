@@ -3,6 +3,7 @@ mod agent;
 mod agent_card;
 mod auth_session;
 mod auth_token;
+mod blocks;
 mod briefing;
 mod categories;
 mod compiler;
