@@ -117,6 +117,21 @@ pub fn consent_ok(
     from_is_human_invited && to_is_human_invited && to_accepts_a2a
 }
 
+/// The foreign home-domain to relay a message to, given its routing target `to` and this
+/// server's own domain. Returns `Some(domain)` only when `to` carries an `@domain` that
+/// differs from `server_id` (the target lives on another server). Returns `None` for a
+/// local target, a domain-less `to`, or an absent/empty `to`.
+///
+/// Pure: the caller (`server.rs`) performs the actual relay enqueue / participant registration.
+pub fn foreign_relay_target(to: Option<&str>, server_id: &str) -> Option<String> {
+    let to = to?;
+    let domain = to.split('@').nth(1)?;
+    if domain.is_empty() || domain == server_id {
+        return None;
+    }
+    Some(domain.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +237,31 @@ mod tests {
     #[test]
     fn consent_denied_when_target_opts_out() {
         assert!(!consent_ok(true, true, false));
+    }
+
+    #[test]
+    fn foreign_target_returns_other_domain() {
+        assert_eq!(
+            foreign_relay_target(Some("beta@server-b.local"), "server-a.local"),
+            Some("server-b.local".to_string())
+        );
+    }
+
+    #[test]
+    fn foreign_target_none_for_local_domain() {
+        assert_eq!(foreign_relay_target(Some("beta@server-a.local"), "server-a.local"), None);
+    }
+
+    #[test]
+    fn foreign_target_none_without_domain() {
+        // bare local-part (no @domain) is not a federation target
+        assert_eq!(foreign_relay_target(Some("beta"), "server-a.local"), None);
+    }
+
+    #[test]
+    fn foreign_target_none_for_absent_or_empty_to() {
+        assert_eq!(foreign_relay_target(None, "server-a.local"), None);
+        assert_eq!(foreign_relay_target(Some(""), "server-a.local"), None);
+        assert_eq!(foreign_relay_target(Some("@server-b.local"), "server-a.local"), Some("server-b.local".to_string()));
     }
 }
