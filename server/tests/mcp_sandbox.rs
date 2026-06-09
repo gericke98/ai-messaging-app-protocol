@@ -11,6 +11,7 @@ fn cfg_with_servers(servers: Vec<McpServerConfig>) -> AppConfig {
         database: Default::default(),
         mcp_servers: servers,
         quota: Default::default(),
+        a2a: Default::default(),
     }
 }
 

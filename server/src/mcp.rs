@@ -239,6 +239,7 @@ mod tests {
                 ..Default::default()
             }],
             quota: Default::default(),
+            a2a: Default::default(),
         };
         if !crate::sandbox::bwrap_available() || !cfg!(target_os = "linux") {
             let providers = build_providers_from_config(&config).await;

@@ -18,6 +18,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub quota: QuotaConfig,
+
+    #[serde(default)]
+    pub a2a: A2aConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -41,6 +44,21 @@ impl Default for QuotaConfig {
 fn default_quota_enabled() -> bool { true }
 fn default_monthly_token_budget() -> i64 { 200_000 }
 fn default_missing_usage_fallback() -> u32 { 1000 }
+
+/// Runtime A2A (agent-to-agent) policy knobs.
+#[derive(Debug, Deserialize, Clone)]
+pub struct A2aConfig {
+    /// Max consecutive agent→agent hops in a thread with no human between.
+    /// Loaded from `AINM_A2A__HOP_CAP`. Default 6.
+    #[serde(default = "default_a2a_hop_cap")]
+    pub hop_cap: u32,
+}
+impl Default for A2aConfig {
+    fn default() -> Self {
+        Self { hop_cap: default_a2a_hop_cap() }
+    }
+}
+fn default_a2a_hop_cap() -> u32 { 6 }
 
 /// A single curated (config-defined, trusted) MCP server the hosted agent may use.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -233,5 +251,17 @@ mod tests {
         assert_eq!(cfg.limits.max_memory_mb, 256);
         assert_eq!(cfg.limits.wall_timeout_secs, 15);
         assert_eq!(cfg.limits.max_cpu_secs, 30);
+    }
+
+    #[test]
+    fn a2a_hop_cap_defaults_to_six() {
+        let cfg = A2aConfig::default();
+        assert_eq!(cfg.hop_cap, 6);
+    }
+
+    #[test]
+    fn a2a_hop_cap_parses_from_toml() {
+        let cfg: A2aConfig = toml::from_str("hop_cap = 3").unwrap();
+        assert_eq!(cfg.hop_cap, 3);
     }
 }

@@ -290,6 +290,10 @@ pub struct ServerState {
     pub human_registry: HumanRegistry,
     /// Registry of connected agent sessions with their agent card metadata.
     pub agent_registry: AgentRegistry,
+    /// Per-thread consecutive-A2A-hop counter (runtime A2A loop guard).
+    pub a2a_hops: Arc<Mutex<HashMap<String, u32>>>,
+    /// Max consecutive agent→agent hops per thread before the circuit trips.
+    pub a2a_hop_cap: u32,
     /// Active threads (thread_id list).
     pub threads: Arc<Mutex<Vec<String>>>,
     /// In-memory archival fact store keyed by fact key (fallback when no DB).
@@ -815,6 +819,8 @@ pub async fn start(
         to_agent_tx,
         human_registry: HumanRegistry::new(),
         agent_registry: AgentRegistry::new(),
+        a2a_hops: Arc::new(Mutex::new(HashMap::new())),
+        a2a_hop_cap: 6,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
@@ -891,6 +897,8 @@ pub async fn start_with_port(
         to_agent_tx,
         human_registry: HumanRegistry::new(),
         agent_registry: AgentRegistry::new(),
+        a2a_hops: Arc::new(Mutex::new(HashMap::new())),
+        a2a_hop_cap: 6,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation: None,
@@ -969,6 +977,7 @@ pub async fn start_federation(
     quota: crate::config::QuotaConfig,
     agent_registry: AgentRegistry,
     shutdown: crate::lifecycle::ShutdownController,
+    a2a_hop_cap: u32,
 ) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let (to_agent_tx, _) = broadcast::channel::<String>(256);
 
@@ -979,6 +988,8 @@ pub async fn start_federation(
         to_agent_tx,
         human_registry: HumanRegistry::new(),
         agent_registry,
+        a2a_hops: Arc::new(Mutex::new(HashMap::new())),
+        a2a_hop_cap,
         threads: Arc::new(Mutex::new(Vec::new())),
         archival_store: Arc::new(Mutex::new(HashMap::new())),
         federation,
