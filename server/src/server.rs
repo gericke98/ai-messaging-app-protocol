@@ -19,11 +19,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
-/// Does this content array mention `@<localpart>` of the agent address?
-fn content_mentions(content: &serde_json::Value, addr: &str) -> bool {
-    content_to_plain(content).contains(&format!("@{}", addr.split('@').next().unwrap_or(addr)))
-}
-
 /// Flatten a content block array to plain text (prefers `text`, then `fallback`).
 fn content_to_plain(content: &serde_json::Value) -> String {
     if let Some(arr) = content.as_array() {
@@ -1915,7 +1910,7 @@ async fn handle_agent_connection(
     let init_params = init_req.get("params").unwrap_or(&empty_params);
     let agent_card = crate::agent_card::build_connector_card(&from_addr, init_params);
 
-    let from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
+    let mut from_registry_rx = state.agent_registry.register(&from_addr, &agent_card).await;
     tracing::info!("Agent registered: {}", from_addr);
 
     let mut from_human_rx = state.to_agent_tx.subscribe();
@@ -1923,11 +1918,22 @@ async fn handle_agent_connection(
     let identity_store = state.identity_store.clone();
     let archival_store = state.archival_store.clone();
     let ws_sender_clone = ws_sender.clone();
+    let ws_sender_targeted = ws_sender.clone();
 
-    // Task: forward human messages to agent WebSocket
+    // Task: forward broadcast (legacy / human-fallback) messages to agent WebSocket.
     let forward_handle = tokio::spawn(async move {
         while let Ok(msg) = from_human_rx.recv().await {
             let mut sender = ws_sender_clone.lock().await;
+            if sender.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Task: forward TARGETED messages (runtime A2A `send_to_agent`) to agent WebSocket.
+    let targeted_forward_handle = tokio::spawn(async move {
+        while let Some(msg) = from_registry_rx.recv().await {
+            let mut sender = ws_sender_targeted.lock().await;
             if sender.send(Message::Text(msg.into())).await.is_err() {
                 break;
             }
@@ -1983,31 +1989,15 @@ async fn handle_agent_connection(
                                     .unwrap_or("");
 
                                 if origin != fed.server_id && !origin.is_empty() {
-                                    // Thread originated on remote server: relay response back
+                                    // Thread originated on remote server: relay response back (P3 generalizes this).
                                     fed.relay_sender.enqueue(origin, params.clone());
                                 } else {
-                                    // Local thread: deliver to thread participants
-                                    let deliver = protocol::new_notification(
-                                        "ainm.message.deliver",
-                                        serde_json::json!({
-                                            "message": params,
-                                            "verified": verified,
-                                        }),
-                                    );
-                                    let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                    human_registry.send_to_thread(thread_id, &deliver_text).await;
+                                    // Local thread: targeted delivery (humans + addressed agent / hosted).
+                                    deliver_message(&state, params, "agent", verified).await;
                                 }
                             } else {
-                                // Legacy mode
-                                let deliver = protocol::new_notification(
-                                    "ainm.message.deliver",
-                                    serde_json::json!({
-                                        "message": params,
-                                        "verified": verified,
-                                    }),
-                                );
-                                let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                human_registry.send_to_thread(thread_id, &deliver_text).await;
+                                // Legacy mode: targeted local delivery.
+                                deliver_message(&state, params, "agent", verified).await;
                             }
 
                             if has_id {
@@ -2486,11 +2476,11 @@ async fn handle_agent_connection(
     }
 
     forward_handle.abort();
-
-    // Drop this connection's registry receiver BEFORE cleanup so its paired sender reports
-    // `is_closed()`, letting `cleanup` prune it and (if it was the last) remove the cached card.
-    // Without this, the receiver outlives the cleanup call and the card/connection would leak.
-    drop(from_registry_rx);
+    // Aborting targeted_forward_handle drops the registry receiver it owns, which causes
+    // its paired sender to report `is_closed()`, letting `cleanup` prune it and (if it was
+    // the last connection) remove the cached card. This replaces the explicit `drop(rx)` that
+    // was present when the receiver was owned by the teardown scope directly.
+    targeted_forward_handle.abort();
 
     // Deregister this agent from the AgentRegistry
     state.agent_registry.cleanup(&from_addr).await;
@@ -2697,12 +2687,9 @@ async fn handle_human_connection(
                                         }),
                                     );
                                     let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                    // Deliver locally (to agent if connected via WS)
-                                    match to_agent_tx.send(deliver_text.clone()) {
-                                        Ok(n) => tracing::info!("[routing] Delivered to {n} agent subscriber(s) (federated)"),
-                                        Err(e) => tracing::warn!("[routing] No agent subscribers (federated): {e}"),
-                                    }
-                                    // Also deliver via federation local_delivery_tx
+                                    // Targeted local delivery (humans-fallback broadcast inside).
+                                    deliver_message(&state, params, "human", verified).await;
+                                    // Also deliver via federation local_delivery_tx (unchanged).
                                     let _ = fed.local_delivery_tx.send(deliver_text);
 
                                     // Relay to all remote participating servers
@@ -2734,19 +2721,8 @@ async fn handle_human_connection(
                                     fed.relay_sender.enqueue(origin, params.clone());
                                 }
                             } else {
-                                // Legacy mode: deliver locally
-                                let deliver = protocol::new_notification(
-                                    "ainm.message.deliver",
-                                    serde_json::json!({
-                                        "message": params,
-                                        "verified": verified,
-                                    }),
-                                );
-                                let deliver_text = serde_json::to_string(&deliver).unwrap();
-                                match to_agent_tx.send(deliver_text) {
-                                    Ok(n) => tracing::info!("[routing] Delivered to {n} agent subscriber(s)"),
-                                    Err(e) => tracing::warn!("[routing] No agent subscribers: {e}"),
-                                }
+                                // Legacy mode: targeted local delivery (humans-fallback broadcast inside).
+                                deliver_message(&state, params, "human", verified).await;
                             }
 
                             let resp = protocol::new_response(
@@ -2788,35 +2764,7 @@ async fn handle_human_connection(
                                 .await;
                             }
 
-                            // Hosted agent: if provisioned + enabled and this thread/message
-                            // targets it, run the loop in the background (streams its reply
-                            // back to thread participants).
-                            if let Some(agent) = state.hosted_agent.clone() {
-                                if agent.enabled {
-                                    let content = params
-                                        .get("content")
-                                        .cloned()
-                                        .unwrap_or(serde_json::json!([]));
-                                    let targets_agent = msg_thread_id.contains("assistant@")
-                                        || params.get("to").and_then(|t| t.as_str())
-                                            .map(|t| t == agent.address).unwrap_or(false)
-                                        || content_mentions(&content, &agent.address);
-                                    tracing::debug!(
-                                        "[agent-trigger] thread={msg_thread_id} to={:?} agent={} targets_agent={targets_agent}",
-                                        params.get("to").and_then(|t| t.as_str()),
-                                        agent.address,
-                                    );
-                                    if targets_agent {
-                                        let state2 = state.clone();
-                                        let tid = msg_thread_id.to_string();
-                                        let requester = from.to_string();
-                                        let user_text = content_to_plain(&content);
-                                        state.shutdown.spawn_turn(async move {
-                                            crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
-                                        });
-                                    }
-                                }
-                            }
+
                         }
                     }
                     "ainm.stream.cancel" => {
