@@ -98,6 +98,11 @@ impl IdentityStore {
                 .unwrap_or_default()
         })
     }
+
+    /// The registered participant type ("human"/"agent") for an address, if known.
+    pub fn participant_type(&self, address: &str) -> Option<String> {
+        self.inner.lock().unwrap().get(address).map(|r| r.type_.clone())
+    }
 }
 
 // ---------------------------------------------------------------------------

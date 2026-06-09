@@ -488,6 +488,29 @@ pub async fn relay_handler(
             .local_delivery_tx
             .send(serde_json::to_string(&deliver).unwrap());
 
+        // Runtime A2A P3a: also route through the shared delivery orchestrator so consent + the
+        // hop guard apply on THIS (receiving) server and a connected connector agent actually
+        // receives the message. sender_type is derived from the registered identity (resolved +
+        // verified in step 3 above); default "human". The relay path has no ServerState, so the
+        // hosted-assistant-over-federation spawn is intentionally skipped (state_for_hosted_turn: None).
+        {
+            let sender = msg.get("from").and_then(|f| f.as_str()).unwrap_or("");
+            let sender_type = match state.identity_store.participant_type(sender).as_deref() {
+                Some("agent") => "agent",
+                _ => "human",
+            };
+            let deps = crate::server::DeliverDeps {
+                human_registry: &state.human_registry,
+                agent_registry: &state.agent_registry,
+                a2a_hops: &state.a2a_hops,
+                a2a_hop_cap: state.a2a_hop_cap,
+                hosted_agent: state.hosted_agent.as_deref(),
+                to_agent_tx: &state.local_delivery_tx,
+                state_for_hosted_turn: None,
+            };
+            crate::server::deliver_message(&deps, msg, sender_type, true).await;
+        }
+
         // If we are the origin server, assign sequence and fan out to other servers
         // Per RELY-03/D-11: origin server assigns sequence numbers and fans out
         if origin == state.server_id {

@@ -1569,7 +1569,7 @@ fn a2a_consent_notice(thread_id: &str, target: &str) -> String {
 ///   - a HUMAN sender whose message resolves to no reachable agent falls back to the
 ///     legacy `to_agent_tx` broadcast (preserves 1:1 connector flow for clients that
 ///     do not set `to`). Agent senders never trigger this fallback.
-async fn deliver_message(
+pub async fn deliver_message(
     deps: &DeliverDeps<'_>,
     params: &serde_json::Value,
     sender_type: &str,
