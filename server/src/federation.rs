@@ -814,3 +814,221 @@ pub async fn request_backfill(
         .map_err(|e| format!("Backfill response parse failed: {}", e))?;
     Ok(body)
 }
+
+// ---------------------------------------------------------------------------
+// In-process federation relay tests (no Postgres, no network)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::State;
+    use axum::Json;
+    use std::time::Duration;
+
+    /// Build a redb-backed PersistenceLayer in a temp directory.
+    fn make_persistence() -> crate::persistence::PersistenceLayer {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join(format!("fed-test-{}.redb", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned();
+        // keep `dir` alive by leaking it for the duration of the test process
+        std::mem::forget(dir);
+        crate::persistence::PersistenceLayer::open(&path)
+            .expect("PersistenceLayer::open")
+    }
+
+    /// Build a signed inner message envelope as sent by `alpha` to `beta`.
+    fn build_inner_msg(
+        alpha: &crate::identity::Identity,
+        thread_id: &str,
+        beta_addr: &str,
+    ) -> serde_json::Value {
+        let mut msg = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "from": alpha.address,
+            "to": beta_addr,
+            "thread_id": thread_id,
+            "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "type": "message",
+            "content": [{
+                "type": "text",
+                "version": "1.0",
+                "source": "agent",
+                "text": "hello from alpha",
+                "fallback": "hello from alpha"
+            }]
+        });
+        crate::signing::sign_envelope(&alpha.key_pair, &mut msg)
+            .expect("sign_envelope");
+        msg
+    }
+
+    /// Build the full `ainm.relay` JSON-RPC payload, server-signed by server A.
+    fn build_relay_payload(
+        server_a: &crate::identity::Identity,
+        messages: Vec<serde_json::Value>,
+    ) -> serde_json::Value {
+        let mut params = serde_json::json!({
+            "messages": messages,
+            "from_server": "server-a.local",
+            "relay_timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "relay_id": uuid::Uuid::new_v4().to_string(),
+        });
+        crate::signing::sign_relay_params(&server_a.key_pair, &mut params)
+            .expect("sign_relay_params");
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "ainm.relay",
+            "params": params
+        })
+    }
+
+    /// Task 4 (A2A-P3a): relay_handler → deliver_message → connected agent.
+    ///
+    /// Proves that a valid `ainm.relay` payload arriving at `relay_handler` results
+    /// in delivery to a connected agent registered in the shared `AgentRegistry`.
+    /// No Postgres, no network: entirely in-process using redb (temp file).
+    #[tokio::test]
+    async fn relay_delivers_to_connected_agent() {
+        // 1. Persistence (redb, temp file)
+        let persistence = make_persistence();
+
+        // 2. Server B identity (the receiving server under test)
+        let server_b_kp =
+            crate::identity::generate_keypair("server-b.local").expect("server-b keypair");
+        let server_b_identity = crate::identity::build_server_identity(
+            "server-b.local",
+            &server_b_kp,
+            8443,
+            vec![],
+        );
+
+        // 3. Server A identity (the relaying peer)
+        let server_a_kp =
+            crate::identity::generate_keypair("server-a.local").expect("server-a keypair");
+        let remote_cache = crate::identity::RemoteServerCache::new();
+        remote_cache.insert(crate::identity::ServerIdentity {
+            server_id: "server-a.local".to_string(),
+            public_key_b64: server_a_kp.public_key_b64(),
+            relay_endpoint: "https://server-a.local:8443/ainm/v1/relay".to_string(),
+            tls_fingerprints: vec![],
+            supported_versions: vec!["0.1.0".to_string()],
+        });
+
+        // 4. Identity store on B: register alpha (sender from A)
+        let alpha_kp =
+            crate::identity::generate_keypair("alpha@server-a.local").expect("alpha keypair");
+        let identity_store = crate::identity::IdentityStore::new();
+        identity_store.register(
+            "alpha@server-a.local",
+            &alpha_kp.public_key_b64(),
+            "agent",
+            "server-a.local",
+            None,
+        );
+
+        // 5. Beta: connected agent on B — register in AgentRegistry, keep receiver
+        let agent_registry = crate::server::AgentRegistry::new();
+        let beta_card = serde_json::json!({
+            "name": "beta",
+            "ainm": { "acceptsA2A": true }
+        });
+        let mut beta_rx = agent_registry
+            .register("beta@server-b.local", &beta_card)
+            .await;
+
+        // 6. Thread ID with origin server-a.local (so B is NOT origin → relay_sender not needed)
+        let thread_id = format!("server-a.local:{}", uuid::Uuid::now_v7());
+
+        // 7. P2 consent: simulate prior human invitation for both alpha and beta
+        agent_registry
+            .invite_to_thread("alpha@server-a.local", &thread_id)
+            .await;
+        agent_registry
+            .invite_to_thread("beta@server-b.local", &thread_id)
+            .await;
+
+        // 8. Build FederationState
+        let (local_delivery_tx, _local_delivery_rx) =
+            tokio::sync::broadcast::channel::<String>(64);
+        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(
+            std::collections::HashMap::<String, u32>::new(),
+        ));
+        let fed_state = FederationState {
+            server_id: "server-b.local".to_string(),
+            server_keypair: std::sync::Arc::new(server_b_kp),
+            server_identity: std::sync::Arc::new(server_b_identity),
+            thread_registry: ThreadRegistry::new(),
+            identity_store,
+            remote_cache,
+            relay_sender: None,
+            local_delivery_tx,
+            persistence,
+            http_client: None,
+            agent_registry: agent_registry.clone(),
+            human_registry: crate::server::HumanRegistry::new(),
+            a2a_hops,
+            a2a_hop_cap: 6,
+            hosted_agent: None,
+        };
+
+        // 9. Build signed inner message (alpha → beta)
+        let inner_msg =
+            build_inner_msg(&alpha_kp, &thread_id, "beta@server-b.local");
+
+        // 10. Build signed relay payload (signed by server A)
+        let payload = build_relay_payload(&server_a_kp, vec![inner_msg]);
+
+        // 11. Call relay_handler
+        let (status, body) = relay_handler(State(fed_state), Json(payload)).await;
+        let body_val = body.0;
+
+        assert_eq!(
+            status,
+            axum::http::StatusCode::OK,
+            "relay_handler returned non-200: {:?}",
+            body_val
+        );
+        // Ensure no error code in the response
+        assert!(
+            body_val.get("error").is_none(),
+            "relay_handler returned an error: {:?}",
+            body_val
+        );
+        assert_eq!(
+            body_val
+                .get("result")
+                .and_then(|r| r.get("accepted"))
+                .and_then(|a| a.as_bool()),
+            Some(true),
+            "Expected result.accepted == true, got: {:?}",
+            body_val
+        );
+
+        // 12. Assert beta's receiver got an ainm.message.deliver
+        let got = tokio::time::timeout(Duration::from_secs(2), beta_rx.recv())
+            .await
+            .expect("timeout waiting for beta to receive message")
+            .expect("beta receiver closed before message arrived");
+
+        assert!(
+            got.contains("ainm.message.deliver"),
+            "Expected ainm.message.deliver in beta's message, got: {}",
+            got
+        );
+        assert!(
+            got.contains("beta@server-b.local"),
+            "Expected beta@server-b.local in message, got: {}",
+            got
+        );
+        assert!(
+            got.contains("hello from alpha"),
+            "Expected message content in delivery, got: {}",
+            got
+        );
+    }
+}
