@@ -38,6 +38,7 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 **Pass / fail criteria:**
 - **PASS:** Arm C mean briefing score ≥ **4.2 / 5.0** *and* beats Arm B by ≥ **0.5** at ≥ 200-fact real-profile scale, judged by a distinct production model, reproducibly logged. Compare against the Mem0 94.4% competitive bar (§4 LongMemEval-V2 / BEAM) for honesty, not as a pass condition.
 - **FAIL:** Anything short of the above, or the experiment cannot be run on real data.
+- **Measurement rigor (added 2026-06-09 — a 0.5 margin on a 5-point LLM-judge scale is inside single-run noise):** ≥ 20 probe questions per arm; ≥ 3 independent runs (vary probe order / judge seed via prompt variation); judge scores arms **pairwise per-probe, blind to arm labels, with a pinned rubric**; report mean ± a dispersion measure across runs. The 0.5 margin must hold on the cross-run mean, not a single roll. Also note what the gate does and does not test: it proves/refutes the **compound-briefing quality claim** (arm C vs B); the consent/portability layer is gated on it by the locked binary decision, not because the experiment measures consent value.
 
 **The branch (both branches are shown wherever they diverge below):**
 - **PASS → MOAT TRACK.** Build the Agent Grant (M3) and a minimal signed memory export (M6). The moat becomes the launch headline: *"The only messenger where your memory follows you — portable, signed, and you control which agents see what."* Critical path lengthens by M3.
@@ -96,23 +97,29 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 ### M1 — Foundation: Critical Security Floor + Server CI `[Server / Infra]`
 
 **Goal:** No code reaches a hosted deployment that carries a forgeable secret or cannot be automatically verified.
-**Gaps/risks closed:**
-- §5c Hardcoded `dev-insecure-secret` TokenSigner (S) — inject from env, gate via `prod_guard`.
-- §5b/§5c `AINM_LLM__API_KEY` not gated by `prod_guard` (S) — refuse to start in `AINM_ENV=production` without it.
-- §5c Bubblewrap silent `SandboxMode::None` degradation (S) — hard-error instead.
-- §5b *No server CI* (M, the CI portion) — `cargo test` + `clippy` + `rustfmt` on every push.
-- §3 `ring` ≥ 0.17.8 DoS advisory (S) — `cargo tree -i ring` confirms.
-- §5a `ainm.memory.graph.query` ungated (S) — apply the existing `tools_memory.rs` consent gate (one-line; PASS branch fully enforces it via grants in M3, but the open-read hole closes now regardless of branch).
-- §3/§5b embedded migrations fix (S) — resolve from compile-time embed, not CWD.
-- §7 risk #2 *non-green integration suite* — the two vacuously-passing tests (`test_graph_traversal`, `test_compilation_dedup_updates_confidence`) annotated `#[ignore(reason = "requires Postgres")]`; DB-gated E2E tests self-skip without Postgres and run green in CI with a Postgres service container.
+
+> **2026-06-09 — EXECUTED (quick-wins slice) + claim corrections.** Every item below was
+> verified against code before fixing; ~half of the original list did not survive contact.
+> Full claim-by-claim record: [`2026-06-09-m1-security-floor-ground-truth.md`](./2026-06-09-m1-security-floor-ground-truth.md).
+
+**Gaps/risks closed (as corrected by ground truth):**
+- §5c Hardcoded `dev-insecure-secret` TokenSigner (S) — ✅ DONE. Was only in the legacy `start()`/UAT paths (prod path was already `prod_guard`-gated), but legacy mode at `main.rs:1376` could ship it in production. Replaced with shared env-or-random helper; literal gone.
+- §5b/§5c `AINM_LLM__API_KEY` not gated by `prod_guard` (S) — ✅ DONE (TDD).
+- §5c Bubblewrap "silent `SandboxMode::None` degradation" — **claim was FALSE**: the launcher already fail-closes; servers were warn+*skipped*, never run unsandboxed. ✅ Shipped the real fix: in production, a configured MCP server that fails to start aborts boot (`build_providers_checked(strict)`); dev keeps warn+skip (bwrap doesn't exist on macOS — the originally-prescribed unconditional hard-error would have broken local dev).
+- §5b *No server CI* (M, the CI portion) — ✅ DONE: fmt --check + clippy `-D warnings` (workspace made clippy-clean) + tests with Postgres 16 service container + a grep-guard that fails CI if DB tests self-skip.
+- §3 `ring` ≥ 0.17.8 DoS advisory (S) — ✅ retired by verification (0.17.14).
+- §5a `ainm.memory.graph.query` ungated — **claim was MISDIAGNOSED**: `query_nodes` is owner-scoped to the WS-handshake-authenticated caller; no cross-user read exists. ✅ Isolation invariant pinned by regression test. Consent-*verb* enforcement on self-reads is exactly M3's job (a blanket gate now would break the legitimate connector self-read path).
+- §3/§5b embedded migrations fix (S) — ✅ DONE; was *worse* than claimed (silent skip when CWD ≠ `server/`).
+- §7 risk #2 *non-green integration suite* — **the `#[ignore]` prescription was wrong and would have buried two real bugs**: against a live Postgres both tests FAIL (pre-existing). ✅ Root-caused and fixed: (1) `run_compilation` reported deduped-to-existing candidates as `nodes_created` (result + audit row both wrong); (2) `test_graph_traversal` used direction `"outbound"` — not in the schema enum — silently traversing `"both"`, with assertions contradicting the deliberate include-start-node subgraph contract.
 
 **Exit criteria (verifiable):**
-- `server.rs:891,971` no longer contains `b"dev-insecure-secret"`; secret injected from env; `prod_guard` rejects missing TokenSigner secret and missing LLM key in production.
-- `cargo test -p ainm-server` + `cargo clippy` + `rustfmt --check` run on every push to `main`; CI badge green; no silent skips.
-- `cargo tree -i ring` resolves ≥ 0.17.8.
-- `bwrap`-absent path hard-errors (not `SandboxMode::None`).
-- `ainm.memory.graph.query` returns `-32063` for a cross-identity caller with no grant.
-- Migrations resolve from the embedded binary, not CWD.
+- ✅ No `dev-insecure-secret` anywhere in `server/src`; `prod_guard` rejects missing TokenSigner secret and missing LLM key in production.
+- ⬜ `cargo test -p ainm-server` + `cargo clippy` + `rustfmt --check` run on every push to `main`; CI badge green; no silent skips. *(workflow committed; first run needs push)*
+- ✅ `cargo tree -i ring` resolves ≥ 0.17.8 (0.17.14).
+- ✅ Production boot aborts when a configured MCP server cannot start sandboxed; nothing ever runs unsandboxed (pre-existing fail-closed launcher + new strict mode).
+- ✅ Cross-identity graph isolation pinned by regression test. *(Grant-verb denial codes are an M3 criterion — note: the `-32063` code originally specified here does not exist; the family uses `-32062`. M3 must allocate a real code.)*
+- ✅ Migrations embedded via `sqlx::migrate!`; binary carries its schema.
+- ✅ 327 workspace tests green against live Postgres, clippy clean, workspace rustfmt'd.
 
 **Size:** S+S+S+M+S+S+S = **M.**
 **Dependencies:** M0 verdict (so we know whether M3 is on the path), but the work itself depends on nothing.
@@ -244,6 +251,7 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 **Gaps/risks closed:**
 - §5b Onboarding + memory UI polish (the onboarding M) — replace the `Form`-based onboarding with a designed SwiftUI flow against the Editorial Warm system; ≤4 taps from launch to first message.
 - **Account deletion (App Store guideline 5.1.1)** — for an app with cryptographic identity this is non-trivial: in-app account deletion that performs key/Keychain teardown, server-side token invalidation, memory graph wipe, and APNs token deregistration.
+- **UGC safety controls (App Store guideline 1.2)** — *added 2026-06-09; same hidden-rejection-vector class as account deletion.* A messenger with human participants is a user-generated-content app: review requires a method to **report objectionable content**, **block abusive users**, and published moderation/contact info. None of this exists in app or server today (block = S–M server + S iOS; report = S server endpoint + S iOS sheet; moderation contact = M8 legal copy).
 - §5c OPRF attempt-count reset path (S) — exhausted users recover via the account-reset flow without contacting support.
 - §5d `ainm.thread.join`/`leave` dispatch (S) — server dispatches them; round-trips to the iOS client.
 - §2 `eraseDatabaseOnSchemaChange` release-build audit — confirmed `false` or `#if DEBUG`-gated and **absent** from the release build.
@@ -254,6 +262,7 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 - An OPRF-exhausted user recovers via account reset with no support contact.
 - `ainm.thread.join`/`leave` dispatched server-side and round-trip to iOS.
 - `AppDatabase.swift:77` `eraseDatabaseOnSchemaChange` not active in the Release config.
+- Report-content and block-user flows work end-to-end (server enforcement: blocked sender's messages are not delivered; report lands somewhere a human reads). *(guideline 1.2, added 2026-06-09)*
 
 **Size:** M (onboarding) + S–M (account deletion) + S (OPRF) + S (join/leave) + S (audit) = **M.**
 **Dependencies:** M4 (Xcode 26 is the build target before shipping UI for the store; push must work before a meaningful TestFlight); on PASS, M6 (memory UI direction depends on whether grant/export UX is included).
@@ -322,14 +331,15 @@ All must be **true** to submit (hard external gates):
 8. **No hardcoded secret** in any shipped/served path; production server refuses to start without injected secrets. — M1
 9. **Real TLS** on the hosted server (not the repo's demo self-signed cert). — M2
 10. **TestFlight green** on ≥2 physical devices including the push flow; no guideline 2.1 crashes, no private-API usage. — M7 / M8
+11. **UGC safety controls** (guideline 1.2): in-app report-content + block-user flows work end-to-end; moderation/contact method published in metadata. — M7 / M8 *(added 2026-06-09)*
 
 ---
 
 ## 7. Immediate next 3 actions
 
 1. **Run Task 14 (M0) now.** Stand up a local throwaway instance (`docker-compose` + real Postgres + live LLM keys); seed **200–500+ real cross-vendor facts**; run arm C vs B vs A with a production-grade judge model distinct from the briefing model; log the numeric result. Apply the pass/fail in §3 and **document the founder go/no-go decision** — this determines whether M3/M6 are on the path. Begin operator/data prep immediately; there is no dependency to wait on.
-2. **In parallel, start M1's quick wins** (no Task-14 dependency): verify/pin `ring` ≥ 0.17.8 (`cargo tree -i ring`); replace `b"dev-insecure-secret"` with an env-injected `prod_guard`-gated secret; gate `AINM_LLM__API_KEY`; make `bubblewrap` absence hard-error; apply the existing consent gate to `ainm.memory.graph.query`; annotate the two vacuous tests `#[ignore]`. Stand up the GitHub Actions Rust CI (`cargo test`/`clippy`/`rustfmt` + Postgres service container).
-3. **Kick off the iOS track (M4) in parallel** — start the Xcode 26 migration and `AinmEscrow.xcframework` rebuild (compiler-only, no server dependency), so push work is unblocked the moment M1's secret gate lands. Concurrently, **non-engineering**: begin drafting ToS, Privacy Policy, and the landing page (headline placeholder pending the M0 verdict).
+2. ~~**In parallel, start M1's quick wins**~~ — ✅ **DONE 2026-06-09** (with claim corrections + two real pre-existing bugs found and fixed; see [`2026-06-09-m1-security-floor-ground-truth.md`](./2026-06-09-m1-security-floor-ground-truth.md)). Remaining M1 tail: push to origin so the CI workflow gets its first green run.
+3. **Kick off the iOS track (M4) in parallel** — start the Xcode 26 migration and `AinmEscrow.xcframework` rebuild (compiler-only, no server dependency), so push work is unblocked the moment M1's secret gate lands. **Practical prerequisite: free disk space first** — the machine sat at ~93% used (2026-06-09) and an Xcode 26 install + iOS 26 SDK/simulators needs tens of GB. Concurrently, **non-engineering**: begin drafting ToS, Privacy Policy, and the landing page (headline placeholder pending the M0 verdict).
 
 **Per-phase specs/plans to write next** (this roadmap is the parent; each phase gets its own via `superpowers:brainstorming` → `superpowers:writing-plans`):
 - **M1** — `2026-06-XX-foundation-security-ci.md` (spec + plan).
