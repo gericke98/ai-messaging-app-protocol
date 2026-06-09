@@ -34,4 +34,28 @@ describe("StreamHelper", () => {
     expect(end.params.collapsed_message).toBeDefined();
     expect(end.params.collapsed_message.content[0].text).toBe("Hello world!");
   });
+
+  it("end('') after non-empty deltas collapses to the accumulated text", async () => {
+    const sent: string[] = [];
+    const stream = createStreamHelper(async (d) => { sent.push(d); }, "agent@test", "t1");
+    await stream.start();
+    await stream.delta("Hello ");
+    await stream.delta("world!");
+    await stream.end("");
+
+    const end = JSON.parse(sent[3]);
+    expect(end.params.collapsed_message.content[0].text).toBe("Hello world!");
+    expect(end.params.collapsed_message.content[0].fallback).toBe("Hello world!");
+  });
+
+  it("end with explicit full text still wins over accumulation", async () => {
+    const sent: string[] = [];
+    const stream = createStreamHelper(async (d) => { sent.push(d); }, "agent@test", "t1");
+    await stream.start();
+    await stream.delta("partial");
+    await stream.end("Authoritative full text");
+
+    const end = JSON.parse(sent[2]);
+    expect(end.params.collapsed_message.content[0].text).toBe("Authoritative full text");
+  });
 });

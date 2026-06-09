@@ -103,3 +103,23 @@ describe("AINMAgent", () => {
     expect(agent).toBeDefined();
   });
 });
+
+describe("buildMinimalContext", () => {
+  it("sendMessage uses the agent's AINM address as from, not the public key", async () => {
+    const t = mockTransport();
+    const agent = new AINMAgent(
+      { server: "ws://x", identity: "tool-agent@server.local", name: "T" },
+      t,
+    );
+    (agent as any).keypair = await generateKeypair();
+
+    const ctx = (agent as any).buildMinimalContext("th-1");
+    await ctx.sendMessage([
+      { type: "text", version: "1.0", source: "agent", text: "hi", fallback: "hi" },
+    ]);
+
+    const frame = JSON.parse(t.sent.at(-1)!);
+    expect(frame.method).toBe("ainm.message.send");
+    expect(frame.params.from).toBe("tool-agent@server.local");
+  });
+});

@@ -379,7 +379,9 @@ export class AINMAgent {
       async sendMessage(content: ContentBlock[]): Promise<void> {
         const envelope: Record<string, unknown> = {
           id: randomUUID(),
-          from: keypair.publicKey.toString(),
+          // The server's anti-forge check requires `from` to equal the
+          // connection's verified AINM address — never the raw public key.
+          from: agentIdentity,
           thread_id: threadId,
           timestamp: new Date().toISOString(),
           type: "message",
