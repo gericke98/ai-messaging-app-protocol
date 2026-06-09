@@ -1258,6 +1258,8 @@ async fn store_and_maybe_compile(
     compile_tx: &Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
     thread_id: &str,
     from_addr: &str,
+    to_addr: Option<&str>,
+    signature: Option<&str>,
     content: &serde_json::Value,
     trigger_compilation: bool,
 ) {
@@ -1283,13 +1285,15 @@ async fn store_and_maybe_compile(
     let seq = next_seq.map(|(s,)| s).unwrap_or(1);
 
     let _ = sqlx::query(
-        "INSERT INTO messages (thread_id, sequence, from_addr, content) \
-         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        "INSERT INTO messages (thread_id, sequence, from_addr, to_addr, content, signature) \
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
     )
     .bind(thread_id)
     .bind(seq)
     .bind(from_addr)
+    .bind(to_addr)
     .bind(content)
+    .bind(signature)
     .execute(db)
     .await;
 
@@ -1825,11 +1829,15 @@ async fn handle_agent_connection(
                                     .get("content")
                                     .cloned()
                                     .unwrap_or(serde_json::json!([]));
+                                let to_addr = params.get("to").and_then(|t| t.as_str());
+                                let signature = params.get("signature").and_then(|s| s.as_str());
                                 store_and_maybe_compile(
                                     db,
                                     &state.compile_tx,
                                     thread_id,
                                     from,
+                                    to_addr,
+                                    signature,
                                     &content,
                                     true, // trigger compilation on agent responses
                                 )
@@ -2557,11 +2565,15 @@ async fn handle_human_connection(
                                     .get("content")
                                     .cloned()
                                     .unwrap_or(serde_json::json!([]));
+                                let to_addr = params.get("to").and_then(|t| t.as_str());
+                                let signature = params.get("signature").and_then(|s| s.as_str());
                                 store_and_maybe_compile(
                                     db,
                                     &state.compile_tx,
                                     thread_id,
                                     from,
+                                    to_addr,
+                                    signature,
                                     &content,
                                     false, // don't trigger compilation on human messages
                                 )
