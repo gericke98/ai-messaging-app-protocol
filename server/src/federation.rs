@@ -495,8 +495,9 @@ pub async fn relay_handler(
         // Runtime A2A P3a: also route through the shared delivery orchestrator so consent + the
         // hop guard apply on THIS (receiving) server and a connected connector agent actually
         // receives the message. sender_type is derived from the registered identity (resolved +
-        // verified in step 3 above); default "human". The relay path has no ServerState, so the
-        // hosted-assistant-over-federation spawn is intentionally skipped (state_for_hosted_turn: None).
+        // verified in step 3 above); default "human". P3b: the relay path now carries the WS
+        // listener's ServerState (`hosted_turn_state`), so a relayed message addressed to this
+        // server's hosted assistant spawns its turn (state_for_hosted_turn passed below).
         {
             let sender = msg.get("from").and_then(|f| f.as_str()).unwrap_or("");
             let sender_type = match state.identity_store.participant_type(sender).as_deref() {
