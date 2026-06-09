@@ -27,28 +27,38 @@ fn main() {
     // than the RFC 8032 test vector because ring hashes the seed internally.
     // What matters is that the seed -> keypair -> sign -> verify pipeline is
     // consistent across platforms using the same derivation.
-    let private_seed = hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60").unwrap();
+    let private_seed =
+        hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60").unwrap();
 
     let key_pair = Ed25519KeyPair::from_seed_unchecked(&private_seed).unwrap();
     let public_key = key_pair.public_key().as_ref();
 
-    println!("Private key seed (base64url): {}", base64url_encode(&private_seed));
+    println!(
+        "Private key seed (base64url): {}",
+        base64url_encode(&private_seed)
+    );
     println!("Public key (base64url): {}", base64url_encode(public_key));
 
     // --- JCS Vectors ---
     let jcs_vectors = vec![
         ("simple_sorted_keys", json!({"b": 2, "a": 1})),
         ("nested_objects", json!({"z": {"b": 2, "a": 1}, "a": 0})),
-        ("boolean_null_types", json!({"active": true, "deleted": false, "meta": null})),
+        (
+            "boolean_null_types",
+            json!({"active": true, "deleted": false, "meta": null}),
+        ),
         ("string_escaping", json!({"text": "line1\nline2\ttab"})),
-        ("message_envelope_shape", json!({
-            "id": "019580a1-7b3e-7000-8000-abcdef123456",
-            "from": "alice@messaging.example.com",
-            "thread_id": "019580a0-1234-7000-8000-000000000001",
-            "timestamp": "2026-03-28T12:34:56.789Z",
-            "type": "message",
-            "content": [{"type": "text", "version": "1.0", "source": "user", "text": "Hello", "fallback": "Hello"}]
-        })),
+        (
+            "message_envelope_shape",
+            json!({
+                "id": "019580a1-7b3e-7000-8000-abcdef123456",
+                "from": "alice@messaging.example.com",
+                "thread_id": "019580a0-1234-7000-8000-000000000001",
+                "timestamp": "2026-03-28T12:34:56.789Z",
+                "type": "message",
+                "content": [{"type": "text", "version": "1.0", "source": "user", "text": "Hello", "fallback": "Hello"}]
+            }),
+        ),
     ];
 
     let mut jcs_out = Vec::new();

@@ -565,23 +565,22 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     };
 
     // C: BYO-key cipher (None if AINM_LLM_ENCRYPTION_KEY unset → BYO disabled, fail-safe) + quota config.
-    let cred_cipher: Option<std::sync::Arc<credentials::CredCipher>> = match std::env::var(
-        "AINM_LLM_ENCRYPTION_KEY",
-    ) {
-        Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-            Ok(key) => Some(std::sync::Arc::new(credentials::CredCipher::new(&key))),
-            Err(e) => {
-                tracing::warn!(
-                    "[cred] AINM_LLM_ENCRYPTION_KEY not valid base64 ({e}); BYO keys disabled"
-                );
+    let cred_cipher: Option<std::sync::Arc<credentials::CredCipher>> =
+        match std::env::var("AINM_LLM_ENCRYPTION_KEY") {
+            Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+                Ok(key) => Some(std::sync::Arc::new(credentials::CredCipher::new(&key))),
+                Err(e) => {
+                    tracing::warn!(
+                        "[cred] AINM_LLM_ENCRYPTION_KEY not valid base64 ({e}); BYO keys disabled"
+                    );
+                    None
+                }
+            },
+            Err(_) => {
+                tracing::info!("[cred] AINM_LLM_ENCRYPTION_KEY unset; BYO LLM keys disabled");
                 None
             }
-        },
-        Err(_) => {
-            tracing::info!("[cred] AINM_LLM_ENCRYPTION_KEY unset; BYO LLM keys disabled");
-            None
-        }
-    };
+        };
     let quota_config = app_config.quota.clone();
 
     // 8. Create broadcast channel for local delivery
