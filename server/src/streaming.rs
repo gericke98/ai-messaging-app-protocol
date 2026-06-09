@@ -9,9 +9,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// The concrete WebSocket sender type.
 type WsSender = futures_util::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
 

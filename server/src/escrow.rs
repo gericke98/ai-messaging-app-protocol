@@ -6,7 +6,8 @@
 // crate's public surface, so silence the binary-target unused-import lint.
 #[allow(unused_imports)]
 pub use ainm_escrow::{
-    client_blind, client_finalize_and_open, enroll, server_evaluate, BlindState, Enrolled, KdfParams,
+    client_blind, client_finalize_and_open, enroll, server_evaluate, BlindState, Enrolled,
+    KdfParams,
 };
 
 use crate::error::StorageError;
@@ -43,12 +44,11 @@ pub async fn get_kdf_params(
     pool: &PgPool,
     account_id: uuid::Uuid,
 ) -> Result<Option<(KdfParams, bool)>, StorageError> {
-    let row: Option<(serde_json::Value, bool)> = sqlx::query_as(
-        "SELECT kdf_params, destroyed FROM key_escrow WHERE account_id = $1",
-    )
-    .bind(account_id)
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<(serde_json::Value, bool)> =
+        sqlx::query_as("SELECT kdf_params, destroyed FROM key_escrow WHERE account_id = $1")
+            .bind(account_id)
+            .fetch_optional(pool)
+            .await?;
     match row {
         Some((json, destroyed)) => {
             let kdf: KdfParams =

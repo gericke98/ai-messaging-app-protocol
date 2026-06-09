@@ -120,9 +120,16 @@ pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent
                 .map_err(|e| StorageError::Internal(format!("keygen failed: {e}")))?;
             let kp = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
                 .map_err(|e| StorageError::Internal(format!("keypair load failed: {e}")))?;
-            let pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(kp.public_key().as_ref());
-            insert(pool, &address, &pk_b64, pkcs8.as_ref(), DEFAULT_SYSTEM_PROMPT).await?
+            let pk_b64 =
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(kp.public_key().as_ref());
+            insert(
+                pool,
+                &address,
+                &pk_b64,
+                pkcs8.as_ref(),
+                DEFAULT_SYSTEM_PROMPT,
+            )
+            .await?
         }
     };
 
@@ -141,8 +148,13 @@ pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent
             );
         }
         None => {
-            crate::accounts::insert_account_key(pool, account.id, &row.public_key, Some("hosted-agent"))
-                .await?;
+            crate::accounts::insert_account_key(
+                pool,
+                account.id,
+                &row.public_key,
+                Some("hosted-agent"),
+            )
+            .await?;
         }
     }
 
@@ -151,7 +163,11 @@ pub async fn provision(pool: &PgPool, server_domain: &str) -> Result<HostedAgent
         .map_err(|e| StorageError::Internal(format!("stored keypair load failed: {e}")))?;
     let public_key_bytes = key_pair.public_key().as_ref().to_vec();
 
-    tracing::info!("[hosted-agent] provisioned {} (enabled={})", address, row.enabled);
+    tracing::info!(
+        "[hosted-agent] provisioned {} (enabled={})",
+        address,
+        row.enabled
+    );
 
     Ok(HostedAgent {
         address,
@@ -177,14 +193,15 @@ mod tests {
 
         // Reconstruct (as provisioning does on restart from stored bytes).
         let kp = Ed25519KeyPair::from_pkcs8(&pkcs8_bytes).unwrap();
-        let pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(kp.public_key().as_ref());
+        let pk_b64 =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(kp.public_key().as_ref());
 
         let agent = HostedAgent {
             address: "assistant@ainm.local".to_string(),
             key_pair: std::sync::Arc::new(kp),
             public_key_bytes: base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(&pk_b64).unwrap(),
+                .decode(&pk_b64)
+                .unwrap(),
             system_prompt: "be helpful".to_string(),
             enabled: true,
         };

@@ -24,7 +24,8 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
     match get("AINM_TOKEN_SECRET") {
         Some(s) if s.len() >= 32 => {}
         Some(_) => problems.push(
-            "AINM_TOKEN_SECRET must be at least 32 bytes (used to sign enrollment/recovery tokens)".to_string(),
+            "AINM_TOKEN_SECRET must be at least 32 bytes (used to sign enrollment/recovery tokens)"
+                .to_string(),
         ),
         None => problems.push("AINM_TOKEN_SECRET is required in production".to_string()),
     }
@@ -40,11 +41,17 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
         None => problems.push("AINM_LLM_ENCRYPTION_KEY is required in production".to_string()),
     }
 
-    if get("AINM_DATABASE__URL").map(|s| s.trim().is_empty()).unwrap_or(true) {
+    if get("AINM_DATABASE__URL")
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
         problems.push("AINM_DATABASE__URL is required in production".to_string());
     }
 
-    if get("AINM_LLM__API_KEY").map(|s| s.trim().is_empty()).unwrap_or(true) {
+    if get("AINM_LLM__API_KEY")
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
         problems.push(
             "AINM_LLM__API_KEY is required in production (otherwise the compilation worker and hosted agent silently degrade to a mock LLM)".to_string(),
         );
@@ -60,8 +67,12 @@ pub fn validate_with(get: &dyn Fn(&str) -> Option<String>) -> Result<(), Vec<Str
         problems.push("AINM_LLM__MOCK must not be set in production".to_string());
     }
 
-    let has_resend = get("AINM_EMAIL__RESEND_API_KEY").map(|s| !s.trim().is_empty()).unwrap_or(false);
-    let has_from = get("AINM_EMAIL__FROM").map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let has_resend = get("AINM_EMAIL__RESEND_API_KEY")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let has_from = get("AINM_EMAIL__FROM")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
     if !(has_resend && has_from) {
         problems.push(
             "AINM_EMAIL__RESEND_API_KEY and AINM_EMAIL__FROM are both required in production (otherwise OTPs are only logged)".to_string(),
@@ -123,7 +134,10 @@ mod tests {
     #[test]
     fn invalid_encryption_key_base64_is_reported() {
         let mut m = good();
-        m.insert("AINM_LLM_ENCRYPTION_KEY".into(), "not valid base64!!!".into());
+        m.insert(
+            "AINM_LLM_ENCRYPTION_KEY".into(),
+            "not valid base64!!!".into(),
+        );
         let err = validate_with(&getter(m)).unwrap_err();
         assert!(err.iter().any(|p| p.contains("AINM_LLM_ENCRYPTION_KEY")));
     }

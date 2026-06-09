@@ -98,9 +98,14 @@ pub async fn run_compilation(
         dedup_and_integrate_nodes(&db, &req.user_addr, &req.thread_id, &valid_nodes).await?;
 
     // Step 3: Create edges between nodes
-    let edges_created =
-        integrate_edges(&db, &req.user_addr, &req.thread_id, &extraction.edges, &node_map)
-            .await?;
+    let edges_created = integrate_edges(
+        &db,
+        &req.user_addr,
+        &req.thread_id,
+        &extraction.edges,
+        &node_map,
+    )
+    .await?;
 
     // Step 4: Record compilation pass
     record_compilation(
@@ -162,7 +167,8 @@ async fn dedup_and_integrate_nodes(
 
     for candidate in candidates {
         // Check for existing node with same label and type (simple text-match dedup)
-        let existing = find_existing_node(db, user_addr, &candidate.label, &candidate.node_type).await?;
+        let existing =
+            find_existing_node(db, user_addr, &candidate.label, &candidate.node_type).await?;
 
         match existing {
             Some((existing_id, existing_confidence)) => {
@@ -184,13 +190,9 @@ async fn dedup_and_integrate_nodes(
             }
             None => {
                 // New node — check for contradictions with same category
-                let contradicted = find_contradicting_node(
-                    db,
-                    user_addr,
-                    &candidate.category,
-                    &candidate.label,
-                )
-                .await?;
+                let contradicted =
+                    find_contradicting_node(db, user_addr, &candidate.category, &candidate.label)
+                        .await?;
 
                 let provenance = serde_json::json!({
                     "thread_id": thread_id,
@@ -313,7 +315,8 @@ async fn integrate_edges(
             Some(id) => *id,
             None => {
                 // Try to find by label in the graph
-                match find_existing_node(db, user_addr, &candidate.source_label, "semantic").await? {
+                match find_existing_node(db, user_addr, &candidate.source_label, "semantic").await?
+                {
                     Some((id, _)) => id,
                     None => {
                         tracing::warn!(
@@ -330,7 +333,8 @@ async fn integrate_edges(
         let target_id = match node_map.get(&candidate.target_label) {
             Some(id) => *id,
             None => {
-                match find_existing_node(db, user_addr, &candidate.target_label, "semantic").await? {
+                match find_existing_node(db, user_addr, &candidate.target_label, "semantic").await?
+                {
                     Some((id, _)) => id,
                     None => {
                         tracing::warn!(
@@ -500,8 +504,8 @@ mod tests {
 
     #[test]
     fn test_is_meaningful_edge_cases() {
-        assert!(!is_meaningful("ab"));        // < 5 chars
-        assert!(is_meaningful("a b c"));      // 3 alpha, len 5 — passes both checks
-        assert!(!is_meaningful(".. .."));     // len 5 but only 0 alpha
+        assert!(!is_meaningful("ab")); // < 5 chars
+        assert!(is_meaningful("a b c")); // 3 alpha, len 5 — passes both checks
+        assert!(!is_meaningful(".. ..")); // len 5 but only 0 alpha
     }
 }

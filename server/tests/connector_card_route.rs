@@ -16,13 +16,22 @@ async fn pool_and_url_or_skip() -> Option<(sqlx::PgPool, String)> {
         .ok()?;
     let pool = sqlx::PgPool::connect(&url).await.ok()?;
     let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    sqlx::migrate::Migrator::new(migrations_dir).await.ok()?.run(&pool).await.ok()?;
+    sqlx::migrate::Migrator::new(migrations_dir)
+        .await
+        .ok()?
+        .run(&pool)
+        .await
+        .ok()?;
     Some((pool, url))
 }
 
 /// Insert an active, email-verified account and bind a freshly generated Ed25519 key.
 /// Mirrors ws_conversation_e2e.rs::make_bound_account exactly.
-async fn make_bound_account(pool: &sqlx::PgPool, address: &str, domain: &str) -> identity::Identity {
+async fn make_bound_account(
+    pool: &sqlx::PgPool,
+    address: &str,
+    domain: &str,
+) -> identity::Identity {
     let username = address.split('@').next().unwrap();
     let account_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO accounts (username, domain, address, email_hash, email_verified, status) \
@@ -81,7 +90,9 @@ async fn next_text(
 #[tokio::test]
 async fn connector_card_published_while_connected_then_404_on_disconnect() {
     let Some((pool, db_url)) = pool_and_url_or_skip().await else {
-        eprintln!("no DB; skipping connector_card_published_while_connected_then_404_on_disconnect");
+        eprintln!(
+            "no DB; skipping connector_card_published_while_connected_then_404_on_disconnect"
+        );
         return;
     };
 
@@ -96,12 +107,18 @@ async fn connector_card_published_while_connected_then_404_on_disconnect() {
     let certs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("certs");
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_ainm-server"))
         .args([
-            "--mode", "human",
-            "--port", &port.to_string(),
-            "--identity", domain,
-            "--cert", certs.join("server-a.pem").to_str().unwrap(),
-            "--key", certs.join("server-a-key.pem").to_str().unwrap(),
-            "--ca-cert", certs.join("ca.pem").to_str().unwrap(),
+            "--mode",
+            "human",
+            "--port",
+            &port.to_string(),
+            "--identity",
+            domain,
+            "--cert",
+            certs.join("server-a.pem").to_str().unwrap(),
+            "--key",
+            certs.join("server-a-key.pem").to_str().unwrap(),
+            "--ca-cert",
+            certs.join("ca.pem").to_str().unwrap(),
         ])
         .env("AINM_DATABASE__URL", &db_url)
         .env("RUST_LOG", "warn")
@@ -116,7 +133,10 @@ async fn connector_card_published_while_connected_then_404_on_disconnect() {
     let mut ready = false;
     for _ in 0..150 {
         if let Ok(resp) = http.get(&ready_url).send().await {
-            if resp.status().is_success() { ready = true; break; }
+            if resp.status().is_success() {
+                ready = true;
+                break;
+            }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -128,8 +148,13 @@ async fn connector_card_published_while_connected_then_404_on_disconnect() {
 
     // Connect as the agent and complete the signed handshake with a `card`.
     let ws_url = format!("ws://127.0.0.1:{port}/ws");
-    let (ws_stream, _) = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async(&ws_url))
-        .await.expect("ws connect timed out").expect("ws connect");
+    let (ws_stream, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(&ws_url),
+    )
+    .await
+    .expect("ws connect timed out")
+    .expect("ws connect");
     let (mut tx, mut rx) = ws_stream.split();
 
     let (init_sig, init_ts) = signing::sign_init(&agent.key_pair, &agent.address).unwrap();
@@ -157,23 +182,51 @@ async fn connector_card_published_while_connected_then_404_on_disconnect() {
         }),
         serde_json::json!(2),
     );
-    tx.send(Message::Text(serde_json::to_string(&init_req).unwrap().into())).await.unwrap();
-    let init_resp = next_text(&mut rx, Duration::from_secs(10)).await.expect("init response");
+    tx.send(Message::Text(
+        serde_json::to_string(&init_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
+    let init_resp = next_text(&mut rx, Duration::from_secs(10))
+        .await
+        .expect("init response");
     let init_resp_json: serde_json::Value = serde_json::from_str(&init_resp).unwrap();
-    assert!(init_resp_json.get("result").is_some(), "handshake rejected: {init_resp}");
+    assert!(
+        init_resp_json.get("result").is_some(),
+        "handshake rejected: {init_resp}"
+    );
     let initialized = protocol::new_notification("ainm.initialized", serde_json::json!({}));
-    tx.send(Message::Text(serde_json::to_string(&initialized).unwrap().into())).await.unwrap();
+    tx.send(Message::Text(
+        serde_json::to_string(&initialized).unwrap().into(),
+    ))
+    .await
+    .unwrap();
 
     // Give the server a moment to register the card, then GET the well-known route.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let card_url = format!("http://127.0.0.1:{port}/.well-known/ainm/{agent_local}/agent-card.json");
-    let resp = http.get(&card_url).send().await.expect("GET connector card");
-    assert_eq!(resp.status().as_u16(), 200, "connector card must be 200 while connected");
+    let card_url =
+        format!("http://127.0.0.1:{port}/.well-known/ainm/{agent_local}/agent-card.json");
+    let resp = http
+        .get(&card_url)
+        .send()
+        .await
+        .expect("GET connector card");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "connector card must be 200 while connected"
+    );
     let body: serde_json::Value = resp.json().await.expect("card JSON");
     assert_eq!(body["name"], "Coder", "got {body}");
     assert_eq!(body["ainm"]["address"], agent_addr, "got {body}");
-    assert_eq!(body["ainm"]["tools"][0]["name"], "run_tests", "tool must be published; got {body}");
-    assert_eq!(body["capabilities"]["pushNotifications"], false, "camelCase key; got {body}");
+    assert_eq!(
+        body["ainm"]["tools"][0]["name"], "run_tests",
+        "tool must be published; got {body}"
+    );
+    assert_eq!(
+        body["capabilities"]["pushNotifications"], false,
+        "camelCase key; got {body}"
+    );
 
     // Disconnect: drop the WS, then the route must 404 once cleanup runs.
     drop(tx);
@@ -182,11 +235,17 @@ async fn connector_card_published_while_connected_then_404_on_disconnect() {
     for _ in 0..50 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         if let Ok(r) = http.get(&card_url).send().await {
-            if r.status().as_u16() == 404 { got_404 = true; break; }
+            if r.status().as_u16() == 404 {
+                got_404 = true;
+                break;
+            }
         }
     }
 
     let _ = child.kill().await;
     cleanup_domain(&pool, domain).await;
-    assert!(got_404, "route must 404 within ~5s after the agent disconnects");
+    assert!(
+        got_404,
+        "route must 404 within ~5s after the agent disconnects"
+    );
 }

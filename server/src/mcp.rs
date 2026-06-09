@@ -88,10 +88,7 @@ impl ToolProvider for McpToolProvider {
             ));
         }
         if !self.tools.iter().any(|t| t.name == name) {
-            return ToolResult::error(format!(
-                "tool '{name}' not offered by '{}'",
-                self.cfg.name
-            ));
+            return ToolResult::error(format!("tool '{name}' not offered by '{}'", self.cfg.name));
         }
         match self.client.call_tool(name, args, &self.cfg.limits).await {
             Ok(text) => ToolResult::ok(text),
@@ -124,9 +121,10 @@ impl McpClientHandle {
             }
             "http" => {
                 use rmcp::transport::StreamableHttpClientTransport;
-                let url = cfg.url.clone().ok_or_else(|| {
-                    anyhow::anyhow!("http MCP server '{}' missing url", cfg.name)
-                })?;
+                let url = cfg
+                    .url
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("http MCP server '{}' missing url", cfg.name))?;
                 // sub-project D: anti-SSRF connect-time check.
                 crate::sandbox::UrlGuard::check(&url, &cfg.allowed_hosts)?;
                 let transport = StreamableHttpClientTransport::from_uri(url);
@@ -172,7 +170,12 @@ impl McpClientHandle {
             fut,
         )
         .await
-        .map_err(|_| anyhow::anyhow!("MCP tool '{name}' timed out after {}s", limits.wall_timeout_secs))??;
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "MCP tool '{name}' timed out after {}s",
+                limits.wall_timeout_secs
+            )
+        })??;
 
         let text = extract_content_text(&result.content);
         if result.is_error == Some(true) {
@@ -258,7 +261,10 @@ mod tests {
         };
         if !crate::sandbox::bwrap_available() || !cfg!(target_os = "linux") {
             let providers = build_providers_from_config(&config).await;
-            assert!(providers.is_empty(), "unsandboxed bubblewrap server must be skipped");
+            assert!(
+                providers.is_empty(),
+                "unsandboxed bubblewrap server must be skipped"
+            );
         }
     }
 
@@ -282,14 +288,18 @@ mod tests {
     #[tokio::test]
     async fn strict_mode_errors_when_configured_server_cannot_start() {
         match build_providers_checked(&unstartable_config(), true).await {
-            Ok(_) => panic!("a configured server silently vanishing is not acceptable in production"),
+            Ok(_) => {
+                panic!("a configured server silently vanishing is not acceptable in production")
+            }
             Err(e) => assert!(format!("{e:#}").contains("broken")),
         }
     }
 
     #[tokio::test]
     async fn lenient_mode_skips_unstartable_server() {
-        let providers = build_providers_checked(&unstartable_config(), false).await.unwrap();
+        let providers = build_providers_checked(&unstartable_config(), false)
+            .await
+            .unwrap();
         assert!(providers.is_empty());
     }
 }

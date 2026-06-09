@@ -134,11 +134,19 @@ pub fn build_connector_card(address: &str, init_params: &Value) -> Value {
 /// Normalize `card.skills` into valid `AgentSkill` objects. The schema requires id/name/description;
 /// derive a slug `id` from `name` when absent. Drop entries lacking name or description.
 fn normalize_skills(skills: Option<&Value>) -> Vec<Value> {
-    let Some(arr) = skills.and_then(|v| v.as_array()) else { return vec![] };
+    let Some(arr) = skills.and_then(|v| v.as_array()) else {
+        return vec![];
+    };
     arr.iter()
         .filter_map(|s| {
-            let name = s.get("name").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
-            let description = s.get("description").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
+            let name = s
+                .get("name")
+                .and_then(|v| v.as_str())
+                .filter(|x| !x.is_empty())?;
+            let description = s
+                .get("description")
+                .and_then(|v| v.as_str())
+                .filter(|x| !x.is_empty())?;
             let id = s
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -158,7 +166,9 @@ fn normalize_skills(skills: Option<&Value>) -> Vec<Value> {
 /// name/description/inputSchema, with `inputSchema` a JSON object. Drop entries whose `parameters`
 /// is missing or not an object (logged), or lacking name/description.
 fn normalize_tools(tools: Option<&Value>) -> Vec<Value> {
-    let Some(arr) = tools.and_then(|v| v.as_array()) else { return vec![] };
+    let Some(arr) = tools.and_then(|v| v.as_array()) else {
+        return vec![];
+    };
     arr.iter()
         .filter_map(|t| {
             let name = t.get("name").and_then(|v| v.as_str()).filter(|x| !x.is_empty())?;
@@ -229,12 +239,21 @@ mod tests {
         // No snake_case leakage anywhere in the serialized form.
         let s = serde_json::to_string(&card).unwrap();
         for snake in [
-            "push_notifications", "protocol_version", "content_types",
-            "parallel_blocks", "preferred_chunk_size", "sub_threads",
-            "max_concurrent_threads", "archival_supported", "context_frame_preferred",
+            "push_notifications",
+            "protocol_version",
+            "content_types",
+            "parallel_blocks",
+            "preferred_chunk_size",
+            "sub_threads",
+            "max_concurrent_threads",
+            "archival_supported",
+            "context_frame_preferred",
             "input_schema",
         ] {
-            assert!(!s.contains(snake), "card must not contain snake_case key `{snake}`: {s}");
+            assert!(
+                !s.contains(snake),
+                "card must not contain snake_case key `{snake}`: {s}"
+            );
         }
     }
 
@@ -284,7 +303,13 @@ mod tests {
         assert_eq!(ainm["tools"][0]["inputSchema"], json!({ "type": "object" }));
 
         let s = serde_json::to_string(&card).unwrap();
-        for snake in ["push_notifications", "protocol_version", "content_types", "input_schema", "sub_threads"] {
+        for snake in [
+            "push_notifications",
+            "protocol_version",
+            "content_types",
+            "input_schema",
+            "sub_threads",
+        ] {
             assert!(!s.contains(snake), "snake_case key `{snake}` leaked: {s}");
         }
     }

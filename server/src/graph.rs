@@ -228,7 +228,9 @@ pub async fn query_nodes(
             } else {
                 q.split_whitespace().collect::<Vec<_>>().join(" & ")
             };
-            sql.push_str(&format!(" AND search_vector @@ to_tsquery('english', ${param_idx})"));
+            sql.push_str(&format!(
+                " AND search_vector @@ to_tsquery('english', ${param_idx})"
+            ));
             let _ = param_idx; // consumed by the format above
         } else {
             ts_query_str = String::new();
@@ -281,7 +283,9 @@ pub async fn get_edges_for_nodes(
         return Ok(vec![]);
     }
 
-    let placeholders: Vec<String> = node_ids.iter().enumerate()
+    let placeholders: Vec<String> = node_ids
+        .iter()
+        .enumerate()
         .map(|(i, _)| format!("${}", i + 3))
         .collect();
     let in_clause = placeholders.join(", ");
@@ -330,7 +334,7 @@ pub async fn traverse(
     user_addr: &str,
     start_node: Uuid,
     max_depth: i32,
-    direction: &str,       // "outgoing", "incoming", "both"
+    direction: &str, // "outgoing", "incoming", "both"
     relationship_filter: Option<&[&str]>,
 ) -> Result<(Vec<NodeRow>, Vec<EdgeRow>), StorageError> {
     // Build the recursive CTE based on direction
@@ -472,10 +476,7 @@ pub async fn find_contradictions(
 }
 
 /// Find orphan nodes (no incoming or outgoing edges).
-pub async fn find_orphans(
-    pool: &PgPool,
-    user_addr: &str,
-) -> Result<Vec<Uuid>, StorageError> {
+pub async fn find_orphans(pool: &PgPool, user_addr: &str) -> Result<Vec<Uuid>, StorageError> {
     let rows: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT n.id
@@ -521,10 +522,7 @@ pub async fn find_stale(
 }
 
 /// Get graph summary stats for a user.
-pub async fn graph_stats(
-    pool: &PgPool,
-    user_addr: &str,
-) -> Result<(i64, i64), StorageError> {
+pub async fn graph_stats(pool: &PgPool, user_addr: &str) -> Result<(i64, i64), StorageError> {
     let node_count: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM memory_nodes WHERE user_addr = $1 AND valid_until IS NULL",
     )
@@ -561,7 +559,10 @@ pub async fn fetch_recent_thread_texts(
     Ok(rows
         .into_iter()
         .filter_map(|(content,)| {
-            content.get("text").and_then(|v| v.as_str()).map(|s| s.to_string())
+            content
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         })
         .collect())
 }

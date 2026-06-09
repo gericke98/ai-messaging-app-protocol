@@ -41,7 +41,11 @@ pub struct JsonRpcError {
 
 // --- Constructors ---
 
-pub fn new_request(method: &str, params: serde_json::Value, id: serde_json::Value) -> JsonRpcRequest {
+pub fn new_request(
+    method: &str,
+    params: serde_json::Value,
+    id: serde_json::Value,
+) -> JsonRpcRequest {
     JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
         method: method.to_string(),

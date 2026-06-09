@@ -17,7 +17,9 @@ pub struct MockEmailSender {
 
 impl MockEmailSender {
     pub fn new() -> Self {
-        Self { sent: std::sync::Mutex::new(Vec::new()) }
+        Self {
+            sent: std::sync::Mutex::new(Vec::new()),
+        }
     }
     /// The most recently sent code for an email+purpose, if any.
     // Test-only helper: used by integration tests, not the server binary.
@@ -34,17 +36,20 @@ impl MockEmailSender {
 }
 
 impl Default for MockEmailSender {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait::async_trait]
 impl EmailSender for MockEmailSender {
     async fn send_code(&self, to_email: &str, code: &str, purpose: &str) -> Result<(), String> {
         tracing::info!("[email:mock] code {code} -> {to_email} ({purpose})");
-        self.sent
-            .lock()
-            .unwrap()
-            .push((to_email.to_string(), code.to_string(), purpose.to_string()));
+        self.sent.lock().unwrap().push((
+            to_email.to_string(),
+            code.to_string(),
+            purpose.to_string(),
+        ));
         Ok(())
     }
 }
@@ -58,7 +63,11 @@ pub struct ResendEmailSender {
 
 impl ResendEmailSender {
     pub fn new(api_key: String, from: String) -> Self {
-        Self { http: reqwest::Client::new(), api_key, from }
+        Self {
+            http: reqwest::Client::new(),
+            api_key,
+            from,
+        }
     }
 }
 

@@ -39,14 +39,20 @@ async fn test_pool() -> Option<PgPool> {
 }
 
 fn unique_addr(prefix: &str) -> String {
-    format!("{}_{:x}@test.ainm.local", prefix, Uuid::new_v4().as_fields().0)
+    format!(
+        "{}_{:x}@test.ainm.local",
+        prefix,
+        Uuid::new_v4().as_fields().0
+    )
 }
 
 // ── Graph: Node CRUD ──────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_insert_and_query_node() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("node_crud");
 
     let node_id = graph::insert_node(
@@ -76,38 +82,92 @@ async fn test_insert_and_query_node() {
 
 #[tokio::test]
 async fn test_query_nodes_text_filter() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("text_filter");
 
     graph::insert_node(
-        &pool, &user, "semantic", "skill", "TypeScript expert",
-        &serde_json::json!({}), 0.85,
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "TypeScript expert",
+        &serde_json::json!({}),
+        0.85,
         &serde_json::json!({"contributed_by": "test"}),
         &serde_json::json!([]),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     graph::insert_node(
-        &pool, &user, "semantic", "preference", "Prefers Vim keybindings",
-        &serde_json::json!({}), 0.7,
+        &pool,
+        &user,
+        "semantic",
+        "preference",
+        "Prefers Vim keybindings",
+        &serde_json::json!({}),
+        0.7,
         &serde_json::json!({"contributed_by": "test"}),
         &serde_json::json!([]),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let results = graph::query_nodes(&pool, &user, Some("TypeScript"), None, None, "current", 0.0, 10)
-        .await.unwrap();
+    let results = graph::query_nodes(
+        &pool,
+        &user,
+        Some("TypeScript"),
+        None,
+        None,
+        "current",
+        0.0,
+        10,
+    )
+    .await
+    .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].label, "TypeScript expert");
 }
 
 #[tokio::test]
 async fn test_query_nodes_min_confidence() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("min_conf");
 
-    graph::insert_node(&pool, &user, "semantic", "fact", "High confidence", &serde_json::json!({}), 0.95, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "fact", "Low confidence", &serde_json::json!({}), 0.3, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "High confidence",
+        &serde_json::json!({}),
+        0.95,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Low confidence",
+        &serde_json::json!({}),
+        0.3,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
-    let results = graph::query_nodes(&pool, &user, None, None, None, "current", 0.5, 10).await.unwrap();
+    let results = graph::query_nodes(&pool, &user, None, None, None, "current", 0.5, 10)
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].label, "High confidence");
 }
@@ -116,18 +176,55 @@ async fn test_query_nodes_min_confidence() {
 
 #[tokio::test]
 async fn test_insert_and_query_edges() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("edges");
 
-    let n1 = graph::insert_node(&pool, &user, "semantic", "skill", "Rust", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let n2 = graph::insert_node(&pool, &user, "semantic", "tool", "Axum", &serde_json::json!({}), 0.85, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let n1 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "Rust",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let n2 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "tool",
+        "Axum",
+        &serde_json::json!({}),
+        0.85,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
     let edge_id = graph::insert_edge(
-        &pool, &user, n1, n2, "uses", 1.0, 0.9,
-        &serde_json::json!({}), &serde_json::json!({}),
-    ).await.expect("insert_edge failed");
+        &pool,
+        &user,
+        n1,
+        n2,
+        "uses",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .expect("insert_edge failed");
 
-    let edges = graph::get_edges_for_nodes(&pool, &user, &[n1, n2]).await.unwrap();
+    let edges = graph::get_edges_for_nodes(&pool, &user, &[n1, n2])
+        .await
+        .unwrap();
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].id, edge_id);
     assert_eq!(edges[0].relationship, "uses");
@@ -142,58 +239,208 @@ async fn test_insert_and_query_edges() {
 
 #[tokio::test]
 async fn test_query_nodes_never_leaks_other_identities() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let alice = unique_addr("iso_alice");
     let bob = unique_addr("iso_bob");
 
-    graph::insert_node(&pool, &alice, "semantic", "fact", "Alice private fact", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let b1 = graph::insert_node(&pool, &bob, "semantic", "fact", "Bob secret fact", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let b2 = graph::insert_node(&pool, &bob, "semantic", "fact", "Bob other secret", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_edge(&pool, &bob, b1, b2, "related_to", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &alice,
+        "semantic",
+        "fact",
+        "Alice private fact",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let b1 = graph::insert_node(
+        &pool,
+        &bob,
+        "semantic",
+        "fact",
+        "Bob secret fact",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let b2 = graph::insert_node(
+        &pool,
+        &bob,
+        "semantic",
+        "fact",
+        "Bob other secret",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_edge(
+        &pool,
+        &bob,
+        b1,
+        b2,
+        "related_to",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
 
     // Broadest possible query as Alice: no text filter, zero confidence floor.
-    let nodes = graph::query_nodes(&pool, &alice, None, None, None, "all", 0.0, 100).await.unwrap();
+    let nodes = graph::query_nodes(&pool, &alice, None, None, None, "all", 0.0, 100)
+        .await
+        .unwrap();
     assert!(!nodes.is_empty(), "Alice must see her own node");
-    assert!(nodes.iter().all(|n| n.user_addr == alice), "query must only return the caller's nodes");
+    assert!(
+        nodes.iter().all(|n| n.user_addr == alice),
+        "query must only return the caller's nodes"
+    );
 
     // Text query targeting Bob's content must return nothing for Alice.
-    let probe = graph::query_nodes(&pool, &alice, Some("Bob secret"), None, None, "all", 0.0, 100).await.unwrap();
-    assert!(probe.is_empty(), "cross-identity text probe must return nothing");
+    let probe = graph::query_nodes(
+        &pool,
+        &alice,
+        Some("Bob secret"),
+        None,
+        None,
+        "all",
+        0.0,
+        100,
+    )
+    .await
+    .unwrap();
+    assert!(
+        probe.is_empty(),
+        "cross-identity text probe must return nothing"
+    );
 
     // Edge fetch as Alice over Bob's node ids must return nothing.
-    let edges = graph::get_edges_for_nodes(&pool, &alice, &[b1, b2]).await.unwrap();
-    assert!(edges.is_empty(), "cross-identity edge fetch must return nothing");
+    let edges = graph::get_edges_for_nodes(&pool, &alice, &[b1, b2])
+        .await
+        .unwrap();
+    assert!(
+        edges.is_empty(),
+        "cross-identity edge fetch must return nothing"
+    );
 }
 
 // ── Graph: Traversal ──────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_graph_traversal() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("traverse");
 
     // Build: A --uses--> B --related_to--> C
-    let a = graph::insert_node(&pool, &user, "semantic", "skill", "Node A", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let b = graph::insert_node(&pool, &user, "semantic", "tool", "Node B", &serde_json::json!({}), 0.85, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let c = graph::insert_node(&pool, &user, "semantic", "fact", "Node C", &serde_json::json!({}), 0.8, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let a = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "Node A",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let b = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "tool",
+        "Node B",
+        &serde_json::json!({}),
+        0.85,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let c = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Node C",
+        &serde_json::json!({}),
+        0.8,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
-    graph::insert_edge(&pool, &user, a, b, "uses", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
-    graph::insert_edge(&pool, &user, b, c, "related_to", 1.0, 0.85, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+    graph::insert_edge(
+        &pool,
+        &user,
+        a,
+        b,
+        "uses",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    graph::insert_edge(
+        &pool,
+        &user,
+        b,
+        c,
+        "related_to",
+        1.0,
+        0.85,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
 
     // Traverse from A, depth 2 — subgraph is start node + reached nodes: {A, B, C}.
     // "outgoing" per compound-memory.schema.json (the old "outbound" silently fell
     // into the "both" arm); traverse() includes the start node in the subgraph by
     // contract (the WS handler renders it).
-    let (nodes, edges) = graph::traverse(&pool, &user, a, 2, "outgoing", None).await.unwrap();
+    let (nodes, edges) = graph::traverse(&pool, &user, a, 2, "outgoing", None)
+        .await
+        .unwrap();
     let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
-    assert_eq!(nodes.len(), 3, "Depth 2 subgraph should be A+B+C, got {}", nodes.len());
+    assert_eq!(
+        nodes.len(),
+        3,
+        "Depth 2 subgraph should be A+B+C, got {}",
+        nodes.len()
+    );
     assert!(ids.contains(&a) && ids.contains(&b) && ids.contains(&c));
     assert_eq!(edges.len(), 2, "Both edges connect the subgraph");
 
     // Traverse from A, depth 1 — subgraph is {A, B}; C must NOT be reached.
-    let (nodes_d1, _) = graph::traverse(&pool, &user, a, 1, "outgoing", None).await.unwrap();
+    let (nodes_d1, _) = graph::traverse(&pool, &user, a, 1, "outgoing", None)
+        .await
+        .unwrap();
     let ids_d1: Vec<_> = nodes_d1.iter().map(|n| n.id).collect();
-    assert_eq!(nodes_d1.len(), 2, "Depth 1 subgraph should be A+B, got {}", nodes_d1.len());
+    assert_eq!(
+        nodes_d1.len(),
+        2,
+        "Depth 1 subgraph should be A+B, got {}",
+        nodes_d1.len()
+    );
     assert!(!ids_d1.contains(&c), "Depth 1 must not reach C");
 }
 
@@ -201,29 +448,120 @@ async fn test_graph_traversal() {
 
 #[tokio::test]
 async fn test_find_orphans() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("orphans");
 
     // Create a connected pair and an orphan
-    let n1 = graph::insert_node(&pool, &user, "semantic", "fact", "Connected A", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let n2 = graph::insert_node(&pool, &user, "semantic", "fact", "Connected B", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let orphan = graph::insert_node(&pool, &user, "semantic", "fact", "Orphan Node", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let n1 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Connected A",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let n2 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Connected B",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let orphan = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Orphan Node",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
-    graph::insert_edge(&pool, &user, n1, n2, "related_to", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+    graph::insert_edge(
+        &pool,
+        &user,
+        n1,
+        n2,
+        "related_to",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
 
     let orphans = graph::find_orphans(&pool, &user).await.unwrap();
     assert!(orphans.contains(&orphan), "Should detect orphan node");
-    assert!(!orphans.contains(&n1), "Connected nodes should not be orphans");
+    assert!(
+        !orphans.contains(&n1),
+        "Connected nodes should not be orphans"
+    );
 }
 
 #[tokio::test]
 async fn test_graph_stats() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("stats");
 
-    let n1 = graph::insert_node(&pool, &user, "semantic", "fact", "Stat A", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let n2 = graph::insert_node(&pool, &user, "semantic", "fact", "Stat B", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_edge(&pool, &user, n1, n2, "related_to", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+    let n1 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Stat A",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let n2 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Stat B",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_edge(
+        &pool,
+        &user,
+        n1,
+        n2,
+        "related_to",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
 
     let (nodes, edges) = graph::graph_stats(&pool, &user).await.unwrap();
     assert_eq!(nodes, 2);
@@ -232,12 +570,50 @@ async fn test_graph_stats() {
 
 #[tokio::test]
 async fn test_export_graph() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("export");
 
-    let n1 = graph::insert_node(&pool, &user, "semantic", "fact", "Export A", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let n2 = graph::insert_node(&pool, &user, "semantic", "fact", "Export B", &serde_json::json!({}), 0.85, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_edge(&pool, &user, n1, n2, "supports", 1.0, 0.9, &serde_json::json!({}), &serde_json::json!({})).await.unwrap();
+    let n1 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Export A",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let n2 = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Export B",
+        &serde_json::json!({}),
+        0.85,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_edge(
+        &pool,
+        &user,
+        n1,
+        n2,
+        "supports",
+        1.0,
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
 
     let (nodes, edges) = graph::export_graph(&pool, &user, false).await.unwrap();
     assert_eq!(nodes.len(), 2);
@@ -248,22 +624,52 @@ async fn test_export_graph() {
 
 #[tokio::test]
 async fn test_supersede_node() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("supersede");
 
-    let old = graph::insert_node(&pool, &user, "semantic", "fact", "Likes tea", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    let new = graph::insert_node(&pool, &user, "semantic", "fact", "Likes coffee", &serde_json::json!({}), 0.95, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    let old = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Likes tea",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    let new = graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Likes coffee",
+        &serde_json::json!({}),
+        0.95,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
     graph::supersede_node(&pool, old, new).await.unwrap();
 
     // Query current nodes — should only return the new one
-    let current = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10).await.unwrap();
+    let current = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10)
+        .await
+        .unwrap();
     let labels: Vec<&str> = current.iter().map(|n| n.label.as_str()).collect();
     assert!(labels.contains(&"Likes coffee"));
     assert!(!labels.contains(&"Likes tea"));
 
     // Query all (including superseded)
-    let all = graph::query_nodes(&pool, &user, None, None, None, "all", 0.0, 10).await.unwrap();
+    let all = graph::query_nodes(&pool, &user, None, None, None, "all", 0.0, 10)
+        .await
+        .unwrap();
     assert!(all.len() >= 2);
 }
 
@@ -271,22 +677,37 @@ async fn test_supersede_node() {
 
 #[tokio::test]
 async fn test_archival_fact_crud() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("facts");
     let fact_id = Uuid::new_v4().to_string();
 
     repository::store_fact(
-        &pool, &fact_id, &user, Some("test-thread"),
-        "favorite_color", &serde_json::json!("blue"),
-        &serde_json::json!(["personal"]), &user,
-    ).await.expect("store_fact failed");
+        &pool,
+        &fact_id,
+        &user,
+        Some("test-thread"),
+        "favorite_color",
+        &serde_json::json!("blue"),
+        &serde_json::json!(["personal"]),
+        &user,
+    )
+    .await
+    .expect("store_fact failed");
 
-    let facts = repository::query_facts(&pool, &user, Some("favorite"), 10).await.unwrap();
+    let facts = repository::query_facts(&pool, &user, Some("favorite"), 10)
+        .await
+        .unwrap();
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0].key, "favorite_color");
 
-    repository::evict_fact(&pool, &user, "favorite_color").await.unwrap();
-    let after = repository::query_facts(&pool, &user, Some("favorite"), 10).await.unwrap();
+    repository::evict_fact(&pool, &user, "favorite_color")
+        .await
+        .unwrap();
+    let after = repository::query_facts(&pool, &user, Some("favorite"), 10)
+        .await
+        .unwrap();
     assert_eq!(after.len(), 0);
 }
 
@@ -294,12 +715,15 @@ async fn test_archival_fact_crud() {
 
 #[tokio::test]
 async fn test_resolve_scopes_default() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("scopes_def");
     let agent = unique_addr("agent_def");
 
     let (scopes, level) = briefing::resolve_scopes(&pool, &user, &agent, ConsentLevel::Standard)
-        .await.unwrap();
+        .await
+        .unwrap();
 
     assert_eq!(level, ConsentLevel::Standard);
     assert!(scopes.contains(&"identity".to_string()));
@@ -309,18 +733,25 @@ async fn test_resolve_scopes_default() {
 
 #[tokio::test]
 async fn test_grant_and_resolve_scopes() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("grant");
     let agent = unique_addr("agent_grant");
 
     briefing::grant_scopes(
-        &pool, &user, &agent,
+        &pool,
+        &user,
+        &agent,
         &["identity".to_string(), "history".to_string()],
         ConsentLevel::Full,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let (scopes, level) = briefing::resolve_scopes(&pool, &user, &agent, ConsentLevel::Minimal)
-        .await.unwrap();
+        .await
+        .unwrap();
 
     assert_eq!(level, ConsentLevel::Full);
     assert!(scopes.contains(&"identity".to_string()));
@@ -329,20 +760,33 @@ async fn test_grant_and_resolve_scopes() {
 
 #[tokio::test]
 async fn test_revoke_scopes() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("revoke");
     let agent = unique_addr("agent_rev");
 
     briefing::grant_scopes(
-        &pool, &user, &agent,
-        &["identity".to_string(), "history".to_string(), "patterns".to_string()],
+        &pool,
+        &user,
+        &agent,
+        &[
+            "identity".to_string(),
+            "history".to_string(),
+            "patterns".to_string(),
+        ],
         ConsentLevel::Full,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    briefing::revoke_scopes(&pool, &user, &agent, &["history".to_string()]).await.unwrap();
+    briefing::revoke_scopes(&pool, &user, &agent, &["history".to_string()])
+        .await
+        .unwrap();
 
     let (scopes, _) = briefing::resolve_scopes(&pool, &user, &agent, ConsentLevel::Minimal)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(scopes.contains(&"identity".to_string()));
     assert!(!scopes.contains(&"history".to_string()));
     assert!(scopes.contains(&"patterns".to_string()));
@@ -352,55 +796,144 @@ async fn test_revoke_scopes() {
 
 #[tokio::test]
 async fn test_generate_briefing() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("briefing");
     let agent = unique_addr("agent_brief");
 
     // Seed some nodes
-    graph::insert_node(&pool, &user, "semantic", "fact", "Software engineer", &serde_json::json!({"role": "engineer"}), 0.95, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "preference", "Prefers dark mode", &serde_json::json!({}), 0.8, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "skill", "Expert in Rust", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Software engineer",
+        &serde_json::json!({"role": "engineer"}),
+        0.95,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "preference",
+        "Prefers dark mode",
+        &serde_json::json!({}),
+        0.8,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "Expert in Rust",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
-    let briefing = briefing::generate_briefing(&pool, &user, &agent, "thread-123", ConsentLevel::Standard)
-        .await.unwrap();
+    let briefing =
+        briefing::generate_briefing(&pool, &user, &agent, "thread-123", ConsentLevel::Standard)
+            .await
+            .unwrap();
 
     assert!(briefing.get("briefing_id").is_some());
-    assert_eq!(briefing.get("thread_id").unwrap().as_str().unwrap(), "thread-123");
+    assert_eq!(
+        briefing.get("thread_id").unwrap().as_str().unwrap(),
+        "thread-123"
+    );
     assert!(briefing.get("sections").is_some());
 
     let sections = briefing.get("sections").unwrap().as_object().unwrap();
     // Dynamic sections use the node's actual category as the key.
-    assert!(!sections.is_empty(), "sections should not be empty when facts exist: {sections:?}");
+    assert!(
+        !sections.is_empty(),
+        "sections should not be empty when facts exist: {sections:?}"
+    );
 }
 
 #[tokio::test]
 async fn test_briefing_minimal_consent() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("brief_min");
     let agent = unique_addr("agent_min");
 
-    graph::insert_node(&pool, &user, "semantic", "fact", "Developer", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "skill", "Python expert", &serde_json::json!({}), 0.9, &serde_json::json!({}), &serde_json::json!([])).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Developer",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "Python expert",
+        &serde_json::json!({}),
+        0.9,
+        &serde_json::json!({}),
+        &serde_json::json!([]),
+    )
+    .await
+    .unwrap();
 
-    let briefing = briefing::generate_briefing(&pool, &user, &agent, "thread-min", ConsentLevel::Minimal)
-        .await.unwrap();
+    let briefing =
+        briefing::generate_briefing(&pool, &user, &agent, "thread-min", ConsentLevel::Minimal)
+            .await
+            .unwrap();
 
     let sections = briefing.get("sections").unwrap().as_object().unwrap();
     // Minimal consent shares only the identity scope's categories (fact/relationship) —
     // the seeded 'skill' (expertise scope) is excluded under enforcement.
-    assert!(sections.contains_key("fact"), "identity 'fact' present at minimal: {sections:?}");
-    assert!(!sections.contains_key("skill"), "expertise 'skill' excluded at minimal");
+    assert!(
+        sections.contains_key("fact"),
+        "identity 'fact' present at minimal: {sections:?}"
+    );
+    assert!(
+        !sections.contains_key("skill"),
+        "expertise 'skill' excluded at minimal"
+    );
     // Identity scope is in Minimal, so the peer card must populate (green-path guard:
     // catches a regression that always returns an empty peer card).
-    assert!(!briefing.get("peer_card").unwrap().as_str().unwrap().is_empty(),
-        "identity scope must produce a non-empty peer card");
+    assert!(
+        !briefing
+            .get("peer_card")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .is_empty(),
+        "identity scope must produce a non-empty peer card"
+    );
 }
 
 // ── Compiler: Full Pipeline ───────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_compilation_with_mock_llm() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("compile");
 
     let mock = MockLlmClient::new(vec![ExtractionResult {
@@ -434,33 +967,48 @@ async fn test_compilation_with_mock_llm() {
         user_addr: user.clone(),
         thread_id: "compile-thread".to_string(),
         messages: vec![
-            ConversationMessage { from: user.clone(), content: "I really enjoy writing Rust code".to_string(), timestamp: "2026-01-01T00:00:00Z".to_string() },
-            ConversationMessage { from: "agent@test".to_string(), content: "That's great! Rust is excellent for systems programming".to_string(), timestamp: "2026-01-01T00:01:00Z".to_string() },
+            ConversationMessage {
+                from: user.clone(),
+                content: "I really enjoy writing Rust code".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+            },
+            ConversationMessage {
+                from: "agent@test".to_string(),
+                content: "That's great! Rust is excellent for systems programming".to_string(),
+                timestamp: "2026-01-01T00:01:00Z".to_string(),
+            },
         ],
     };
 
     let result = compiler::run_compilation(pool.clone(), Arc::new(mock), req)
-        .await.expect("compilation failed");
+        .await
+        .expect("compilation failed");
 
     assert_eq!(result.nodes_created, 2);
     assert_eq!(result.edges_created, 1);
 
     // Verify nodes exist in the graph
-    let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10).await.unwrap();
+    let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10)
+        .await
+        .unwrap();
     let labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
     assert!(labels.contains(&"Likes Rust"));
     assert!(labels.contains(&"Uses VS Code"));
 
     // Verify edge exists
     let node_ids: Vec<uuid::Uuid> = nodes.iter().map(|n| n.id).collect();
-    let edges = graph::get_edges_for_nodes(&pool, &user, &node_ids).await.unwrap();
+    let edges = graph::get_edges_for_nodes(&pool, &user, &node_ids)
+        .await
+        .unwrap();
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].relationship, "uses_with");
 }
 
 #[tokio::test]
 async fn test_compilation_rejects_off_list_categories() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("offlist");
 
     // Three candidate nodes: a valid `fact`, a casing-variant `Skill` (should be
@@ -499,33 +1047,67 @@ async fn test_compilation_rejects_off_list_categories() {
         user_addr: user.clone(),
         thread_id: "offlist-thread".to_string(),
         messages: vec![
-            ConversationMessage { from: user.clone(), content: "I work at TechTorch writing Rust on the AINM project".to_string(), timestamp: "2026-01-01T00:00:00Z".to_string() },
-            ConversationMessage { from: "agent@test".to_string(), content: "Sounds like an interesting systems project".to_string(), timestamp: "2026-01-01T00:01:00Z".to_string() },
+            ConversationMessage {
+                from: user.clone(),
+                content: "I work at TechTorch writing Rust on the AINM project".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+            },
+            ConversationMessage {
+                from: "agent@test".to_string(),
+                content: "Sounds like an interesting systems project".to_string(),
+                timestamp: "2026-01-01T00:01:00Z".to_string(),
+            },
         ],
     };
 
     let result = compiler::run_compilation(pool.clone(), Arc::new(mock), req)
-        .await.expect("compilation failed");
+        .await
+        .expect("compilation failed");
 
     // Only the two valid nodes are persisted; the off-list `project` node is dropped.
-    assert_eq!(result.nodes_created, 2, "off-list node must not be persisted");
-    assert_eq!(result.nodes_updated, 0, "no pre-existing nodes to update in this test");
+    assert_eq!(
+        result.nodes_created, 2,
+        "off-list node must not be persisted"
+    );
+    assert_eq!(
+        result.nodes_updated, 0,
+        "no pre-existing nodes to update in this test"
+    );
     assert_eq!(result.nodes_superseded, 0, "no contradiction in this test");
 
-    let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10).await.unwrap();
+    let nodes = graph::query_nodes(&pool, &user, None, None, None, "current", 0.0, 10)
+        .await
+        .unwrap();
     let labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
-    assert!(labels.contains(&"Works at TechTorch"), "valid fact node should be stored");
-    assert!(labels.contains(&"Writes Rust"), "casing-variant node should be stored");
-    assert!(!labels.contains(&"Building AINM"), "off-list `project` node must be absent");
+    assert!(
+        labels.contains(&"Works at TechTorch"),
+        "valid fact node should be stored"
+    );
+    assert!(
+        labels.contains(&"Writes Rust"),
+        "casing-variant node should be stored"
+    );
+    assert!(
+        !labels.contains(&"Building AINM"),
+        "off-list `project` node must be absent"
+    );
 
     // The casing-variant node is stored with its NORMALIZED canonical category.
-    let skill_node = nodes.iter().find(|n| n.label == "Writes Rust").expect("skill node missing");
-    assert_eq!(skill_node.category, "skill", "category must be normalized to canonical lowercase");
+    let skill_node = nodes
+        .iter()
+        .find(|n| n.label == "Writes Rust")
+        .expect("skill node missing");
+    assert_eq!(
+        skill_node.category, "skill",
+        "category must be normalized to canonical lowercase"
+    );
 }
 
 #[tokio::test]
 async fn test_compilation_skips_trivial() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("trivial");
 
     let mock = MockLlmClient::empty();
@@ -534,19 +1116,31 @@ async fn test_compilation_skips_trivial() {
         user_addr: user,
         thread_id: "trivial-thread".to_string(),
         messages: vec![
-            ConversationMessage { from: "user@test".to_string(), content: "hi".to_string(), timestamp: "2026-01-01T00:00:00Z".to_string() },
-            ConversationMessage { from: "agent@test".to_string(), content: "ok".to_string(), timestamp: "2026-01-01T00:01:00Z".to_string() },
+            ConversationMessage {
+                from: "user@test".to_string(),
+                content: "hi".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+            },
+            ConversationMessage {
+                from: "agent@test".to_string(),
+                content: "ok".to_string(),
+                timestamp: "2026-01-01T00:01:00Z".to_string(),
+            },
         ],
     };
 
-    let result = compiler::run_compilation(pool, Arc::new(mock), req).await.unwrap();
+    let result = compiler::run_compilation(pool, Arc::new(mock), req)
+        .await
+        .unwrap();
     assert_eq!(result.nodes_created, 0);
     assert_eq!(result.edges_created, 0);
 }
 
 #[tokio::test]
 async fn test_compilation_dedup_updates_confidence() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("dedup");
 
     // First compilation — creates "Likes Rust" at 0.7
@@ -566,12 +1160,22 @@ async fn test_compilation_dedup_updates_confidence() {
         user_addr: user.clone(),
         thread_id: "dedup-thread".to_string(),
         messages: vec![
-            ConversationMessage { from: user.clone(), content: "I like Rust programming".to_string(), timestamp: "2026-01-01T00:00:00Z".to_string() },
-            ConversationMessage { from: "agent@test".to_string(), content: "Noted, you prefer Rust".to_string(), timestamp: "2026-01-01T00:01:00Z".to_string() },
+            ConversationMessage {
+                from: user.clone(),
+                content: "I like Rust programming".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+            },
+            ConversationMessage {
+                from: "agent@test".to_string(),
+                content: "Noted, you prefer Rust".to_string(),
+                timestamp: "2026-01-01T00:01:00Z".to_string(),
+            },
         ],
     };
 
-    let r1 = compiler::run_compilation(pool.clone(), Arc::new(mock1), req1).await.unwrap();
+    let r1 = compiler::run_compilation(pool.clone(), Arc::new(mock1), req1)
+        .await
+        .unwrap();
     assert_eq!(r1.nodes_created, 1);
 
     // Second compilation — same label at 0.9 should update confidence, not create new
@@ -591,50 +1195,138 @@ async fn test_compilation_dedup_updates_confidence() {
         user_addr: user.clone(),
         thread_id: "dedup-thread".to_string(),
         messages: vec![
-            ConversationMessage { from: user.clone(), content: "I really love Rust!".to_string(), timestamp: "2026-01-02T00:00:00Z".to_string() },
-            ConversationMessage { from: "agent@test".to_string(), content: "Your Rust enthusiasm is clear!".to_string(), timestamp: "2026-01-02T00:01:00Z".to_string() },
+            ConversationMessage {
+                from: user.clone(),
+                content: "I really love Rust!".to_string(),
+                timestamp: "2026-01-02T00:00:00Z".to_string(),
+            },
+            ConversationMessage {
+                from: "agent@test".to_string(),
+                content: "Your Rust enthusiasm is clear!".to_string(),
+                timestamp: "2026-01-02T00:01:00Z".to_string(),
+            },
         ],
     };
 
-    let r2 = compiler::run_compilation(pool.clone(), Arc::new(mock2), req2).await.unwrap();
+    let r2 = compiler::run_compilation(pool.clone(), Arc::new(mock2), req2)
+        .await
+        .unwrap();
     assert_eq!(r2.nodes_created, 0, "Should not create duplicate node");
-    assert_eq!(r2.nodes_updated, 1, "Should update existing node confidence");
+    assert_eq!(
+        r2.nodes_updated, 1,
+        "Should update existing node confidence"
+    );
 
     // Verify updated confidence
-    let nodes = graph::query_nodes(&pool, &user, Some("Likes Rust"), None, None, "current", 0.0, 10).await.unwrap();
+    let nodes = graph::query_nodes(
+        &pool,
+        &user,
+        Some("Likes Rust"),
+        None,
+        None,
+        "current",
+        0.0,
+        10,
+    )
+    .await
+    .unwrap();
     assert_eq!(nodes.len(), 1);
-    assert!(nodes[0].confidence >= 0.9, "Confidence should be updated to >= 0.9, got {}", nodes[0].confidence);
+    assert!(
+        nodes[0].confidence >= 0.9,
+        "Confidence should be updated to >= 0.9, got {}",
+        nodes[0].confidence
+    );
 }
 
 // ── Briefing: Query-conditioned + Peer Card ───────────────────────────────
 
 #[tokio::test]
 async fn briefing_is_query_conditioned_and_has_peer_card() {
-    let Some(pool) = test_pool().await else { return; };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("bqc_user");
     let thread = unique_addr("bqc_thread");
     sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-        .bind(&thread).bind("test.local").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
-        .bind(&thread).bind(&user).bind(serde_json::json!({"text": "help with my rust backend"}))
-        .execute(&pool).await.unwrap();
+        .bind(&thread)
+        .bind("test.local")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)",
+    )
+    .bind(&thread)
+    .bind(&user)
+    .bind(serde_json::json!({"text": "help with my rust backend"}))
+    .execute(&pool)
+    .await
+    .unwrap();
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    ainm_server::graph::insert_node(&pool, &user, "semantic", "preference",
-        "Prefers Rust for backend services", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    ainm_server::graph::insert_node(&pool, &user, "semantic", "fact",
-        "Name is Santiago", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    ainm_server::graph::insert_node(&pool, &user, "semantic", "preference",
-        "Enjoys hiking on weekends", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
+    ainm_server::graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "preference",
+        "Prefers Rust for backend services",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    ainm_server::graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Name is Santiago",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    ainm_server::graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "preference",
+        "Enjoys hiking on weekends",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
     let briefing = ainm_server::briefing::generate_briefing(
-        &pool, &user, "agent@x", &thread, ainm_server::briefing::ConsentLevel::Standard,
-    ).await.unwrap();
+        &pool,
+        &user,
+        "agent@x",
+        &thread,
+        ainm_server::briefing::ConsentLevel::Standard,
+    )
+    .await
+    .unwrap();
 
-    let card = briefing.get("peer_card").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(card.contains("Santiago"), "peer_card should contain identity: {card}");
+    let card = briefing
+        .get("peer_card")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        card.contains("Santiago"),
+        "peer_card should contain identity: {card}"
+    );
     let blob = serde_json::to_string(&briefing).unwrap();
-    assert!(blob.contains("Prefers Rust"), "relevant fact should be injected");
+    assert!(
+        blob.contains("Prefers Rust"),
+        "relevant fact should be injected"
+    );
     assert!(briefing.get("char_budget_used").is_some());
 }
 
@@ -642,22 +1334,56 @@ async fn briefing_is_query_conditioned_and_has_peer_card() {
 
 #[tokio::test]
 async fn briefing_includes_salient_unmatched_facts() {
-    let Some(pool) = test_pool().await else { return; };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("bsuf_user");
     let thread = unique_addr("bsuf_thread");
     sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
-        .bind(&thread).bind("test.local").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
-        .bind(&thread).bind(&user).bind(serde_json::json!({"text":"help me plan my week"}))
-        .execute(&pool).await.unwrap();
-    let prov = serde_json::json!({}); let tags = serde_json::json!([]);
+        .bind(&thread)
+        .bind("test.local")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)",
+    )
+    .bind(&thread)
+    .bind(&user)
+    .bind(serde_json::json!({"text":"help me plan my week"}))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let prov = serde_json::json!({});
+    let tags = serde_json::json!([]);
     // high-confidence fact with NO lexical overlap with "plan/week"
-    ainm_server::graph::insert_node(&pool,&user,"semantic","fact",
-        "Next milestone is connector auth hardening Phase 16",&serde_json::json!({}),0.9,&prov,&tags).await.unwrap();
-    let b = ainm_server::briefing::generate_briefing(&pool,&user,"agent@x",&thread,
-        ainm_server::briefing::ConsentLevel::Standard).await.unwrap();
+    ainm_server::graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Next milestone is connector auth hardening Phase 16",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    let b = ainm_server::briefing::generate_briefing(
+        &pool,
+        &user,
+        "agent@x",
+        &thread,
+        ainm_server::briefing::ConsentLevel::Standard,
+    )
+    .await
+    .unwrap();
     let blob = serde_json::to_string(&b).unwrap();
-    assert!(blob.contains("Phase 16"), "salient unmatched fact must still be injected: {blob}");
+    assert!(
+        blob.contains("Phase 16"),
+        "salient unmatched fact must still be injected: {blob}"
+    );
 }
 
 // ── Dogfood: Emit briefings for comparison ────────────────────────────────
@@ -671,14 +1397,37 @@ async fn dogfood_emit_briefings() {
     let task = "Help me plan what to work on this week.";
 
     // clean prior dogfood data (idempotent)
-    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1").bind(user).execute(&pool).await.unwrap();
-    sqlx::query("DELETE FROM messages WHERE thread_id = $1").bind(thread).execute(&pool).await.unwrap();
-    sqlx::query("DELETE FROM threads WHERE id = $1").bind(thread).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM messages WHERE thread_id = $1")
+        .bind(thread)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM threads WHERE id = $1")
+        .bind(thread)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
-        .bind(thread).bind("local").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
-        .bind(thread).bind(user).bind(serde_json::json!({"text": task})).execute(&pool).await.unwrap();
+        .bind(thread)
+        .bind("local")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)",
+    )
+    .bind(thread)
+    .bind(user)
+    .bind(serde_json::json!({"text": task}))
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // ~20 realistic facts: (category, label, confidence)
     let facts: Vec<(&str, &str, f32)> = vec![
@@ -706,17 +1455,42 @@ async fn dogfood_emit_briefings() {
     let prov = serde_json::json!({"source": "dogfood-seed"});
     let tags = serde_json::json!([]);
     for (cat, label, conf) in &facts {
-        ainm_server::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+        ainm_server::graph::insert_node(
+            &pool,
+            user,
+            "semantic",
+            cat,
+            label,
+            &serde_json::json!({}),
+            *conf,
+            &prov,
+            &tags,
+        )
+        .await
+        .unwrap();
     }
 
     // B: old dump — no query, no category filter, no ranking
-    let dump_nodes = ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
-    let dump = dump_nodes.iter().map(|n| format!("- {}", n.label)).collect::<Vec<_>>().join("\n");
+    let dump_nodes =
+        ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200)
+            .await
+            .unwrap();
+    let dump = dump_nodes
+        .iter()
+        .map(|n| format!("- {}", n.label))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     // C: new briefing
     let new_briefing = ainm_server::briefing::generate_briefing(
-        &pool, user, "agent@x", thread, ainm_server::briefing::ConsentLevel::Standard,
-    ).await.unwrap();
+        &pool,
+        user,
+        "agent@x",
+        thread,
+        ainm_server::briefing::ConsentLevel::Standard,
+    )
+    .await
+    .unwrap();
 
     let out = serde_json::json!({
         "task": task,
@@ -728,7 +1502,10 @@ async fn dogfood_emit_briefings() {
     let path = "/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out/dogfood_briefings.json";
     std::fs::create_dir_all("/Users/santiagogerickeparga/Proyectos/ai-native-messaging/experiments/compound-memory-spike/out").unwrap();
     std::fs::write(path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
-    println!("=== DOGFOOD BRIEFINGS ===\n{}", serde_json::to_string_pretty(&out).unwrap());
+    println!(
+        "=== DOGFOOD BRIEFINGS ===\n{}",
+        serde_json::to_string_pretty(&out).unwrap()
+    );
 }
 
 // ── Dogfood: SCALE test — briefing surfaces salient facts, drops noise ─────
@@ -742,33 +1519,104 @@ async fn dogfood_scale_test() {
     let task = "Help me plan what to work on this week.";
 
     // Clean prior data (idempotent)
-    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1").bind(user).execute(&pool).await.unwrap();
-    sqlx::query("DELETE FROM messages WHERE thread_id = $1").bind(thread).execute(&pool).await.unwrap();
-    sqlx::query("DELETE FROM threads WHERE id = $1").bind(thread).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM memory_nodes WHERE user_addr = $1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM messages WHERE thread_id = $1")
+        .bind(thread)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM threads WHERE id = $1")
+        .bind(thread)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Seed thread + task message
     sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1,$2) ON CONFLICT DO NOTHING")
-        .bind(thread).bind("local").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)")
-        .bind(thread).bind(user).bind(serde_json::json!({"text": task})).execute(&pool).await.unwrap();
+        .bind(thread)
+        .bind("local")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,1,$2,$3)",
+    )
+    .bind(thread)
+    .bind(user)
+    .bind(serde_json::json!({"text": task}))
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // 10 IMPORTANT facts — valid_from = NOW() by default (recent) + high confidence
     let prov = serde_json::json!({"source": "dogfood-scale-seed"});
     let tags = serde_json::json!([]);
     let important: Vec<(&str, &str, f32)> = vec![
-        ("fact", "[IMP1] Current milestone is v3.3 Universal Agent Client", 0.95),
-        ("fact", "[IMP2] Next up: connector auth hardening Phase 16", 0.9),
-        ("fact", "[IMP3] Building the compound-memory capture layer this sprint", 0.95),
-        ("fact", "[IMP4] Wants to validate compound memory before investing further", 0.9),
-        ("decision", "[IMP5] Decided to run a scale test of memory briefing", 0.88),
-        ("preference", "[IMP6] Prefers to plan the week around highest-leverage AINM work", 0.9),
-        ("fact", "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress", 0.9),
+        (
+            "fact",
+            "[IMP1] Current milestone is v3.3 Universal Agent Client",
+            0.95,
+        ),
+        (
+            "fact",
+            "[IMP2] Next up: connector auth hardening Phase 16",
+            0.9,
+        ),
+        (
+            "fact",
+            "[IMP3] Building the compound-memory capture layer this sprint",
+            0.95,
+        ),
+        (
+            "fact",
+            "[IMP4] Wants to validate compound memory before investing further",
+            0.9,
+        ),
+        (
+            "decision",
+            "[IMP5] Decided to run a scale test of memory briefing",
+            0.88,
+        ),
+        (
+            "preference",
+            "[IMP6] Prefers to plan the week around highest-leverage AINM work",
+            0.9,
+        ),
+        (
+            "fact",
+            "[IMP7] iOS reference client v3.2 shipped, v3.3 in progress",
+            0.9,
+        ),
         ("pattern", "[IMP8] Works in focused sprints", 0.85),
-        ("fact", "[IMP9] Needs to decide what to build after the memory layer", 0.9),
-        ("fact", "[IMP10] Name is Santiago Gericke, founder at TechTorch", 0.98),
+        (
+            "fact",
+            "[IMP9] Needs to decide what to build after the memory layer",
+            0.9,
+        ),
+        (
+            "fact",
+            "[IMP10] Name is Santiago Gericke, founder at TechTorch",
+            0.98,
+        ),
     ];
     for (cat, label, conf) in &important {
-        ainm_server::graph::insert_node(&pool, user, "semantic", cat, label, &serde_json::json!({}), *conf, &prov, &tags).await.unwrap();
+        ainm_server::graph::insert_node(
+            &pool,
+            user,
+            "semantic",
+            cat,
+            label,
+            &serde_json::json!({}),
+            *conf,
+            &prov,
+            &tags,
+        )
+        .await
+        .unwrap();
     }
 
     // 290 NOISE facts — OLD valid_from (400-700 days) + varied confidence, via raw SQL
@@ -789,37 +1637,55 @@ async fn dogfood_scale_test() {
     let store_total = important.len() + 290;
 
     // Arm B (dump): no query, no filter, no ranking — the firehose.
-    let dump = ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200).await.unwrap();
+    let dump = ainm_server::graph::query_nodes(&pool, user, None, None, None, "current", 0.0, 200)
+        .await
+        .unwrap();
     let arm_b_count = dump.len();
     let arm_b_chars: usize = dump.iter().map(|n| n.label.len()).sum();
 
     // Arm C (briefing): recency x confidence ranking, query boost, budget pack.
     let c = ainm_server::briefing::generate_briefing(
-        &pool, user, "agent@x", thread, ainm_server::briefing::ConsentLevel::Standard,
-    ).await.unwrap();
+        &pool,
+        user,
+        "agent@x",
+        thread,
+        ainm_server::briefing::ConsentLevel::Standard,
+    )
+    .await
+    .unwrap();
     let c_blob = serde_json::to_string(&c).unwrap();
 
     // C injected fact count = count of facts across all sections arrays.
     let sections = c.get("sections").unwrap().as_object().unwrap();
-    let arm_c_fact_count: usize = sections.values()
+    let arm_c_fact_count: usize = sections
+        .values()
         .map(|v| v.as_array().map(|a| a.len()).unwrap_or(0))
         .sum();
     let arm_c_char_budget_used = c.get("char_budget_used").unwrap().as_u64().unwrap();
-    let arm_c_peer_card = c.get("peer_card").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let arm_c_peer_card = c
+        .get("peer_card")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let mut arm_c_sections_keys: Vec<String> = sections.keys().cloned().collect();
     arm_c_sections_keys.sort();
 
     // Diagnostic: per-section counts, and which noise ("fact" category) leaked in.
     let mut section_counts: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for (k, v) in sections.iter() {
-        section_counts.insert(k.clone(), serde_json::json!(v.as_array().map(|a| a.len()).unwrap_or(0)));
+        section_counts.insert(
+            k.clone(),
+            serde_json::json!(v.as_array().map(|a| a.len()).unwrap_or(0)),
+        );
     }
     // Count noise that leaked into C and which trivia indices (recency signal check).
     let mut leaked_noise_indices: Vec<i64> = Vec::new();
     for cap in c_blob.match_indices("Random trivia fact number ") {
         let tail = &c_blob[cap.0 + "Random trivia fact number ".len()..];
         let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(n) = num.parse::<i64>() { leaked_noise_indices.push(n); }
+        if let Ok(n) = num.parse::<i64>() {
+            leaked_noise_indices.push(n);
+        }
     }
     leaked_noise_indices.sort();
     let arm_c_noise_leaked = leaked_noise_indices.len();
@@ -841,121 +1707,363 @@ async fn dogfood_scale_test() {
     std::fs::create_dir_all(dir).unwrap();
     let path = format!("{dir}/dogfood_scale.json");
     std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
-    println!("=== DOGFOOD SCALE ===\n{}", serde_json::to_string_pretty(&out).unwrap());
+    println!(
+        "=== DOGFOOD SCALE ===\n{}",
+        serde_json::to_string_pretty(&out).unwrap()
+    );
 
     // ── Assertions (the proof) ──
     // 1) All 10 important facts surface in C despite 300-fact store + budget
     for i in 1..=10 {
-        assert!(c_blob.contains(&format!("[IMP{i}]")), "C must include important fact IMP{i}");
+        assert!(
+            c_blob.contains(&format!("[IMP{i}]")),
+            "C must include important fact IMP{i}"
+        );
     }
     // 2) C is focused: far fewer facts than the dump, and under budget
-    assert!(arm_c_fact_count < 25, "C should inject a focused set, got {arm_c_fact_count}");
-    assert!(arm_b_count >= 200, "dump returns the firehose, got {arm_b_count}");
-    assert!(arm_c_char_budget_used <= 4000, "C must be under budget, got {arm_c_char_budget_used}");
+    assert!(
+        arm_c_fact_count < 25,
+        "C should inject a focused set, got {arm_c_fact_count}"
+    );
+    assert!(
+        arm_b_count >= 200,
+        "dump returns the firehose, got {arm_b_count}"
+    );
+    assert!(
+        arm_c_char_budget_used <= 4000,
+        "C must be under budget, got {arm_c_char_budget_used}"
+    );
     // 3) C drops stale noise
-    assert!(!c_blob.contains("Random trivia fact number 250"), "stale noise must be excluded from C");
+    assert!(
+        !c_blob.contains("Random trivia fact number 250"),
+        "stale noise must be excluded from C"
+    );
 }
 
 // ── Briefing: Consent scoping enforcement ─────────────────────────────────
 
 #[tokio::test]
 async fn briefing_minimal_scope_shows_only_identity_categories() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("pcs_min");
     let agent = unique_addr("pcs_min_agent");
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    graph::insert_node(&pool, &user, "semantic", "fact", "Name is Dana", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "skill", "Expert in Rust", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "procedural", "pattern", "Works in sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Name is Dana",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "skill",
+        "Expert in Rust",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "procedural",
+        "pattern",
+        "Works in sprints",
+        &serde_json::json!({}),
+        0.85,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
-    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_min", ConsentLevel::Minimal).await.unwrap();
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_min", ConsentLevel::Minimal)
+        .await
+        .unwrap();
     let sections = b.get("sections").unwrap().as_object().unwrap();
-    assert!(sections.contains_key("fact"), "identity 'fact' must be present at minimal: {sections:?}");
-    assert!(!sections.contains_key("skill"), "expertise 'skill' must be excluded at minimal");
-    assert!(!sections.contains_key("pattern"), "'pattern' must be excluded at minimal");
+    assert!(
+        sections.contains_key("fact"),
+        "identity 'fact' must be present at minimal: {sections:?}"
+    );
+    assert!(
+        !sections.contains_key("skill"),
+        "expertise 'skill' must be excluded at minimal"
+    );
+    assert!(
+        !sections.contains_key("pattern"),
+        "'pattern' must be excluded at minimal"
+    );
 }
 
 #[tokio::test]
 async fn briefing_standard_scope_excludes_history_and_patterns() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("pcs_std");
     let agent = unique_addr("pcs_std_agent");
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    graph::insert_node(&pool, &user, "semantic", "fact", "Founder", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "semantic", "preference", "Likes Rust", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "episodic", "decision", "Chose Axum", &serde_json::json!({}), 0.88, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "episodic", "outcome", "Shipped v1", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "procedural", "pattern", "Sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Founder",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "preference",
+        "Likes Rust",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "episodic",
+        "decision",
+        "Chose Axum",
+        &serde_json::json!({}),
+        0.88,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "episodic",
+        "outcome",
+        "Shipped v1",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "procedural",
+        "pattern",
+        "Sprints",
+        &serde_json::json!({}),
+        0.85,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
-    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_std", ConsentLevel::Standard).await.unwrap();
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_std", ConsentLevel::Standard)
+        .await
+        .unwrap();
     let sections = b.get("sections").unwrap().as_object().unwrap();
     assert!(sections.contains_key("fact"), "standard includes fact");
-    assert!(sections.contains_key("preference"), "standard includes preference");
-    assert!(sections.contains_key("decision"), "standard includes decision (goals)");
-    assert!(!sections.contains_key("outcome"), "outcome is history-only, excluded at standard");
-    assert!(!sections.contains_key("pattern"), "pattern is patterns-only, excluded at standard");
+    assert!(
+        sections.contains_key("preference"),
+        "standard includes preference"
+    );
+    assert!(
+        sections.contains_key("decision"),
+        "standard includes decision (goals)"
+    );
+    assert!(
+        !sections.contains_key("outcome"),
+        "outcome is history-only, excluded at standard"
+    );
+    assert!(
+        !sections.contains_key("pattern"),
+        "pattern is patterns-only, excluded at standard"
+    );
 
     // Belt-and-suspenders: excluded facts must not leak via graph_snapshot either.
     let snapshot_str = serde_json::to_string(b.get("graph_snapshot").unwrap()).unwrap();
-    assert!(!snapshot_str.contains("Shipped v1"), "history-only fact must not leak via graph_snapshot: {snapshot_str}");
-    assert!(!snapshot_str.contains("Sprints"), "patterns-only fact must not leak via graph_snapshot: {snapshot_str}");
+    assert!(
+        !snapshot_str.contains("Shipped v1"),
+        "history-only fact must not leak via graph_snapshot: {snapshot_str}"
+    );
+    assert!(
+        !snapshot_str.contains("Sprints"),
+        "patterns-only fact must not leak via graph_snapshot: {snapshot_str}"
+    );
 }
 
 #[tokio::test]
 async fn briefing_full_scope_shows_all_categories() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("pcs_full");
     let agent = unique_addr("pcs_full_agent");
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    graph::insert_node(&pool, &user, "semantic", "fact", "Founder", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "episodic", "outcome", "Shipped v1", &serde_json::json!({}), 0.9, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "procedural", "pattern", "Sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Founder",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "episodic",
+        "outcome",
+        "Shipped v1",
+        &serde_json::json!({}),
+        0.9,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "procedural",
+        "pattern",
+        "Sprints",
+        &serde_json::json!({}),
+        0.85,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
-    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_full", ConsentLevel::Full).await.unwrap();
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_full", ConsentLevel::Full)
+        .await
+        .unwrap();
     let sections = b.get("sections").unwrap().as_object().unwrap();
-    assert!(sections.contains_key("fact") && sections.contains_key("outcome") && sections.contains_key("pattern"),
-        "full consent surfaces every category: {sections:?}");
+    assert!(
+        sections.contains_key("fact")
+            && sections.contains_key("outcome")
+            && sections.contains_key("pattern"),
+        "full consent surfaces every category: {sections:?}"
+    );
 }
 
 #[tokio::test]
 async fn briefing_unmapped_scope_returns_empty_without_leak() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("pcs_empty");
     let agent = unique_addr("pcs_empty_agent");
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    graph::insert_node(&pool, &user, "semantic", "fact", "Secret name", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Secret name",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
     // A non-empty grant whose scope maps to NO categories (resolve_scopes returns it verbatim
     // because it's non-empty; scope_to_categories("bogus") = vec![] → allowed is empty).
-    briefing::grant_scopes(&pool, &user, &agent, &["bogus".to_string()], ConsentLevel::Minimal).await.unwrap();
+    briefing::grant_scopes(
+        &pool,
+        &user,
+        &agent,
+        &["bogus".to_string()],
+        ConsentLevel::Minimal,
+    )
+    .await
+    .unwrap();
 
-    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_empty", ConsentLevel::Standard).await.unwrap();
+    let b =
+        briefing::generate_briefing(&pool, &user, &agent, "pcs_t_empty", ConsentLevel::Standard)
+            .await
+            .unwrap();
     let sections = b.get("sections").unwrap().as_object().unwrap();
-    assert!(sections.is_empty(), "no category granted → empty sections (no leak): {sections:?}");
-    assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "", "no peer card when nothing granted");
+    assert!(
+        sections.is_empty(),
+        "no category granted → empty sections (no leak): {sections:?}"
+    );
+    assert_eq!(
+        b.get("peer_card").unwrap().as_str().unwrap(),
+        "",
+        "no peer card when nothing granted"
+    );
     let blob = serde_json::to_string(&b).unwrap();
-    assert!(!blob.contains("Secret name"), "no out-of-scope fact may leak into the briefing");
+    assert!(
+        !blob.contains("Secret name"),
+        "no out-of-scope fact may leak into the briefing"
+    );
 }
 
 // ── Graph: Thread Message Texts ───────────────────────────────────────────
 
 #[tokio::test]
 async fn fetch_recent_thread_texts_returns_newest_first() {
-    let Some(pool) = test_pool().await else { return; };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let thread = unique_addr("thread_texts");
     sqlx::query("INSERT INTO threads (id, origin_domain) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-        .bind(&thread).bind("test.ainm.local").execute(&pool).await.unwrap();
+        .bind(&thread)
+        .bind("test.ainm.local")
+        .execute(&pool)
+        .await
+        .unwrap();
     for (seq, txt) in [(1i64, "hello rust"), (2, "postgres migration")] {
-        sqlx::query("INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,$2,$3,$4)")
-            .bind(&thread).bind(seq).bind("u@a")
-            .bind(serde_json::json!({"text": txt}))
-            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO messages (thread_id, sequence, from_addr, content) VALUES ($1,$2,$3,$4)",
+        )
+        .bind(&thread)
+        .bind(seq)
+        .bind("u@a")
+        .bind(serde_json::json!({"text": txt}))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
-    let texts = ainm_server::graph::fetch_recent_thread_texts(&pool, &thread, 10).await.unwrap();
+    let texts = ainm_server::graph::fetch_recent_thread_texts(&pool, &thread, 10)
+        .await
+        .unwrap();
     assert_eq!(texts.len(), 2);
     assert_eq!(texts[0], "postgres migration");
     assert!(texts.contains(&"hello rust".to_string()));
@@ -963,29 +2071,81 @@ async fn fetch_recent_thread_texts_returns_newest_first() {
 
 #[tokio::test]
 async fn briefing_peer_card_gated_by_identity_scope() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let user = unique_addr("pcs_pc");
     let agent = unique_addr("pcs_pc_agent");
     let prov = serde_json::json!({});
     let tags = serde_json::json!([]);
-    graph::insert_node(&pool, &user, "semantic", "fact", "Name is Dana", &serde_json::json!({}), 0.95, &prov, &tags).await.unwrap();
-    graph::insert_node(&pool, &user, "procedural", "pattern", "Works in sprints", &serde_json::json!({}), 0.85, &prov, &tags).await.unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "semantic",
+        "fact",
+        "Name is Dana",
+        &serde_json::json!({}),
+        0.95,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
+    graph::insert_node(
+        &pool,
+        &user,
+        "procedural",
+        "pattern",
+        "Works in sprints",
+        &serde_json::json!({}),
+        0.85,
+        &prov,
+        &tags,
+    )
+    .await
+    .unwrap();
 
     // Per-agent grant of ONLY the patterns scope — no identity.
-    briefing::grant_scopes(&pool, &user, &agent, &["patterns".to_string()], ConsentLevel::Full).await.unwrap();
+    briefing::grant_scopes(
+        &pool,
+        &user,
+        &agent,
+        &["patterns".to_string()],
+        ConsentLevel::Full,
+    )
+    .await
+    .unwrap();
 
-    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_pc", ConsentLevel::Standard).await.unwrap();
+    let b = briefing::generate_briefing(&pool, &user, &agent, "pcs_t_pc", ConsentLevel::Standard)
+        .await
+        .unwrap();
     let sections = b.get("sections").unwrap().as_object().unwrap();
-    assert!(sections.contains_key("pattern"), "granted patterns scope sees pattern facts");
-    assert!(!sections.contains_key("fact"), "no identity scope → identity 'fact' excluded");
-    assert_eq!(b.get("peer_card").unwrap().as_str().unwrap(), "",
-        "peer card must be empty when the identity scope is not granted");
+    assert!(
+        sections.contains_key("pattern"),
+        "granted patterns scope sees pattern facts"
+    );
+    assert!(
+        !sections.contains_key("fact"),
+        "no identity scope → identity 'fact' excluded"
+    );
+    assert_eq!(
+        b.get("peer_card").unwrap().as_str().unwrap(),
+        "",
+        "peer card must be empty when the identity scope is not granted"
+    );
 }
 
 #[tokio::test]
 async fn test_accounts_migration_applies() {
-    let Some(pool) = test_pool().await else { return };
-    for table in ["accounts", "account_keys", "email_verifications", "key_escrow"] {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    for table in [
+        "accounts",
+        "account_keys",
+        "email_verifications",
+        "key_escrow",
+    ] {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
         )
@@ -999,7 +2159,9 @@ async fn test_accounts_migration_applies() {
 
 #[tokio::test]
 async fn test_account_repo_roundtrip() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     use ainm_server::accounts;
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
     let username = format!("user_{uniq}");
@@ -1011,50 +2173,73 @@ async fn test_account_repo_roundtrip() {
     assert_eq!(acct.status, "pending");
     assert_eq!(acct.address, format!("{username}@test.ainm.local"));
 
-    let dup = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await;
+    let dup =
+        accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await;
     assert!(dup.is_err(), "duplicate account must be rejected");
 
     accounts::set_email_verified(&pool, acct.id).await.unwrap();
-    accounts::insert_account_key(&pool, acct.id, &format!("pk_{uniq}"), Some("iphone")).await.unwrap();
+    accounts::insert_account_key(&pool, acct.id, &format!("pk_{uniq}"), Some("iphone"))
+        .await
+        .unwrap();
 
-    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().expect("active key");
+    let key = accounts::find_active_key(&pool, acct.id)
+        .await
+        .unwrap()
+        .expect("active key");
     assert_eq!(key.public_key, format!("pk_{uniq}"));
 
     let second = accounts::insert_account_key(&pool, acct.id, &format!("pk2_{uniq}"), None).await;
     assert!(second.is_err(), "second active key must be rejected");
 
-    accounts::set_status(&pool, acct.id, "active").await.unwrap();
-    let found = accounts::find_account_by_address(&pool, &acct.address).await.unwrap().unwrap();
+    accounts::set_status(&pool, acct.id, "active")
+        .await
+        .unwrap();
+    let found = accounts::find_account_by_address(&pool, &acct.address)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.status, "active");
 }
 
 #[tokio::test]
 async fn test_otp_verify_flow() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     use ainm_server::email;
     let eh = format!("eh_{:x}", uuid::Uuid::new_v4().as_fields().0);
 
     let code = "424242";
-    email::store_verification(&pool, &eh, &email::hash_code(code), "signup").await.unwrap();
+    email::store_verification(&pool, &eh, &email::hash_code(code), "signup")
+        .await
+        .unwrap();
 
     assert_eq!(
-        email::verify_code(&pool, &eh, "signup", &email::hash_code("000000")).await.unwrap(),
+        email::verify_code(&pool, &eh, "signup", &email::hash_code("000000"))
+            .await
+            .unwrap(),
         email::VerifyOutcome::WrongCode
     );
     assert_eq!(
-        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code))
+            .await
+            .unwrap(),
         email::VerifyOutcome::Ok
     );
     assert_eq!(
-        email::verify_code(&pool, &eh, "signup", &email::hash_code(code)).await.unwrap(),
+        email::verify_code(&pool, &eh, "signup", &email::hash_code(code))
+            .await
+            .unwrap(),
         email::VerifyOutcome::NotFound
     );
 }
 
 #[tokio::test]
 async fn test_signup_verify_bind_key() {
-    let Some(pool) = test_pool().await else { return };
-    use ainm_server::{accounts, email, auth_token, protocol};
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    use ainm_server::{accounts, auth_token, email, protocol};
     use email::EmailSender;
 
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
@@ -1062,33 +2247,61 @@ async fn test_signup_verify_bind_key() {
     let user_email = format!("{username}@mail.test");
     let email_hash = email::hash_email(&user_email);
 
-    let _acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let _acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash)
+        .await
+        .unwrap();
     let code = email::generate_code();
-    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup")
+        .await
+        .unwrap();
     let mock = email::MockEmailSender::new();
     mock.send_code(&user_email, &code, "signup").await.unwrap();
     assert!(mock.last_code(&user_email, "signup").is_some());
 
     assert_eq!(
-        email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(),
+        email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code))
+            .await
+            .unwrap(),
         email::VerifyOutcome::Ok
     );
-    let acct = accounts::find_account_by_email_hash(&pool, &email_hash).await.unwrap().unwrap();
+    let acct = accounts::find_account_by_email_hash(&pool, &email_hash)
+        .await
+        .unwrap()
+        .unwrap();
     accounts::set_email_verified(&pool, acct.id).await.unwrap();
 
     let signer = auth_token::TokenSigner::new(b"itest-secret");
-    let token = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
-    let aid = signer.verify(&token, "enrollment", protocol::now_unix()).unwrap();
-    accounts::insert_account_key(&pool, uuid::Uuid::parse_str(&aid).unwrap(), &format!("pk_{uniq}"), Some("test")).await.unwrap();
+    let token = signer.issue(
+        &acct.id.to_string(),
+        "enrollment",
+        protocol::now_unix(),
+        900,
+    );
+    let aid = signer
+        .verify(&token, "enrollment", protocol::now_unix())
+        .unwrap();
+    accounts::insert_account_key(
+        &pool,
+        uuid::Uuid::parse_str(&aid).unwrap(),
+        &format!("pk_{uniq}"),
+        Some("test"),
+    )
+    .await
+    .unwrap();
 
-    let key = accounts::find_active_key(&pool, acct.id).await.unwrap().unwrap();
+    let key = accounts::find_active_key(&pool, acct.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(key.public_key, format!("pk_{uniq}"));
 }
 
 #[tokio::test]
 async fn test_handshake_enforcement() {
-    let Some(pool) = test_pool().await else { return };
-    use ainm_server::{accounts, signing, identity};
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    use ainm_server::{accounts, identity, signing};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -1097,49 +2310,109 @@ async fn test_handshake_enforcement() {
     let address = format!("{username}@test.ainm.local");
 
     let key_a = identity::generate_keypair(&address).unwrap();
-    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
-    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key_a.public_key_bytes), Some("a")).await.unwrap();
-    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+    let acct = accounts::create_pending_account(
+        &pool,
+        &username,
+        "test.ainm.local",
+        &format!("eh_{uniq}"),
+    )
+    .await
+    .unwrap();
+    accounts::insert_account_key(
+        &pool,
+        acct.id,
+        &b64.encode(&key_a.public_key_bytes),
+        Some("a"),
+    )
+    .await
+    .unwrap();
+    accounts::set_status(&pool, acct.id, "active")
+        .await
+        .unwrap();
 
-    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    let found = accounts::find_account_by_address(&pool, &address)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.status, "active");
-    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let reg = accounts::find_active_key(&pool, found.id)
+        .await
+        .unwrap()
+        .unwrap();
     let reg_bytes = b64.decode(&reg.public_key).unwrap();
 
     // Correct key A signs -> accepted.
     let (sig_a, ts_a) = signing::sign_init(&key_a.key_pair, &address).unwrap();
     let now = chrono::Utc::now();
-    assert!(signing::verify_init(&reg_bytes, &address, &ts_a, &sig_a, now, 300), "bound key must be accepted");
+    assert!(
+        signing::verify_init(&reg_bytes, &address, &ts_a, &sig_a, now, 300),
+        "bound key must be accepted"
+    );
 
     // Spoof: key B signs as alice -> rejected.
     let key_b = identity::generate_keypair(&address).unwrap();
     let (sig_b, ts_b) = signing::sign_init(&key_b.key_pair, &address).unwrap();
-    assert!(!signing::verify_init(&reg_bytes, &address, &ts_b, &sig_b, now, 300), "spoofed key must be rejected");
+    assert!(
+        !signing::verify_init(&reg_bytes, &address, &ts_b, &sig_b, now, 300),
+        "spoofed key must be rejected"
+    );
 
     // Unknown address -> no account row.
     let unknown = format!("ghost{uniq}@test.ainm.local");
-    assert!(accounts::find_account_by_address(&pool, &unknown).await.unwrap().is_none());
+    assert!(accounts::find_account_by_address(&pool, &unknown)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
 async fn test_escrow_store_and_fetch() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     use ainm_server::{accounts, escrow};
 
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
     let username = format!("rec{uniq}");
-    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
+    let acct = accounts::create_pending_account(
+        &pool,
+        &username,
+        "test.ainm.local",
+        &format!("eh_{uniq}"),
+    )
+    .await
+    .unwrap();
 
     let secret = [9u8; 32];
     let pin = "135790";
     let enrolled = escrow::enroll(&secret, pin).unwrap();
-    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+    escrow::store_escrow(
+        &pool,
+        acct.id,
+        &enrolled.ciphertext,
+        &enrolled.kdf_params,
+        &enrolled.oprf_key,
+    )
+    .await
+    .unwrap();
 
     // Correct-PIN recovery round-trip via the server functions.
     let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
-    let fetched = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.expect("fetch");
-    let recovered = escrow::client_finalize_and_open(pin, &fetched.kdf_params, &blind, &fetched.evaluated_b64, &fetched.ciphertext).unwrap();
-    assert_eq!(recovered, secret, "correct PIN recovers the escrowed secret");
+    let fetched = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64)
+        .await
+        .expect("fetch");
+    let recovered = escrow::client_finalize_and_open(
+        pin,
+        &fetched.kdf_params,
+        &blind,
+        &fetched.evaluated_b64,
+        &fetched.ciphertext,
+    )
+    .unwrap();
+    assert_eq!(
+        recovered, secret,
+        "correct PIN recovers the escrowed secret"
+    );
 
     // Exhaustion: keep guessing until Destroyed (max_attempts=5 → destroyed on the 5th request).
     let mut destroyed = false;
@@ -1147,11 +2420,17 @@ async fn test_escrow_store_and_fetch() {
         let b = escrow::client_blind("000000", &enrolled.kdf_params).unwrap();
         match escrow::fetch_and_evaluate(&pool, acct.id, &b.blinded_b64).await {
             Ok(_) => continue,
-            Err(escrow::FetchError::Destroyed) => { destroyed = true; break; }
+            Err(escrow::FetchError::Destroyed) => {
+                destroyed = true;
+                break;
+            }
             Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
-    assert!(destroyed, "escrow must be destroyed after exhausting attempts");
+    assert!(
+        destroyed,
+        "escrow must be destroyed after exhausting attempts"
+    );
 
     // Post-destruction fetch fails closed.
     let b = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
@@ -1163,8 +2442,10 @@ async fn test_escrow_store_and_fetch() {
 
 #[tokio::test]
 async fn test_account_lifecycle_e2e() {
-    let Some(pool) = test_pool().await else { return };
-    use ainm_server::{accounts, email, escrow, signing, identity, auth_token, protocol};
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    use ainm_server::{accounts, auth_token, email, escrow, identity, protocol, signing};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -1176,42 +2457,97 @@ async fn test_account_lifecycle_e2e() {
     let signer = auth_token::TokenSigner::new(b"e2e-secret");
 
     // signup + verify
-    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash).await.unwrap();
+    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &email_hash)
+        .await
+        .unwrap();
     let code = email::generate_code();
-    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup").await.unwrap();
-    assert_eq!(email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code)).await.unwrap(), email::VerifyOutcome::Ok);
+    email::store_verification(&pool, &email_hash, &email::hash_code(&code), "signup")
+        .await
+        .unwrap();
+    assert_eq!(
+        email::verify_code(&pool, &email_hash, "signup", &email::hash_code(&code))
+            .await
+            .unwrap(),
+        email::VerifyOutcome::Ok
+    );
     accounts::set_email_verified(&pool, acct.id).await.unwrap();
 
     // bind key (gated by enrollment token)
     let key = identity::generate_keypair(&address).unwrap();
-    let etok = signer.issue(&acct.id.to_string(), "enrollment", protocol::now_unix(), 900);
-    let aid = uuid::Uuid::parse_str(&signer.verify(&etok, "enrollment", protocol::now_unix()).unwrap()).unwrap();
-    accounts::insert_account_key(&pool, aid, &b64.encode(&key.public_key_bytes), Some("e2e")).await.unwrap();
+    let etok = signer.issue(
+        &acct.id.to_string(),
+        "enrollment",
+        protocol::now_unix(),
+        900,
+    );
+    let aid = uuid::Uuid::parse_str(
+        &signer
+            .verify(&etok, "enrollment", protocol::now_unix())
+            .unwrap(),
+    )
+    .unwrap();
+    accounts::insert_account_key(&pool, aid, &b64.encode(&key.public_key_bytes), Some("e2e"))
+        .await
+        .unwrap();
 
     // store escrow + activate
     let secret = [3u8; 32];
     let pin = "112358";
     let enrolled = escrow::enroll(&secret, pin).unwrap();
-    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
-    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+    escrow::store_escrow(
+        &pool,
+        acct.id,
+        &enrolled.ciphertext,
+        &enrolled.kdf_params,
+        &enrolled.oprf_key,
+    )
+    .await
+    .unwrap();
+    accounts::set_status(&pool, acct.id, "active")
+        .await
+        .unwrap();
 
     // handshake gate accepts the bound key
-    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
+    let found = accounts::find_account_by_address(&pool, &address)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.status, "active");
-    let reg = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let reg = accounts::find_active_key(&pool, found.id)
+        .await
+        .unwrap()
+        .unwrap();
     let (sig, ts) = signing::sign_init(&key.key_pair, &address).unwrap();
-    assert!(signing::verify_init(&b64.decode(&reg.public_key).unwrap(), &address, &ts, &sig, chrono::Utc::now(), 300));
+    assert!(signing::verify_init(
+        &b64.decode(&reg.public_key).unwrap(),
+        &address,
+        &ts,
+        &sig,
+        chrono::Utc::now(),
+        300
+    ));
 
     // recovery restores the same secret
     let blind = escrow::client_blind(pin, &enrolled.kdf_params).unwrap();
-    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.unwrap();
-    let recovered = escrow::client_finalize_and_open(pin, &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
+    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64)
+        .await
+        .unwrap();
+    let recovered = escrow::client_finalize_and_open(
+        pin,
+        &f.kdf_params,
+        &blind,
+        &f.evaluated_b64,
+        &f.ciphertext,
+    )
+    .unwrap();
     assert_eq!(recovered, secret);
 }
 
 #[tokio::test]
 async fn test_well_known_identity() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     use ainm_server::{accounts, identity};
     use base64::Engine;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -1220,34 +2556,83 @@ async fn test_well_known_identity() {
     let username = format!("wk{uniq}");
     let address = format!("{username}@test.ainm.local");
     let key = identity::generate_keypair(&address).unwrap();
-    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
-    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key.public_key_bytes), None).await.unwrap();
-    accounts::set_status(&pool, acct.id, "active").await.unwrap();
+    let acct = accounts::create_pending_account(
+        &pool,
+        &username,
+        "test.ainm.local",
+        &format!("eh_{uniq}"),
+    )
+    .await
+    .unwrap();
+    accounts::insert_account_key(&pool, acct.id, &b64.encode(&key.public_key_bytes), None)
+        .await
+        .unwrap();
+    accounts::set_status(&pool, acct.id, "active")
+        .await
+        .unwrap();
 
-    let found = accounts::find_account_by_address(&pool, &address).await.unwrap().unwrap();
-    let active = accounts::find_active_key(&pool, found.id).await.unwrap().unwrap();
+    let found = accounts::find_account_by_address(&pool, &address)
+        .await
+        .unwrap()
+        .unwrap();
+    let active = accounts::find_active_key(&pool, found.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(active.public_key, b64.encode(&key.public_key_bytes));
 }
 
 #[tokio::test]
 async fn test_recover_params_is_free() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     use ainm_server::{accounts, escrow};
     let uniq = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
     let username = format!("rp{uniq}");
-    let acct = accounts::create_pending_account(&pool, &username, "test.ainm.local", &format!("eh_{uniq}")).await.unwrap();
-    let enrolled = escrow::enroll(&[1u8;32], "246802").unwrap();
-    escrow::store_escrow(&pool, acct.id, &enrolled.ciphertext, &enrolled.kdf_params, &enrolled.oprf_key).await.unwrap();
+    let acct = accounts::create_pending_account(
+        &pool,
+        &username,
+        "test.ainm.local",
+        &format!("eh_{uniq}"),
+    )
+    .await
+    .unwrap();
+    let enrolled = escrow::enroll(&[1u8; 32], "246802").unwrap();
+    escrow::store_escrow(
+        &pool,
+        acct.id,
+        &enrolled.ciphertext,
+        &enrolled.kdf_params,
+        &enrolled.oprf_key,
+    )
+    .await
+    .unwrap();
 
     // get_kdf_params returns the same salt, twice, without consuming attempts.
-    let (k1, d1) = escrow::get_kdf_params(&pool, acct.id).await.unwrap().unwrap();
-    let (k2, _) = escrow::get_kdf_params(&pool, acct.id).await.unwrap().unwrap();
+    let (k1, d1) = escrow::get_kdf_params(&pool, acct.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let (k2, _) = escrow::get_kdf_params(&pool, acct.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(k1.salt, enrolled.kdf_params.salt);
     assert_eq!(k1.salt, k2.salt);
     assert!(!d1);
     // A real fetch still works afterward (attempts were not pre-consumed): correct PIN recovers.
     let blind = escrow::client_blind("246802", &k1).unwrap();
-    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64).await.unwrap();
-    let secret = escrow::client_finalize_and_open("246802", &f.kdf_params, &blind, &f.evaluated_b64, &f.ciphertext).unwrap();
-    assert_eq!(secret, [1u8;32]);
+    let f = escrow::fetch_and_evaluate(&pool, acct.id, &blind.blinded_b64)
+        .await
+        .unwrap();
+    let secret = escrow::client_finalize_and_open(
+        "246802",
+        &f.kdf_params,
+        &blind,
+        &f.evaluated_b64,
+        &f.ciphertext,
+    )
+    .unwrap();
+    assert_eq!(secret, [1u8; 32]);
 }

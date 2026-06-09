@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandidateNode {
-    pub node_type: String,   // semantic, episodic, procedural
-    pub category: String,    // preference, fact, skill, event, decision, pattern, etc.
+    pub node_type: String, // semantic, episodic, procedural
+    pub category: String,  // preference, fact, skill, event, decision, pattern, etc.
     pub label: String,
     pub confidence: f32,
     pub properties: serde_json::Value,
@@ -59,16 +59,30 @@ pub enum ChatMessage {
     User(String),
     AssistantText(String),
     AssistantToolCalls(Vec<ToolCall>),
-    ToolResult { tool_call_id: String, content: String },
+    ToolResult {
+        tool_call_id: String,
+        content: String,
+    },
 }
 
 impl ChatMessage {
-    pub fn system(s: impl Into<String>) -> Self { ChatMessage::System(s.into()) }
-    pub fn user(s: impl Into<String>) -> Self { ChatMessage::User(s.into()) }
-    pub fn assistant_text(s: impl Into<String>) -> Self { ChatMessage::AssistantText(s.into()) }
-    pub fn assistant_tool_calls(calls: Vec<ToolCall>) -> Self { ChatMessage::AssistantToolCalls(calls) }
+    pub fn system(s: impl Into<String>) -> Self {
+        ChatMessage::System(s.into())
+    }
+    pub fn user(s: impl Into<String>) -> Self {
+        ChatMessage::User(s.into())
+    }
+    pub fn assistant_text(s: impl Into<String>) -> Self {
+        ChatMessage::AssistantText(s.into())
+    }
+    pub fn assistant_tool_calls(calls: Vec<ToolCall>) -> Self {
+        ChatMessage::AssistantToolCalls(calls)
+    }
     pub fn tool_result(id: impl Into<String>, content: impl Into<String>) -> Self {
-        ChatMessage::ToolResult { tool_call_id: id.into(), content: content.into() }
+        ChatMessage::ToolResult {
+            tool_call_id: id.into(),
+            content: content.into(),
+        }
     }
 }
 
@@ -94,20 +108,26 @@ impl Serialize for ChatMessage {
                 st.end()
             }
             ChatMessage::AssistantToolCalls(calls) => {
-                let tool_calls: Vec<serde_json::Value> = calls.iter().map(|c| {
-                    serde_json::json!({
-                        "id": c.id,
-                        "type": "function",
-                        "function": { "name": c.name, "arguments": c.arguments.to_string() }
+                let tool_calls: Vec<serde_json::Value> = calls
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "id": c.id,
+                            "type": "function",
+                            "function": { "name": c.name, "arguments": c.arguments.to_string() }
+                        })
                     })
-                }).collect();
+                    .collect();
                 let mut st = s.serialize_struct("m", 3)?;
                 st.serialize_field("role", "assistant")?;
                 st.serialize_field("content", &serde_json::Value::Null)?;
                 st.serialize_field("tool_calls", &tool_calls)?;
                 st.end()
             }
-            ChatMessage::ToolResult { tool_call_id, content } => {
+            ChatMessage::ToolResult {
+                tool_call_id,
+                content,
+            } => {
                 let mut st = s.serialize_struct("m", 3)?;
                 st.serialize_field("role", "tool")?;
                 st.serialize_field("tool_call_id", tool_call_id)?;
@@ -132,10 +152,13 @@ pub struct TokenUsage {
     // enable future per-token accounting. Only `total_tokens` is currently
     // read by MeteredLlmClient for quota debiting.
     #[allow(dead_code)]
-    #[serde(default)] pub prompt_tokens: u32,
+    #[serde(default)]
+    pub prompt_tokens: u32,
     #[allow(dead_code)]
-    #[serde(default)] pub completion_tokens: u32,
-    #[serde(default)] pub total_tokens: u32,
+    #[serde(default)]
+    pub completion_tokens: u32,
+    #[serde(default)]
+    pub total_tokens: u32,
 }
 
 /// The result of one chat turn: the assistant turn plus optional usage.
@@ -150,10 +173,8 @@ pub struct ChatResponse {
 #[async_trait::async_trait]
 pub trait LlmClient: Send + Sync {
     /// Extract entities and relationships from a batch of conversation messages.
-    async fn extract(
-        &self,
-        messages: &[ConversationMessage],
-    ) -> Result<ExtractionResult, AppError>;
+    async fn extract(&self, messages: &[ConversationMessage])
+        -> Result<ExtractionResult, AppError>;
 
     /// Run one chat turn with tools available. Returns either final assistant text
     /// or the tool calls the model wants executed. Single request/response (the runtime
@@ -163,7 +184,10 @@ pub trait LlmClient: Send + Sync {
         _messages: &[ChatMessage],
         _tools: &[ToolSchema],
     ) -> Result<ChatResponse, AppError> {
-        Err(AppError::Protocol { code: -32601, message: "chat_with_tools not supported".into() })
+        Err(AppError::Protocol {
+            code: -32601,
+            message: "chat_with_tools not supported".into(),
+        })
     }
 }
 
@@ -208,7 +232,8 @@ impl OpenAiClient {
             "response_format": { "type": "json_object" },
         });
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -308,7 +333,8 @@ impl LlmClient for OpenAiClient {
             body["tool_choice"] = serde_json::json!("auto");
         }
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -339,18 +365,28 @@ impl LlmClient for OpenAiClient {
         let message = &json["choices"][0]["message"];
         if let Some(tcs) = message["tool_calls"].as_array() {
             if !tcs.is_empty() {
-                let calls = tcs.iter().filter_map(|tc| {
-                    let id = tc["id"].as_str()?.to_string();
-                    let name = tc["function"]["name"].as_str()?.to_string();
-                    let raw = tc["function"]["arguments"].as_str().unwrap_or("{}");
-                    let arguments = serde_json::from_str(raw).unwrap_or_else(|e| {
-                        tracing::warn!("[llm] tool_call {id} has unparseable arguments: {e}");
-                        serde_json::json!({})
-                    });
-                    Some(ToolCall { id, name, arguments })
-                }).collect::<Vec<_>>();
+                let calls = tcs
+                    .iter()
+                    .filter_map(|tc| {
+                        let id = tc["id"].as_str()?.to_string();
+                        let name = tc["function"]["name"].as_str()?.to_string();
+                        let raw = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                        let arguments = serde_json::from_str(raw).unwrap_or_else(|e| {
+                            tracing::warn!("[llm] tool_call {id} has unparseable arguments: {e}");
+                            serde_json::json!({})
+                        });
+                        Some(ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 if !calls.is_empty() {
-                    return Ok(ChatResponse { turn: AssistantTurn::ToolCalls(calls), usage: usage.clone() });
+                    return Ok(ChatResponse {
+                        turn: AssistantTurn::ToolCalls(calls),
+                        usage: usage.clone(),
+                    });
                 }
                 tracing::warn!(
                     "[llm] tool_calls array had {} entries but all were malformed; treating as text",
@@ -359,7 +395,10 @@ impl LlmClient for OpenAiClient {
             }
         }
         let text = message["content"].as_str().unwrap_or("").to_string();
-        Ok(ChatResponse { turn: AssistantTurn::Text(text), usage })
+        Ok(ChatResponse {
+            turn: AssistantTurn::Text(text),
+            usage,
+        })
     }
 }
 
@@ -383,7 +422,10 @@ pub struct MeteredLlmClient {
 
 #[async_trait::async_trait]
 impl LlmClient for MeteredLlmClient {
-    async fn extract(&self, messages: &[ConversationMessage]) -> Result<ExtractionResult, AppError> {
+    async fn extract(
+        &self,
+        messages: &[ConversationMessage],
+    ) -> Result<ExtractionResult, AppError> {
         self.inner.extract(messages).await
     }
 
@@ -401,7 +443,11 @@ impl LlmClient for MeteredLlmClient {
             });
         }
         let resp = self.inner.chat_with_tools(messages, tools).await?;
-        let spent = resp.usage.as_ref().map(|u| u.total_tokens).unwrap_or(self.missing_usage_fallback);
+        let spent = resp
+            .usage
+            .as_ref()
+            .map(|u| u.total_tokens)
+            .unwrap_or(self.missing_usage_fallback);
         self.store.debit(spent as i64).await;
         Ok(resp)
     }
@@ -469,17 +515,22 @@ impl LlmClient for MockLlmClient {
         if turns.is_empty() {
             Err(AppError::Protocol {
                 code: -32099,
-                message: "MockLlmClient: chat_with_tools called but turns queue is exhausted".into(),
+                message: "MockLlmClient: chat_with_tools called but turns queue is exhausted"
+                    .into(),
             })
         } else {
-            Ok(ChatResponse { turn: turns.remove(0), usage: None })
+            Ok(ChatResponse {
+                turn: turns.remove(0),
+                usage: None,
+            })
         }
     }
 }
 
 /// The fixed reply used when `AINM_LLM__MOCK` selects the constant mock client.
 /// Single source of truth: the WS E2E test asserts the delivered reply contains this.
-pub const MOCK_LLM_REPLY: &str = "[mock-llm] Hello from the AINM assistant. (no LLM key configured)";
+pub const MOCK_LLM_REPLY: &str =
+    "[mock-llm] Hello from the AINM assistant. (no LLM key configured)";
 
 /// A constant mock LLM client: every `chat_with_tools` call returns the same final
 /// text turn, and it never exhausts or errors. Unlike `MockLlmClient` (a FIFO queue
@@ -496,7 +547,10 @@ impl LlmClient for ConstantMockLlmClient {
         &self,
         _messages: &[ConversationMessage],
     ) -> Result<ExtractionResult, AppError> {
-        Ok(ExtractionResult { nodes: vec![], edges: vec![] })
+        Ok(ExtractionResult {
+            nodes: vec![],
+            edges: vec![],
+        })
     }
 
     async fn chat_with_tools(
@@ -565,7 +619,9 @@ fn extraction_system_prompt() -> String {
 
 fn parse_nodes(json: &serde_json::Value) -> Vec<CandidateNode> {
     let entities = json.get("entities").and_then(|e| e.as_array());
-    let Some(entities) = entities else { return vec![] };
+    let Some(entities) = entities else {
+        return vec![];
+    };
 
     entities
         .iter()
@@ -576,11 +632,11 @@ fn parse_nodes(json: &serde_json::Value) -> Vec<CandidateNode> {
             if label.is_empty() {
                 return None;
             }
-            let confidence = e
-                .get("confidence")
-                .and_then(|c| c.as_f64())
-                .unwrap_or(0.7) as f32;
-            let properties = e.get("properties").cloned().unwrap_or(serde_json::json!({}));
+            let confidence = e.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.7) as f32;
+            let properties = e
+                .get("properties")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
             let tags: Vec<String> = e
                 .get("tags")
                 .and_then(|t| t.as_array())
@@ -615,10 +671,7 @@ fn parse_edges(json: &serde_json::Value) -> Vec<CandidateEdge> {
             let source = r.get("source").and_then(|s| s.as_str())?.to_string();
             let target = r.get("target").and_then(|t| t.as_str())?.to_string();
             let relationship = r.get("type").and_then(|t| t.as_str())?.to_string();
-            let confidence = r
-                .get("confidence")
-                .and_then(|c| c.as_f64())
-                .unwrap_or(0.7) as f32;
+            let confidence = r.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.7) as f32;
 
             Some(CandidateEdge {
                 source_label: source,
@@ -635,59 +688,108 @@ mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
 
-    struct FakeStore { used: StdMutex<i64>, debited: StdMutex<i64> }
+    struct FakeStore {
+        used: StdMutex<i64>,
+        debited: StdMutex<i64>,
+    }
     #[async_trait::async_trait]
     impl QuotaStore for FakeStore {
-        async fn current_used(&self) -> i64 { *self.used.lock().unwrap() }
-        async fn debit(&self, tokens: i64) { *self.debited.lock().unwrap() += tokens; }
+        async fn current_used(&self) -> i64 {
+            *self.used.lock().unwrap()
+        }
+        async fn debit(&self, tokens: i64) {
+            *self.debited.lock().unwrap() += tokens;
+        }
     }
 
     struct OneTurnInner(StdMutex<u32>); // counts how many times inner was called
     #[async_trait::async_trait]
     impl LlmClient for OneTurnInner {
         async fn extract(&self, _m: &[ConversationMessage]) -> Result<ExtractionResult, AppError> {
-            Ok(ExtractionResult { nodes: vec![], edges: vec![] })
+            Ok(ExtractionResult {
+                nodes: vec![],
+                edges: vec![],
+            })
         }
-        async fn chat_with_tools(&self, _m: &[ChatMessage], _t: &[ToolSchema]) -> Result<ChatResponse, AppError> {
+        async fn chat_with_tools(
+            &self,
+            _m: &[ChatMessage],
+            _t: &[ToolSchema],
+        ) -> Result<ChatResponse, AppError> {
             *self.0.lock().unwrap() += 1;
-            Ok(ChatResponse { turn: AssistantTurn::Text("ok".into()), usage: Some(TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }) })
+            Ok(ChatResponse {
+                turn: AssistantTurn::Text("ok".into()),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    total_tokens: 15,
+                }),
+            })
         }
     }
 
     #[tokio::test]
     async fn under_budget_passes_through_and_debits() {
         let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
-        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(0), debited: StdMutex::new(0) });
-        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: true, missing_usage_fallback: 1000 };
+        let store = std::sync::Arc::new(FakeStore {
+            used: StdMutex::new(0),
+            debited: StdMutex::new(0),
+        });
+        let m = MeteredLlmClient {
+            inner: inner.clone(),
+            store: store.clone(),
+            budget: 1000,
+            enforce: true,
+            missing_usage_fallback: 1000,
+        };
         let r = m.chat_with_tools(&[], &[]).await.unwrap();
         assert!(matches!(r.turn, AssistantTurn::Text(_)));
-        assert_eq!(*inner.0.lock().unwrap(), 1);            // inner WAS called
-        assert_eq!(*store.debited.lock().unwrap(), 15);     // actual usage debited
+        assert_eq!(*inner.0.lock().unwrap(), 1); // inner WAS called
+        assert_eq!(*store.debited.lock().unwrap(), 15); // actual usage debited
     }
 
     #[tokio::test]
     async fn over_budget_returns_limit_text_and_skips_inner() {
         let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
-        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(5000), debited: StdMutex::new(0) });
-        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: true, missing_usage_fallback: 1000 };
+        let store = std::sync::Arc::new(FakeStore {
+            used: StdMutex::new(5000),
+            debited: StdMutex::new(0),
+        });
+        let m = MeteredLlmClient {
+            inner: inner.clone(),
+            store: store.clone(),
+            budget: 1000,
+            enforce: true,
+            missing_usage_fallback: 1000,
+        };
         let r = m.chat_with_tools(&[], &[]).await.unwrap();
-        match r.turn { AssistantTurn::Text(s) => assert!(s.to_lowercase().contains("limit")), _ => panic!("expected limit text") }
-        assert_eq!(*inner.0.lock().unwrap(), 0);            // inner was NOT called
+        match r.turn {
+            AssistantTurn::Text(s) => assert!(s.to_lowercase().contains("limit")),
+            _ => panic!("expected limit text"),
+        }
+        assert_eq!(*inner.0.lock().unwrap(), 0); // inner was NOT called
         assert_eq!(*store.debited.lock().unwrap(), 0);
     }
 
     #[tokio::test]
     async fn byo_path_never_blocks_but_meters() {
         let inner = std::sync::Arc::new(OneTurnInner(StdMutex::new(0)));
-        let store = std::sync::Arc::new(FakeStore { used: StdMutex::new(999_999), debited: StdMutex::new(0) });
-        let m = MeteredLlmClient { inner: inner.clone(), store: store.clone(), budget: 1000, enforce: false, missing_usage_fallback: 1000 };
+        let store = std::sync::Arc::new(FakeStore {
+            used: StdMutex::new(999_999),
+            debited: StdMutex::new(0),
+        });
+        let m = MeteredLlmClient {
+            inner: inner.clone(),
+            store: store.clone(),
+            budget: 1000,
+            enforce: false,
+            missing_usage_fallback: 1000,
+        };
         let r = m.chat_with_tools(&[], &[]).await.unwrap();
-        assert!(matches!(r.turn, AssistantTurn::Text(_)));  // not blocked despite "over budget"
+        assert!(matches!(r.turn, AssistantTurn::Text(_))); // not blocked despite "over budget"
         assert_eq!(*inner.0.lock().unwrap(), 1);
-        assert_eq!(*store.debited.lock().unwrap(), 15);     // still metered
+        assert_eq!(*store.debited.lock().unwrap(), 15); // still metered
     }
-
-
 
     #[test]
     fn chat_message_serializes_openai_shape() {
@@ -717,7 +819,9 @@ mod tests {
         let text = AssistantTurn::Text("done".into());
         assert!(matches!(text, AssistantTurn::Text(_)));
         let calls = AssistantTurn::ToolCalls(vec![ToolCall {
-            id: "c".into(), name: "n".into(), arguments: serde_json::json!({}),
+            id: "c".into(),
+            name: "n".into(),
+            arguments: serde_json::json!({}),
         }]);
         assert!(matches!(calls, AssistantTurn::ToolCalls(_)));
     }
@@ -726,16 +830,26 @@ mod tests {
     async fn mock_scripts_multi_turn_tool_use() {
         let mock = MockLlmClient::with_turns(vec![
             AssistantTurn::ToolCalls(vec![ToolCall {
-                id: "call_1".into(), name: "query_memory".into(),
+                id: "call_1".into(),
+                name: "query_memory".into(),
                 arguments: serde_json::json!({"q": "prefs"}),
             }]),
             AssistantTurn::Text("Based on your prefs, done.".into()),
         ]);
 
-        let t1 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
+        let t1 = mock
+            .chat_with_tools(&[ChatMessage::user("hi")], &[])
+            .await
+            .unwrap();
         assert!(matches!(t1.turn, AssistantTurn::ToolCalls(_)));
-        let t2 = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await.unwrap();
-        match t2.turn { AssistantTurn::Text(s) => assert!(s.contains("done")), _ => panic!("expected text") }
+        let t2 = mock
+            .chat_with_tools(&[ChatMessage::user("hi")], &[])
+            .await
+            .unwrap();
+        match t2.turn {
+            AssistantTurn::Text(s) => assert!(s.contains("done")),
+            _ => panic!("expected text"),
+        }
 
         let exhausted = mock.chat_with_tools(&[ChatMessage::user("hi")], &[]).await;
         assert!(exhausted.is_err(), "exhausted turns queue should error");
@@ -743,13 +857,17 @@ mod tests {
 
     #[tokio::test]
     async fn constant_mock_returns_same_text_and_never_exhausts() {
-        let client = ConstantMockLlmClient { reply: "canned reply".into() };
+        let client = ConstantMockLlmClient {
+            reply: "canned reply".into(),
+        };
         // Call several times — unlike MockLlmClient, it must never error or change.
         for _ in 0..5 {
             let resp = client.chat_with_tools(&[], &[]).await.unwrap();
             match resp.turn {
                 AssistantTurn::Text(t) => assert_eq!(t, "canned reply"),
-                AssistantTurn::ToolCalls(_) => panic!("constant mock must never request tool calls"),
+                AssistantTurn::ToolCalls(_) => {
+                    panic!("constant mock must never request tool calls")
+                }
             }
         }
         // extract is not exercised on the agent path; it must return an empty result, not error.
@@ -761,7 +879,10 @@ mod tests {
     fn extraction_prompt_is_closed_over_canonical_categories() {
         let p = extraction_system_prompt();
         for c in crate::categories::all() {
-            assert!(p.contains(c), "prompt must mention canonical category `{c}`");
+            assert!(
+                p.contains(c),
+                "prompt must mention canonical category `{c}`"
+            );
         }
         assert!(
             !p.contains("<<"),

@@ -40,7 +40,8 @@ pub async fn run_loop(
             Err(e) => {
                 tracing::warn!("[runtime] LLM error: {e}");
                 return TurnOutcome {
-                    final_text: "Sorry — I hit an error contacting my model. Please try again.".into(),
+                    final_text: "Sorry — I hit an error contacting my model. Please try again."
+                        .into(),
                     tool_rounds: rounds,
                     stopped_early: true,
                 };
@@ -50,7 +51,11 @@ pub async fn run_loop(
 
         match turn {
             AssistantTurn::Text(text) => {
-                return TurnOutcome { final_text: text, tool_rounds: rounds, stopped_early: false };
+                return TurnOutcome {
+                    final_text: text,
+                    tool_rounds: rounds,
+                    stopped_early: false,
+                };
             }
             AssistantTurn::ToolCalls(calls) => {
                 if rounds >= max_tool_rounds {
@@ -89,13 +94,22 @@ mod tests {
     impl ToolProvider for CannedProvider {
         async fn list_tools(&self, _scopes: &[String]) -> Vec<crate::llm::ToolSchema> {
             vec![crate::llm::ToolSchema {
-                name: "query_memory".into(), description: "q".into(),
+                name: "query_memory".into(),
+                description: "q".into(),
                 parameters: serde_json::json!({"type":"object"}),
             }]
         }
-        async fn call(&self, name: &str, _args: &serde_json::Value, _scopes: &[String]) -> ToolResult {
-            if name == "query_memory" { ToolResult::ok("user likes Rust") }
-            else { ToolResult::error("no") }
+        async fn call(
+            &self,
+            name: &str,
+            _args: &serde_json::Value,
+            _scopes: &[String],
+        ) -> ToolResult {
+            if name == "query_memory" {
+                ToolResult::ok("user likes Rust")
+            } else {
+                ToolResult::error("no")
+            }
         }
     }
 
@@ -103,17 +117,23 @@ mod tests {
     async fn loop_runs_tool_then_finalizes() {
         let llm = MockLlmClient::with_turns(vec![
             AssistantTurn::ToolCalls(vec![ToolCall {
-                id: "c1".into(), name: "query_memory".into(), arguments: serde_json::json!({"query":"prefs"}),
+                id: "c1".into(),
+                name: "query_memory".into(),
+                arguments: serde_json::json!({"query":"prefs"}),
             }]),
             AssistantTurn::Text("You like Rust.".into()),
         ]);
         let reg = ToolRegistry::new(vec![Box::new(CannedProvider)]);
         let out = run_loop(
-            &llm, &reg,
-            "system", &["identity".to_string()],
-            vec![], "tell me about myself",
+            &llm,
+            &reg,
+            "system",
+            &["identity".to_string()],
+            vec![],
+            "tell me about myself",
             8,
-        ).await;
+        )
+        .await;
         assert_eq!(out.final_text, "You like Rust.");
         assert_eq!(out.tool_rounds, 1);
         assert!(!out.stopped_early);
@@ -122,9 +142,15 @@ mod tests {
     #[tokio::test]
     async fn loop_stops_at_cap() {
         // LLM always asks for a tool → must stop at max_tool_rounds.
-        let turns = (0..20).map(|_| AssistantTurn::ToolCalls(vec![ToolCall {
-            id: "c".into(), name: "query_memory".into(), arguments: serde_json::json!({}),
-        }])).collect();
+        let turns = (0..20)
+            .map(|_| {
+                AssistantTurn::ToolCalls(vec![ToolCall {
+                    id: "c".into(),
+                    name: "query_memory".into(),
+                    arguments: serde_json::json!({}),
+                }])
+            })
+            .collect();
         let llm = MockLlmClient::with_turns(turns);
         let reg = ToolRegistry::new(vec![Box::new(CannedProvider)]);
         let out = run_loop(&llm, &reg, "system", &["identity".into()], vec![], "go", 3).await;

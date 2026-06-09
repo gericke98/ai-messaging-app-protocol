@@ -91,15 +91,31 @@ pub fn a2a_hop_decision(
     cap: u32,
 ) -> HopDecision {
     if !sender_is_agent {
-        return HopDecision { new_count: 0, deliver_to_target: true, tripped: false };
+        return HopDecision {
+            new_count: 0,
+            deliver_to_target: true,
+            tripped: false,
+        };
     }
     if !target_is_agent {
-        return HopDecision { new_count: current, deliver_to_target: true, tripped: false };
+        return HopDecision {
+            new_count: current,
+            deliver_to_target: true,
+            tripped: false,
+        };
     }
     if current >= cap {
-        return HopDecision { new_count: current, deliver_to_target: false, tripped: true };
+        return HopDecision {
+            new_count: current,
+            deliver_to_target: false,
+            tripped: true,
+        };
     }
-    HopDecision { new_count: current + 1, deliver_to_target: true, tripped: false }
+    HopDecision {
+        new_count: current + 1,
+        deliver_to_target: true,
+        tripped: false,
+    }
 }
 
 /// Pure A2A consent predicate (P2). An agent→agent message may be delivered only when:
@@ -138,16 +154,25 @@ mod tests {
 
     #[test]
     fn first_mention_extracts_localpart() {
-        assert_eq!(first_mention_localpart("hey @analyst please"), Some("analyst".to_string()));
+        assert_eq!(
+            first_mention_localpart("hey @analyst please"),
+            Some("analyst".to_string())
+        );
         assert_eq!(first_mention_localpart("@bob"), Some("bob".to_string()));
-        assert_eq!(first_mention_localpart("a.b_c-d @x.y_z-1 end"), Some("x.y_z-1".to_string()));
+        assert_eq!(
+            first_mention_localpart("a.b_c-d @x.y_z-1 end"),
+            Some("x.y_z-1".to_string())
+        );
     }
 
     #[test]
     fn first_mention_none_when_absent_or_bare() {
         assert_eq!(first_mention_localpart("no mention here"), None);
         assert_eq!(first_mention_localpart("trailing @"), None);
-        assert_eq!(first_mention_localpart("email like a@b is still a mention"), Some("b".to_string()));
+        assert_eq!(
+            first_mention_localpart("email like a@b is still a mention"),
+            Some("b".to_string())
+        );
     }
 
     #[test]
@@ -170,7 +195,10 @@ mod tests {
 
     #[test]
     fn resolve_mention_matches_localpart_to_full_address() {
-        let parts = vec!["analyst@acme.test".to_string(), "alice@localhost".to_string()];
+        let parts = vec![
+            "analyst@acme.test".to_string(),
+            "alice@localhost".to_string(),
+        ];
         assert_eq!(
             resolve_recipient(None, "could @analyst weigh in", &parts),
             Some("analyst@acme.test".to_string())
@@ -188,7 +216,14 @@ mod tests {
     #[test]
     fn human_sender_resets_and_delivers() {
         let d = a2a_hop_decision(5, false, true, 6);
-        assert_eq!(d, HopDecision { new_count: 0, deliver_to_target: true, tripped: false });
+        assert_eq!(
+            d,
+            HopDecision {
+                new_count: 0,
+                deliver_to_target: true,
+                tripped: false
+            }
+        );
         // even targeting a human
         let d2 = a2a_hop_decision(3, false, false, 6);
         assert_eq!(d2.new_count, 0);
@@ -198,21 +233,49 @@ mod tests {
     #[test]
     fn agent_to_human_leaves_counter_unchanged() {
         let d = a2a_hop_decision(4, true, false, 6);
-        assert_eq!(d, HopDecision { new_count: 4, deliver_to_target: true, tripped: false });
+        assert_eq!(
+            d,
+            HopDecision {
+                new_count: 4,
+                deliver_to_target: true,
+                tripped: false
+            }
+        );
     }
 
     #[test]
     fn agent_to_agent_increments_until_cap() {
         let d = a2a_hop_decision(0, true, true, 6);
-        assert_eq!(d, HopDecision { new_count: 1, deliver_to_target: true, tripped: false });
+        assert_eq!(
+            d,
+            HopDecision {
+                new_count: 1,
+                deliver_to_target: true,
+                tripped: false
+            }
+        );
         let d5 = a2a_hop_decision(5, true, true, 6);
-        assert_eq!(d5, HopDecision { new_count: 6, deliver_to_target: true, tripped: false });
+        assert_eq!(
+            d5,
+            HopDecision {
+                new_count: 6,
+                deliver_to_target: true,
+                tripped: false
+            }
+        );
     }
 
     #[test]
     fn agent_to_agent_trips_at_cap() {
         let d = a2a_hop_decision(6, true, true, 6);
-        assert_eq!(d, HopDecision { new_count: 6, deliver_to_target: false, tripped: true });
+        assert_eq!(
+            d,
+            HopDecision {
+                new_count: 6,
+                deliver_to_target: false,
+                tripped: true
+            }
+        );
         // and stays tripped above cap
         let d2 = a2a_hop_decision(9, true, true, 6);
         assert!(!d2.deliver_to_target);
@@ -249,7 +312,10 @@ mod tests {
 
     #[test]
     fn foreign_target_none_for_local_domain() {
-        assert_eq!(foreign_relay_target(Some("beta@server-a.local"), "server-a.local"), None);
+        assert_eq!(
+            foreign_relay_target(Some("beta@server-a.local"), "server-a.local"),
+            None
+        );
     }
 
     #[test]
@@ -262,6 +328,9 @@ mod tests {
     fn foreign_target_none_for_absent_or_empty_to() {
         assert_eq!(foreign_relay_target(None, "server-a.local"), None);
         assert_eq!(foreign_relay_target(Some(""), "server-a.local"), None);
-        assert_eq!(foreign_relay_target(Some("@server-b.local"), "server-a.local"), Some("server-b.local".to_string()));
+        assert_eq!(
+            foreign_relay_target(Some("@server-b.local"), "server-a.local"),
+            Some("server-b.local".to_string())
+        );
     }
 }

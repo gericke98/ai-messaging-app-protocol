@@ -53,7 +53,11 @@ mod tests {
         );
         assert_eq!(all.len(), 13, "canonical set is 13 categories");
         let unique: BTreeSet<&&str> = all.iter().collect();
-        assert_eq!(unique.len(), all.len(), "no category may appear in two groups");
+        assert_eq!(
+            unique.len(),
+            all.len(),
+            "no category may appear in two groups"
+        );
     }
 
     #[test]

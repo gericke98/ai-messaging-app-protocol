@@ -23,7 +23,9 @@ impl CredCipher {
         let hk = Hkdf::<Sha256>::new(Some(b"ainm-llm-cred-v1"), master_secret);
         let mut key = [0u8; 32];
         hk.expand(b"cred-key", &mut key).expect("hkdf expand");
-        Self { cipher: XChaCha20Poly1305::new((&key).into()) }
+        Self {
+            cipher: XChaCha20Poly1305::new((&key).into()),
+        }
     }
 
     /// Encrypt plaintext → (ciphertext, 24-byte nonce). Fresh random nonce per call.
@@ -62,14 +64,23 @@ pub struct AccountLlmSettings {
 
 /// The effective LLM credential for a turn.
 pub enum Credential {
-    ByoKey { api_key: String, model: Option<String>, base_url: Option<String> },
+    ByoKey {
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+    },
     ServerDefault,
 }
 
 /// Pure: pick the effective credential. BYO if a decryptable key is present, else ServerDefault.
 /// A decrypt failure logs a warning and falls back (never panics, never leaks).
-pub fn resolve_credential(cipher: Option<&CredCipher>, settings: Option<&AccountLlmSettings>) -> Credential {
-    let (Some(cipher), Some(s)) = (cipher, settings) else { return Credential::ServerDefault };
+pub fn resolve_credential(
+    cipher: Option<&CredCipher>,
+    settings: Option<&AccountLlmSettings>,
+) -> Credential {
+    let (Some(cipher), Some(s)) = (cipher, settings) else {
+        return Credential::ServerDefault;
+    };
     let (Some(ct), Some(nonce)) = (s.api_key_ciphertext.as_ref(), s.api_key_nonce.as_ref()) else {
         return Credential::ServerDefault;
     };
@@ -88,7 +99,10 @@ pub fn resolve_credential(cipher: Option<&CredCipher>, settings: Option<&Account
 
 /// Fetch an account's settings row, if present.
 // consumed in C-8/C-9
-pub async fn get_settings(pool: &PgPool, account_id: Uuid) -> Result<Option<AccountLlmSettings>, StorageError> {
+pub async fn get_settings(
+    pool: &PgPool,
+    account_id: Uuid,
+) -> Result<Option<AccountLlmSettings>, StorageError> {
     let row = sqlx::query_as::<_, AccountLlmSettings>(
         "SELECT api_key_ciphertext, api_key_nonce, model, base_url, monthly_token_budget \
          FROM account_llm_settings WHERE account_id = $1",
@@ -102,8 +116,12 @@ pub async fn get_settings(pool: &PgPool, account_id: Uuid) -> Result<Option<Acco
 /// Upsert the BYO key (and optional model/base_url), preserving any existing budget override.
 // consumed in C-8/C-9
 pub async fn upsert_byo_key(
-    pool: &PgPool, account_id: Uuid, ciphertext: &[u8], nonce: &[u8],
-    model: Option<&str>, base_url: Option<&str>,
+    pool: &PgPool,
+    account_id: Uuid,
+    ciphertext: &[u8],
+    nonce: &[u8],
+    model: Option<&str>,
+    base_url: Option<&str>,
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO account_llm_settings (account_id, api_key_ciphertext, api_key_nonce, model, base_url) \
@@ -167,11 +185,17 @@ mod tests {
         let bad = CredCipher::new(b"bad");
         let (ct, nonce) = good.encrypt("sk-user").unwrap();
         let settings = AccountLlmSettings {
-            api_key_ciphertext: Some(ct), api_key_nonce: Some(nonce),
-            model: None, base_url: None, monthly_token_budget: None,
+            api_key_ciphertext: Some(ct),
+            api_key_nonce: Some(nonce),
+            model: None,
+            base_url: None,
+            monthly_token_budget: None,
         };
         // Wrong cipher → cannot decrypt → ServerDefault (does NOT panic / leak).
-        assert!(matches!(resolve_credential(Some(&bad), Some(&settings)), Credential::ServerDefault));
+        assert!(matches!(
+            resolve_credential(Some(&bad), Some(&settings)),
+            Credential::ServerDefault
+        ));
     }
 
     #[test]

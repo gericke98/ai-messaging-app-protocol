@@ -9,9 +9,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// The concrete WebSocket sender type used throughout the agent.
 type WsSender = futures_util::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
 
@@ -27,7 +25,8 @@ pub async fn run(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     // Perform ainm.initialize handshake with Ed25519 signature
-    let (init_signature, init_timestamp) = signing::sign_init(&identity.key_pair, &identity.address)?;
+    let (init_signature, init_timestamp) =
+        signing::sign_init(&identity.key_pair, &identity.address)?;
     let init_req = protocol::new_request(
         "ainm.initialize",
         serde_json::json!({
@@ -54,7 +53,9 @@ pub async fn run(
     // Send ainm.initialized confirmation notification (transport.md Section 4.3)
     let initialized_notif = protocol::new_notification("ainm.initialized", serde_json::json!({}));
     let initialized_text = serde_json::to_string(&initialized_notif)?;
-    ws_sender.send(Message::Text(initialized_text.into())).await?;
+    ws_sender
+        .send(Message::Text(initialized_text.into()))
+        .await?;
 
     // Listen for incoming messages from the server
     let mut first_message = true;
@@ -62,10 +63,7 @@ pub async fn run(
         if let Message::Text(text) = msg {
             let text_str = text.to_string();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text_str) {
-                let method = parsed
-                    .get("method")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
+                let method = parsed.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
                 if method == "ainm.message.deliver" {
                     if let Some(message) = parsed.get("params").and_then(|p| p.get("message")) {
@@ -117,7 +115,9 @@ fn extract_text(message: &serde_json::Value) -> String {
         .and_then(|blocks| {
             blocks.iter().find_map(|b| {
                 if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                    b.get("text")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 }
@@ -139,11 +139,7 @@ async fn handle_hello(
 }
 
 /// Scenario 2: FormBlock example.
-async fn handle_form(
-    ws_sender: &mut WsSender,
-    identity: &Identity,
-    thread_id: &str,
-) -> Result<()> {
+async fn handle_form(ws_sender: &mut WsSender, identity: &Identity, thread_id: &str) -> Result<()> {
     let mut envelope = serde_json::json!({
         "id": protocol::new_message_id(),
         "from": identity.address,
@@ -238,11 +234,7 @@ async fn handle_approval(
 }
 
 /// Scenario 4: Tool visibility example.
-async fn handle_tool(
-    ws_sender: &mut WsSender,
-    identity: &Identity,
-    thread_id: &str,
-) -> Result<()> {
+async fn handle_tool(ws_sender: &mut WsSender, identity: &Identity, thread_id: &str) -> Result<()> {
     let call_id = format!("tc-{}", protocol::new_message_id());
 
     // ToolCallStarted

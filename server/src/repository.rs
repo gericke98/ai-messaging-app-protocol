@@ -112,13 +112,11 @@ pub async fn evict_fact(
     participant_addr: &str,
     key: &str,
 ) -> Result<bool, StorageError> {
-    let result = sqlx::query(
-        "DELETE FROM archival_facts WHERE participant_addr = $1 AND key = $2",
-    )
-    .bind(participant_addr)
-    .bind(key)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM archival_facts WHERE participant_addr = $1 AND key = $2")
+        .bind(participant_addr)
+        .bind(key)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }

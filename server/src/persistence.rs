@@ -238,8 +238,8 @@ impl PersistenceLayer {
                     if let Ok(uuid) = uuid::Uuid::parse_str(uuid_str) {
                         if let Some(ts) = uuid.get_timestamp() {
                             let (secs, _) = ts.to_unix();
-                            let entry_time =
-                                chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_default();
+                            let entry_time = chrono::DateTime::from_timestamp(secs as i64, 0)
+                                .unwrap_or_default();
                             if entry_time < cutoff {
                                 to_remove.push(key.to_string());
                             }
@@ -303,8 +303,7 @@ impl PersistenceLayer {
             if entries.len() > limit {
                 break; // Read one extra to detect has_more
             }
-            let value: serde_json::Value =
-                serde_json::from_slice(entry.1.value()).map_err(s)?;
+            let value: serde_json::Value = serde_json::from_slice(entry.1.value()).map_err(s)?;
             // Extract sequence from key
             let seq = key
                 .strip_prefix(&prefix)

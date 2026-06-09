@@ -110,18 +110,16 @@ impl RelaySender {
 
         // Enforce 10K bound per destination (D-11: FIFO eviction)
         match self.persistence.queue_len(destination) {
-            Ok(len) if len > 10_000 => {
-                match self.persistence.evict_oldest(destination, 10_000) {
-                    Ok(evicted) => {
-                        tracing::warn!(
-                            "[relay] Queue bound exceeded for {}: evicted {} oldest messages",
-                            destination,
-                            evicted
-                        );
-                    }
-                    Err(e) => tracing::error!("[relay] Eviction failed for {}: {}", destination, e),
+            Ok(len) if len > 10_000 => match self.persistence.evict_oldest(destination, 10_000) {
+                Ok(evicted) => {
+                    tracing::warn!(
+                        "[relay] Queue bound exceeded for {}: evicted {} oldest messages",
+                        destination,
+                        evicted
+                    );
                 }
-            }
+                Err(e) => tracing::error!("[relay] Eviction failed for {}: {}", destination, e),
+            },
             _ => {}
         }
 

@@ -31,8 +31,8 @@ pub fn sign_envelope(
     }
 
     // 2. Canonicalize per RFC 8785
-    let canonical = canonicalize(&signing_input)
-        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+    let canonical =
+        canonicalize(&signing_input).map_err(|e| anyhow!("canonicalization failed: {}", e))?;
 
     // 3. Sign the canonical UTF-8 bytes
     let sig = key_pair.sign(canonical.as_bytes());
@@ -42,7 +42,10 @@ pub fn sign_envelope(
 
     // 5. Set signature on envelope
     if let Some(obj) = envelope.as_object_mut() {
-        obj.insert("signature".to_string(), serde_json::Value::String(sig_str.clone()));
+        obj.insert(
+            "signature".to_string(),
+            serde_json::Value::String(sig_str.clone()),
+        );
     }
 
     Ok(sig_str)
@@ -54,10 +57,7 @@ pub fn sign_envelope(
 /// 3. Canonicalize
 /// 4. Decode signature from base64url
 /// 5. Verify with Ed25519 public key
-pub fn verify_signature(
-    public_key_bytes: &[u8],
-    envelope: &serde_json::Value,
-) -> Result<bool> {
+pub fn verify_signature(public_key_bytes: &[u8], envelope: &serde_json::Value) -> Result<bool> {
     // 1. Clone and extract signature
     let mut signing_input = envelope.clone();
     let sig_str = signing_input
@@ -72,8 +72,8 @@ pub fn verify_signature(
     }
 
     // 3. Canonicalize
-    let canonical = canonicalize(&signing_input)
-        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+    let canonical =
+        canonicalize(&signing_input).map_err(|e| anyhow!("canonicalization failed: {}", e))?;
 
     // 4. Decode signature
     let sig_bytes = URL_SAFE_NO_PAD
@@ -100,11 +100,17 @@ pub fn verify_init(
     max_skew_secs: i64,
 ) -> bool {
     // Freshness: timestamp must parse and be within the window.
-    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) else { return false; };
+    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) else {
+        return false;
+    };
     let skew = (now - ts.with_timezone(&chrono::Utc)).num_seconds().abs();
-    if skew > max_skew_secs { return false; }
+    if skew > max_skew_secs {
+        return false;
+    }
 
-    let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(signature_b64) else { return false; };
+    let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(signature_b64) else {
+        return false;
+    };
     let payload = format!("{}|{}", identity, timestamp);
     let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
     public_key.verify(payload.as_bytes(), &sig_bytes).is_ok()
@@ -143,11 +149,17 @@ pub fn verify_auth_challenge(
     now: chrono::DateTime<chrono::Utc>,
     max_skew_secs: i64,
 ) -> bool {
-    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) else { return false; };
+    let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) else {
+        return false;
+    };
     let skew = (now - ts.with_timezone(&chrono::Utc)).num_seconds().abs();
-    if skew > max_skew_secs { return false; }
+    if skew > max_skew_secs {
+        return false;
+    }
 
-    let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(signature_b64) else { return false; };
+    let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(signature_b64) else {
+        return false;
+    };
     let payload = format!("{AUTH_CHALLENGE_DOMAIN}|{identity}|{timestamp}");
     let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
     public_key.verify(payload.as_bytes(), &sig_bytes).is_ok()
@@ -162,23 +174,62 @@ mod auth_challenge_tests {
     fn accepts_valid_rejects_tamper_stale_and_handshake_payload() {
         let id = generate_keypair("alice@test.local").unwrap();
         let (sig, ts) = sign_auth_challenge(&id.key_pair, "alice@test.local").unwrap();
-        let now = chrono::DateTime::parse_from_rfc3339(&ts).unwrap().with_timezone(&chrono::Utc);
+        let now = chrono::DateTime::parse_from_rfc3339(&ts)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
 
         // Valid
-        assert!(verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
+        assert!(verify_auth_challenge(
+            &id.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
         // Tampered identity
-        assert!(!verify_auth_challenge(&id.public_key_bytes, "mallory@test.local", &ts, &sig, now, 300));
+        assert!(!verify_auth_challenge(
+            &id.public_key_bytes,
+            "mallory@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
         // Wrong key
         let other = generate_keypair("bob@test.local").unwrap();
-        assert!(!verify_auth_challenge(&other.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
+        assert!(!verify_auth_challenge(
+            &other.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
         // Stale timestamp
         let later = now + chrono::Duration::seconds(10_000);
-        assert!(!verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &ts, &sig, later, 300));
+        assert!(!verify_auth_challenge(
+            &id.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            later,
+            300
+        ));
         // DOMAIN SEPARATION: a handshake-style signature (verify_init payload, no
         // "ainm-auth-token|" prefix) must NOT verify as an auth challenge.
         let (handshake_sig, hts) = sign_init(&id.key_pair, "alice@test.local").unwrap();
-        let hnow = chrono::DateTime::parse_from_rfc3339(&hts).unwrap().with_timezone(&chrono::Utc);
-        assert!(!verify_auth_challenge(&id.public_key_bytes, "alice@test.local", &hts, &handshake_sig, hnow, 300));
+        let hnow = chrono::DateTime::parse_from_rfc3339(&hts)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert!(!verify_auth_challenge(
+            &id.public_key_bytes,
+            "alice@test.local",
+            &hts,
+            &handshake_sig,
+            hnow,
+            300
+        ));
     }
 }
 
@@ -191,14 +242,44 @@ mod verify_init_tests {
     fn accepts_valid_rejects_tampered_and_stale() {
         let id = generate_keypair("alice@test.local").unwrap();
         let (sig, ts) = sign_init(&id.key_pair, "alice@test.local").unwrap();
-        let now = chrono::DateTime::parse_from_rfc3339(&ts).unwrap().with_timezone(&chrono::Utc);
+        let now = chrono::DateTime::parse_from_rfc3339(&ts)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
 
-        assert!(verify_init(&id.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
-        assert!(!verify_init(&id.public_key_bytes, "mallory@test.local", &ts, &sig, now, 300));
+        assert!(verify_init(
+            &id.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
+        assert!(!verify_init(
+            &id.public_key_bytes,
+            "mallory@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
         let other = generate_keypair("bob@test.local").unwrap();
-        assert!(!verify_init(&other.public_key_bytes, "alice@test.local", &ts, &sig, now, 300));
+        assert!(!verify_init(
+            &other.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            now,
+            300
+        ));
         let later = now + chrono::Duration::seconds(10_000);
-        assert!(!verify_init(&id.public_key_bytes, "alice@test.local", &ts, &sig, later, 300));
+        assert!(!verify_init(
+            &id.public_key_bytes,
+            "alice@test.local",
+            &ts,
+            &sig,
+            later,
+            300
+        ));
     }
 }
 
@@ -224,8 +305,8 @@ pub fn sign_relay_params(
     }
 
     // 2. Canonicalize per RFC 8785
-    let canonical = canonicalize(&signing_input)
-        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+    let canonical =
+        canonicalize(&signing_input).map_err(|e| anyhow!("canonicalization failed: {}", e))?;
 
     // 3. Sign the canonical UTF-8 bytes
     let sig = key_pair.sign(canonical.as_bytes());
@@ -253,10 +334,7 @@ pub fn sign_relay_params(
 /// 3. Canonicalize with RFC 8785
 /// 4. Decode signature from base64url
 /// 5. Verify with Ed25519 public key
-pub fn verify_relay_signature(
-    public_key_bytes: &[u8],
-    params: &serde_json::Value,
-) -> Result<bool> {
+pub fn verify_relay_signature(public_key_bytes: &[u8], params: &serde_json::Value) -> Result<bool> {
     // 1. Clone and extract server_signature
     let mut signing_input = params.clone();
     let sig_str = signing_input
@@ -271,8 +349,8 @@ pub fn verify_relay_signature(
     }
 
     // 3. Canonicalize
-    let canonical = canonicalize(&signing_input)
-        .map_err(|e| anyhow!("canonicalization failed: {}", e))?;
+    let canonical =
+        canonicalize(&signing_input).map_err(|e| anyhow!("canonicalization failed: {}", e))?;
 
     // 4. Decode signature
     let sig_bytes = URL_SAFE_NO_PAD

@@ -14,8 +14,8 @@ use axum::{
 };
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
-use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
@@ -283,7 +283,9 @@ impl AgentRegistry {
     /// True when `identity` was human-invited into `thread_id` (P2 consent membership).
     pub async fn is_invited(&self, identity: &str, thread_id: &str) -> bool {
         let map = self.thread_invited.lock().await;
-        map.get(thread_id).map(|s| s.contains(identity)).unwrap_or(false)
+        map.get(thread_id)
+            .map(|s| s.contains(identity))
+            .unwrap_or(false)
     }
 
     /// Whether a connected agent's published card permits peer (A2A) messages.
@@ -389,16 +391,24 @@ impl ServerState {
 // --- Account REST handlers (signup / verify / bind-key) ---
 
 #[derive(serde::Deserialize)]
-pub struct SignupReq { pub email: String, pub username: String }
+pub struct SignupReq {
+    pub email: String,
+    pub username: String,
+}
 #[derive(serde::Serialize)]
-pub struct SignupResp { pub address: String }
+pub struct SignupResp {
+    pub address: String,
+}
 
 pub async fn signup_handler(
     State(state): State<ServerState>,
     Json(req): Json<SignupReq>,
 ) -> Result<Json<SignupResp>, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
     let username = crate::accounts::validate_username(&req.username)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid username: {e:?}")))?;
@@ -406,38 +416,59 @@ pub async fn signup_handler(
         return Err((StatusCode::BAD_REQUEST, "invalid email".into()));
     }
     let email_hash = crate::email::hash_email(&req.email);
-    let acct = crate::accounts::create_pending_account(pool, &username, &state.server_domain, &email_hash)
-        .await
-        .map_err(|e| match e {
-            crate::error::StorageError::Duplicate(_) =>
-                (StatusCode::CONFLICT, "username or email already registered".into()),
-            other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
-        })?;
+    let acct =
+        crate::accounts::create_pending_account(pool, &username, &state.server_domain, &email_hash)
+            .await
+            .map_err(|e| match e {
+                crate::error::StorageError::Duplicate(_) => (
+                    StatusCode::CONFLICT,
+                    "username or email already registered".into(),
+                ),
+                other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+            })?;
     let code = crate::email::generate_code();
     crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "signup")
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    state.email_sender.send_code(&req.email, &code, "signup").await
+    state
+        .email_sender
+        .send_code(&req.email, &code, "signup")
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(SignupResp { address: acct.address }))
+    Ok(Json(SignupResp {
+        address: acct.address,
+    }))
 }
 
 #[derive(serde::Deserialize)]
-pub struct VerifyReq { pub email: String, pub code: String }
+pub struct VerifyReq {
+    pub email: String,
+    pub code: String,
+}
 #[derive(serde::Serialize)]
-pub struct VerifyResp { pub enrollment_token: String }
+pub struct VerifyResp {
+    pub enrollment_token: String,
+}
 
 pub async fn verify_handler(
     State(state): State<ServerState>,
     Json(req): Json<VerifyReq>,
 ) -> Result<Json<VerifyResp>, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
     let email_hash = crate::email::hash_email(&req.email);
-    let outcome = crate::email::verify_code(pool, &email_hash, "signup", &crate::email::hash_code(&req.code))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let outcome = crate::email::verify_code(
+        pool,
+        &email_hash,
+        "signup",
+        &crate::email::hash_code(&req.code),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     if outcome != crate::email::VerifyOutcome::Ok {
         return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
     }
@@ -447,36 +478,64 @@ pub async fn verify_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
-    crate::accounts::set_email_verified(pool, acct.id).await
+    crate::accounts::set_email_verified(pool, acct.id)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let token = state.token_signer.issue(&acct.id.to_string(), "enrollment", crate::protocol::now_unix(), 900);
-    Ok(Json(VerifyResp { enrollment_token: token }))
+    let token = state.token_signer.issue(
+        &acct.id.to_string(),
+        "enrollment",
+        crate::protocol::now_unix(),
+        900,
+    );
+    Ok(Json(VerifyResp {
+        enrollment_token: token,
+    }))
 }
 
 #[derive(serde::Deserialize)]
-pub struct BindKeyReq { pub enrollment_token: String, pub public_key: String, pub device_label: Option<String> }
+pub struct BindKeyReq {
+    pub enrollment_token: String,
+    pub public_key: String,
+    pub device_label: Option<String>,
+}
 
 pub async fn bind_key_handler(
     State(state): State<ServerState>,
     Json(req): Json<BindKeyReq>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
-    let account_id_str = state.token_signer
-        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+    let account_id_str = state
+        .token_signer
+        .verify(
+            &req.enrollment_token,
+            "enrollment",
+            crate::protocol::now_unix(),
+        )
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
     let account_id = uuid::Uuid::parse_str(&account_id_str)
         .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
-    match crate::accounts::insert_account_key(pool, account_id, &req.public_key, req.device_label.as_deref()).await {
+    match crate::accounts::insert_account_key(
+        pool,
+        account_id,
+        &req.public_key,
+        req.device_label.as_deref(),
+    )
+    .await
+    {
         Ok(()) => Ok(StatusCode::NO_CONTENT),
         // Idempotent: the SAME key already bound to the SAME account (e.g. onboarding
         // retried on an already-enrolled device) is a no-op, not a conflict. A key bound
         // to a DIFFERENT account is still a genuine conflict (global unique index).
         Err(crate::error::StorageError::Duplicate(_)) => {
-            let already_ours = crate::accounts::key_bound_to_account(pool, account_id, &req.public_key)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let already_ours =
+                crate::accounts::key_bound_to_account(pool, account_id, &req.public_key)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
             if already_ours {
                 Ok(StatusCode::NO_CONTENT)
             } else {
@@ -494,16 +553,27 @@ async fn caller_from_bearer(
     state: &ServerState,
     headers: &HeaderMap,
 ) -> Result<crate::auth_session::Caller, (StatusCode, String)> {
-    let pool = state.db.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let pool = state
+        .db
+        .as_ref()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let raw = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or((StatusCode::UNAUTHORIZED, "missing Authorization header".into()))?;
-    let token = raw.strip_prefix("Bearer ").ok_or((StatusCode::UNAUTHORIZED, "expected Bearer token".into()))?;
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "missing Authorization header".into(),
+        ))?;
+    let token = raw
+        .strip_prefix("Bearer ")
+        .ok_or((StatusCode::UNAUTHORIZED, "expected Bearer token".into()))?;
     match crate::auth_session::authenticate(pool, token, chrono::Utc::now()).await {
         Ok(Some(caller)) => Ok(caller),
         Ok(None) => Err((StatusCode::UNAUTHORIZED, "invalid session".into())),
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "session lookup failed".into())),
+        Err(_) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "session lookup failed".into(),
+        )),
     }
 }
 
@@ -528,15 +598,27 @@ pub async fn llm_credential_put_handler(
     Json(req): Json<LlmCredentialReq>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let account_id = account_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let cipher = state
         .cred_cipher
         .clone()
         .ok_or((StatusCode::SERVICE_UNAVAILABLE, "byo_not_configured".into()))?;
-    let (ct, nonce) = cipher.encrypt(&req.api_key).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    crate::credentials::upsert_byo_key(&pool, account_id, &ct, &nonce, req.model.as_deref(), req.base_url.as_deref())
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let (ct, nonce) = cipher
+        .encrypt(&req.api_key)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::credentials::upsert_byo_key(
+        &pool,
+        account_id,
+        &ct,
+        &nonce,
+        req.model.as_deref(),
+        req.base_url.as_deref(),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -545,7 +627,10 @@ pub async fn llm_credential_delete_handler(
     headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let account_id = account_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     crate::credentials::clear_byo_key(&pool, account_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -557,19 +642,30 @@ pub async fn usage_get_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let account_id = account_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let account = crate::accounts::find_account_by_id(&pool, account_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
-    let settings = crate::credentials::get_settings(&pool, account_id).await.ok().flatten();
+    let settings = crate::credentials::get_settings(&pool, account_id)
+        .await
+        .ok()
+        .flatten();
     let period = crate::quota::current_period(chrono::Utc::now());
-    let used = crate::quota::current_usage(&pool, &account.address, &period).await.unwrap_or(0);
+    let used = crate::quota::current_usage(&pool, &account.address, &period)
+        .await
+        .unwrap_or(0);
     let budget = crate::quota::resolve_budget(
         settings.as_ref().and_then(|s| s.monthly_token_budget),
         state.quota.monthly_token_budget,
     );
-    let byo_key_set = settings.as_ref().map(|s| s.api_key_ciphertext.is_some()).unwrap_or(false);
+    let byo_key_set = settings
+        .as_ref()
+        .map(|s| s.api_key_ciphertext.is_some())
+        .unwrap_or(false);
     Ok(Json(serde_json::json!({
         "period": period,
         "used_tokens": used,
@@ -599,18 +695,36 @@ pub async fn auth_token_mint_handler(
     State(state): State<ServerState>,
     Json(req): Json<MintTokenReq>,
 ) -> Result<Json<MintTokenResp>, (StatusCode, String)> {
-    let pool = state.db.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
-    let unauthorized = || (StatusCode::UNAUTHORIZED, "authentication failed".to_string());
+    let pool = state
+        .db
+        .as_ref()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let unauthorized = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "authentication failed".to_string(),
+        )
+    };
 
     let account = crate::accounts::find_account_by_address(pool, &req.identity)
-        .await.map_err(|_| unauthorized())?.ok_or_else(unauthorized)?;
+        .await
+        .map_err(|_| unauthorized())?
+        .ok_or_else(unauthorized)?;
     let key = crate::accounts::find_active_key(pool, account.id)
-        .await.map_err(|_| unauthorized())?.ok_or_else(unauthorized)?;
+        .await
+        .map_err(|_| unauthorized())?
+        .ok_or_else(unauthorized)?;
     let pk_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(&key.public_key).map_err(|_| unauthorized())?;
+        .decode(&key.public_key)
+        .map_err(|_| unauthorized())?;
 
     if !crate::signing::verify_auth_challenge(
-        &pk_bytes, &req.identity, &req.timestamp, &req.signature, chrono::Utc::now(), 300,
+        &pk_bytes,
+        &req.identity,
+        &req.timestamp,
+        &req.signature,
+        chrono::Utc::now(),
+        300,
     ) {
         return Err(unauthorized());
     }
@@ -619,10 +733,21 @@ pub async fn auth_token_mint_handler(
     let (token, hash) = crate::auth_session::generate_token();
     let expires_at = crate::auth_session::next_expiry(now, now);
     let session_id = crate::auth_session::insert(
-        pool, account.id, &hash, req.device_label.as_deref(), now, expires_at,
-    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        pool,
+        account.id,
+        &hash,
+        req.device_label.as_deref(),
+        now,
+        expires_at,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(MintTokenResp { token, session_id, expires_at }))
+    Ok(Json(MintTokenResp {
+        token,
+        session_id,
+        expires_at,
+    }))
 }
 
 #[derive(serde::Serialize)]
@@ -641,22 +766,32 @@ pub async fn sessions_list_handler(
     headers: HeaderMap,
 ) -> Result<Json<Vec<SessionView>>, (StatusCode, String)> {
     let caller = caller_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
     let now = chrono::Utc::now();
     let sessions = crate::auth_session::list_active(&pool, caller.account_id, now)
-        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     // `list_active` rows don't carry the token hash, so resolve the current session's id
     // by looking it up from the caller's presented-token hash, then flag the matching row.
     let current_id = crate::auth_session::find_active_by_hash(&pool, &caller.token_hash, now)
-        .await.ok().flatten().map(|s| s.id);
-    let views = sessions.into_iter().map(|s| SessionView {
-        current: Some(s.id) == current_id,
-        id: s.id,
-        device_label: s.device_label,
-        created_at: s.created_at,
-        last_used_at: s.last_used_at,
-        expires_at: s.expires_at,
-    }).collect();
+        .await
+        .ok()
+        .flatten()
+        .map(|s| s.id);
+    let views = sessions
+        .into_iter()
+        .map(|s| SessionView {
+            current: Some(s.id) == current_id,
+            id: s.id,
+            device_label: s.device_label,
+            created_at: s.created_at,
+            last_used_at: s.last_used_at,
+            expires_at: s.expires_at,
+        })
+        .collect();
     Ok(Json(views))
 }
 
@@ -667,14 +802,25 @@ pub async fn session_revoke_handler(
     Path(session_id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let caller = caller_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
-    let ok = crate::auth_session::revoke_one(&pool, caller.account_id, session_id, chrono::Utc::now())
-        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if ok { Ok(StatusCode::NO_CONTENT) } else { Err((StatusCode::NOT_FOUND, "no such session".into())) }
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let ok =
+        crate::auth_session::revoke_one(&pool, caller.account_id, session_id, chrono::Utc::now())
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "no such session".into()))
+    }
 }
 
 #[derive(serde::Serialize)]
-pub struct RevokeOthersResp { pub revoked: u64 }
+pub struct RevokeOthersResp {
+    pub revoked: u64,
+}
 
 /// `DELETE /accounts/auth/sessions/others` — revoke all the caller's sessions but the current.
 pub async fn sessions_revoke_others_handler(
@@ -682,9 +828,18 @@ pub async fn sessions_revoke_others_handler(
     headers: HeaderMap,
 ) -> Result<Json<RevokeOthersResp>, (StatusCode, String)> {
     let caller = caller_from_bearer(&state, &headers).await?;
-    let pool = state.db.clone().ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
-    let revoked = crate::auth_session::revoke_others(&pool, caller.account_id, &caller.token_hash, chrono::Utc::now())
-        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let revoked = crate::auth_session::revoke_others(
+        &pool,
+        caller.account_id,
+        &caller.token_hash,
+        chrono::Utc::now(),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(RevokeOthersResp { revoked }))
 }
 
@@ -702,15 +857,27 @@ pub async fn store_escrow_handler(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
-    let account_id_str = state.token_signer
-        .verify(&req.enrollment_token, "enrollment", crate::protocol::now_unix())
+    let account_id_str = state
+        .token_signer
+        .verify(
+            &req.enrollment_token,
+            "enrollment",
+            crate::protocol::now_unix(),
+        )
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
     let account_id = uuid::Uuid::parse_str(&account_id_str)
         .map_err(|_| (StatusCode::BAD_REQUEST, "bad token subject".into()))?;
-    let ciphertext = b64.decode(&req.ciphertext_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let oprf_key = b64.decode(&req.oprf_key_b64).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let ciphertext = b64
+        .decode(&req.ciphertext_b64)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let oprf_key = b64
+        .decode(&req.oprf_key_b64)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     crate::escrow::store_escrow(pool, account_id, &ciphertext, &req.kdf_params, &oprf_key)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -721,58 +888,103 @@ pub async fn store_escrow_handler(
 }
 
 #[derive(serde::Deserialize)]
-pub struct RecoverStartReq { pub email: String }
+pub struct RecoverStartReq {
+    pub email: String,
+}
 
 pub async fn recover_start_handler(
     State(state): State<ServerState>,
     Json(req): Json<RecoverStartReq>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
     let email_hash = crate::email::hash_email(&req.email);
     // Send a code only if the account exists; respond 204 either way (don't leak existence).
-    if crate::accounts::find_account_by_email_hash(pool, &email_hash).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.is_some()
+    if crate::accounts::find_account_by_email_hash(pool, &email_hash)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .is_some()
     {
         let code = crate::email::generate_code();
-        crate::email::store_verification(pool, &email_hash, &crate::email::hash_code(&code), "recovery")
-            .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        state.email_sender.send_code(&req.email, &code, "recovery").await
+        crate::email::store_verification(
+            pool,
+            &email_hash,
+            &crate::email::hash_code(&code),
+            "recovery",
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        state
+            .email_sender
+            .send_code(&req.email, &code, "recovery")
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(serde::Deserialize)]
-pub struct RecoverVerifyReq { pub email: String, pub code: String }
+pub struct RecoverVerifyReq {
+    pub email: String,
+    pub code: String,
+}
 #[derive(serde::Serialize)]
-pub struct RecoverVerifyResp { pub recovery_token: String }
+pub struct RecoverVerifyResp {
+    pub recovery_token: String,
+}
 
 pub async fn recover_verify_handler(
     State(state): State<ServerState>,
     Json(req): Json<RecoverVerifyReq>,
 ) -> Result<Json<RecoverVerifyResp>, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
     let email_hash = crate::email::hash_email(&req.email);
-    let outcome = crate::email::verify_code(pool, &email_hash, "recovery", &crate::email::hash_code(&req.code))
-        .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let outcome = crate::email::verify_code(
+        pool,
+        &email_hash,
+        "recovery",
+        &crate::email::hash_code(&req.code),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     if outcome != crate::email::VerifyOutcome::Ok {
         return Err((StatusCode::UNAUTHORIZED, format!("{outcome:?}")));
     }
-    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash).await
+    let acct = crate::accounts::find_account_by_email_hash(pool, &email_hash)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "account not found".into()))?;
-    let token = state.token_signer.issue(&acct.id.to_string(), "recovery", crate::protocol::now_unix(), 900);
-    Ok(Json(RecoverVerifyResp { recovery_token: token }))
+    let token = state.token_signer.issue(
+        &acct.id.to_string(),
+        "recovery",
+        crate::protocol::now_unix(),
+        900,
+    );
+    Ok(Json(RecoverVerifyResp {
+        recovery_token: token,
+    }))
 }
 
 #[derive(serde::Deserialize)]
-pub struct EscrowFetchReq { pub recovery_token: String, pub blinded_point: String }
+pub struct EscrowFetchReq {
+    pub recovery_token: String,
+    pub blinded_point: String,
+}
 #[derive(serde::Serialize)]
-pub struct EscrowFetchResp { pub evaluated_point: String, pub ciphertext_b64: String, pub kdf_params: crate::escrow::KdfParams }
+pub struct EscrowFetchResp {
+    pub evaluated_point: String,
+    pub ciphertext_b64: String,
+    pub kdf_params: crate::escrow::KdfParams,
+}
 
 pub async fn escrow_fetch_handler(
     State(state): State<ServerState>,
@@ -780,9 +992,13 @@ pub async fn escrow_fetch_handler(
 ) -> Result<Json<EscrowFetchResp>, (StatusCode, String)> {
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
-    let account_id_str = state.token_signer
+    let account_id_str = state
+        .token_signer
         .verify(&req.recovery_token, "recovery", crate::protocol::now_unix())
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
     let account_id = uuid::Uuid::parse_str(&account_id_str)
@@ -793,17 +1009,25 @@ pub async fn escrow_fetch_handler(
             ciphertext_b64: b64.encode(&f.ciphertext),
             kdf_params: f.kdf_params,
         })),
-        Err(crate::escrow::FetchError::Destroyed) => Err((StatusCode::GONE, "recovery blob destroyed".into())),
-        Err(crate::escrow::FetchError::NotFound) => Err((StatusCode::NOT_FOUND, "no escrow".into())),
+        Err(crate::escrow::FetchError::Destroyed) => {
+            Err((StatusCode::GONE, "recovery blob destroyed".into()))
+        }
+        Err(crate::escrow::FetchError::NotFound) => {
+            Err((StatusCode::NOT_FOUND, "no escrow".into()))
+        }
         Err(crate::escrow::FetchError::Crypto(e)) => Err((StatusCode::BAD_REQUEST, e)),
         Err(crate::escrow::FetchError::Db(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 
 #[derive(serde::Deserialize)]
-pub struct RecoverParamsReq { pub recovery_token: String }
+pub struct RecoverParamsReq {
+    pub recovery_token: String,
+}
 #[derive(serde::Serialize)]
-pub struct RecoverParamsResp { pub kdf_params: crate::escrow::KdfParams }
+pub struct RecoverParamsResp {
+    pub kdf_params: crate::escrow::KdfParams,
+}
 
 /// `POST /accounts/recover/params` — return the Argon2 kdf_params (salt) for a recovering
 /// account WITHOUT consuming a guess. On a fresh device the client needs the salt to blind a
@@ -814,9 +1038,13 @@ pub async fn recover_params_handler(
     Json(req): Json<RecoverParamsReq>,
 ) -> Result<Json<RecoverParamsResp>, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
-    let aid = state.token_signer
+    let aid = state
+        .token_signer
         .verify(&req.recovery_token, "recovery", crate::protocol::now_unix())
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("{e:?}")))?;
     let account_id = uuid::Uuid::parse_str(&aid)
@@ -842,13 +1070,18 @@ pub async fn well_known_identity_handler(
     Path(username): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let Some(pool) = state.db.as_ref() else {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "database not configured".into()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "database not configured".into(),
+        ));
     };
     let address = format!("{username}@{}", state.server_domain);
-    let acct = crate::accounts::find_account_by_address(pool, &address).await
+    let acct = crate::accounts::find_account_by_address(pool, &address)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "unknown account".into()))?;
-    let key = crate::accounts::find_active_key(pool, acct.id).await
+    let key = crate::accounts::find_active_key(pool, acct.id)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let public_keys: Vec<String> = key.map(|k| vec![k.public_key]).unwrap_or_default();
 
@@ -909,18 +1142,51 @@ pub async fn start(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
-        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
-        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
-        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
-        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
-        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
-        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route(
+            "/accounts/escrow",
+            axum::routing::post(store_escrow_handler),
+        )
+        .route(
+            "/accounts/recover/start",
+            axum::routing::post(recover_start_handler),
+        )
+        .route(
+            "/accounts/recover/verify",
+            axum::routing::post(recover_verify_handler),
+        )
+        .route(
+            "/accounts/escrow/fetch",
+            axum::routing::post(escrow_fetch_handler),
+        )
+        .route(
+            "/accounts/recover/params",
+            axum::routing::post(recover_params_handler),
+        )
+        .route(
+            "/accounts/llm-credential",
+            axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
+        )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
-        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
-        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
-        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
-        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
-        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
+        .route(
+            "/accounts/auth/token",
+            axum::routing::post(auth_token_mint_handler),
+        )
+        .route(
+            "/accounts/auth/sessions",
+            axum::routing::get(sessions_list_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/others",
+            axum::routing::delete(sessions_revoke_others_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/{id}",
+            axum::routing::delete(session_revoke_handler),
+        )
+        .route(
+            "/.well-known/ainm-identity/{username}",
+            get(well_known_identity_handler),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -989,18 +1255,51 @@ pub async fn start_with_port(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
-        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
-        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
-        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
-        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
-        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
-        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route(
+            "/accounts/escrow",
+            axum::routing::post(store_escrow_handler),
+        )
+        .route(
+            "/accounts/recover/start",
+            axum::routing::post(recover_start_handler),
+        )
+        .route(
+            "/accounts/recover/verify",
+            axum::routing::post(recover_verify_handler),
+        )
+        .route(
+            "/accounts/escrow/fetch",
+            axum::routing::post(escrow_fetch_handler),
+        )
+        .route(
+            "/accounts/recover/params",
+            axum::routing::post(recover_params_handler),
+        )
+        .route(
+            "/accounts/llm-credential",
+            axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
+        )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
-        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
-        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
-        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
-        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
-        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
+        .route(
+            "/accounts/auth/token",
+            axum::routing::post(auth_token_mint_handler),
+        )
+        .route(
+            "/accounts/auth/sessions",
+            axum::routing::get(sessions_list_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/others",
+            axum::routing::delete(sessions_revoke_others_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/{id}",
+            axum::routing::delete(session_revoke_handler),
+        )
+        .route(
+            "/.well-known/ainm-identity/{username}",
+            get(well_known_identity_handler),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
@@ -1082,18 +1381,51 @@ pub async fn start_federation(
         .route("/accounts/signup", axum::routing::post(signup_handler))
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
-        .route("/accounts/escrow", axum::routing::post(store_escrow_handler))
-        .route("/accounts/recover/start", axum::routing::post(recover_start_handler))
-        .route("/accounts/recover/verify", axum::routing::post(recover_verify_handler))
-        .route("/accounts/escrow/fetch", axum::routing::post(escrow_fetch_handler))
-        .route("/accounts/recover/params", axum::routing::post(recover_params_handler))
-        .route("/accounts/llm-credential", axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler))
+        .route(
+            "/accounts/escrow",
+            axum::routing::post(store_escrow_handler),
+        )
+        .route(
+            "/accounts/recover/start",
+            axum::routing::post(recover_start_handler),
+        )
+        .route(
+            "/accounts/recover/verify",
+            axum::routing::post(recover_verify_handler),
+        )
+        .route(
+            "/accounts/escrow/fetch",
+            axum::routing::post(escrow_fetch_handler),
+        )
+        .route(
+            "/accounts/recover/params",
+            axum::routing::post(recover_params_handler),
+        )
+        .route(
+            "/accounts/llm-credential",
+            axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
+        )
         .route("/accounts/usage", axum::routing::get(usage_get_handler))
-        .route("/accounts/auth/token", axum::routing::post(auth_token_mint_handler))
-        .route("/accounts/auth/sessions", axum::routing::get(sessions_list_handler))
-        .route("/accounts/auth/sessions/others", axum::routing::delete(sessions_revoke_others_handler))
-        .route("/accounts/auth/sessions/{id}", axum::routing::delete(session_revoke_handler))
-        .route("/.well-known/ainm-identity/{username}", get(well_known_identity_handler))
+        .route(
+            "/accounts/auth/token",
+            axum::routing::post(auth_token_mint_handler),
+        )
+        .route(
+            "/accounts/auth/sessions",
+            axum::routing::get(sessions_list_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/others",
+            axum::routing::delete(sessions_revoke_others_handler),
+        )
+        .route(
+            "/accounts/auth/sessions/{id}",
+            axum::routing::delete(session_revoke_handler),
+        )
+        .route(
+            "/.well-known/ainm-identity/{username}",
+            get(well_known_identity_handler),
+        )
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
@@ -1188,11 +1520,7 @@ async fn agent_card_handler(
     if let Some(inm) = headers.get(header::IF_NONE_MATCH) {
         if let Ok(inm_str) = inm.to_str() {
             if inm_str == etag_value {
-                return (
-                    StatusCode::NOT_MODIFIED,
-                    [(header::ETAG, etag_value)],
-                )
-                    .into_response();
+                return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag_value)]).into_response();
             }
         }
     }
@@ -1259,10 +1587,14 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
     // Only enforced when a DB is configured; in-memory / legacy mode preserves prior behavior.
     if let Some(pool) = state.db.clone() {
         let signature = init_req
-            .get("params").and_then(|p| p.get("signature")).and_then(|v| v.as_str())
+            .get("params")
+            .and_then(|p| p.get("signature"))
+            .and_then(|v| v.as_str())
             .unwrap_or("");
         let timestamp = init_req
-            .get("params").and_then(|p| p.get("timestamp")).and_then(|v| v.as_str())
+            .get("params")
+            .and_then(|p| p.get("timestamp"))
+            .and_then(|v| v.as_str())
             .unwrap_or("");
 
         // Send a JSON-RPC auth error (-32021) using the file's concrete sink, then close the
@@ -1272,7 +1604,9 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
             ($msg:expr) => {{
                 let err = protocol::new_error(req_id.clone(), -32021, $msg);
                 let mut s = ws_sender.lock().await;
-                let _ = s.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = s
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
                 return;
             }};
         }
@@ -1288,11 +1622,19 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
             Ok(Some(k)) => k.public_key,
             _ => reject_conn!("no registered key"),
         };
-        let pk_bytes = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&registered_pk_b64) {
-            Ok(b) => b,
-            Err(_) => reject_conn!("corrupt key"),
-        };
-        if !crate::signing::verify_init(&pk_bytes, &from_addr, timestamp, signature, chrono::Utc::now(), 300) {
+        let pk_bytes =
+            match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&registered_pk_b64) {
+                Ok(b) => b,
+                Err(_) => reject_conn!("corrupt key"),
+            };
+        if !crate::signing::verify_init(
+            &pk_bytes,
+            &from_addr,
+            timestamp,
+            signature,
+            chrono::Utc::now(),
+            300,
+        ) {
             reject_conn!("signature does not match registered key");
         }
         tracing::info!("[handshake] verified binding for {from_addr}");
@@ -1338,9 +1680,9 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
                     if let Some(req_id) = parsed.get("id").cloned() {
                         let err = protocol::new_error(req_id, -32021, "Not initialized");
                         let mut sender = ws_sender.lock().await;
-                        let _ = sender.send(Message::Text(
-                            serde_json::to_string(&err).unwrap().into(),
-                        )).await;
+                        let _ = sender
+                            .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                            .await;
                     }
                     // Notifications without id: silently drop per JSON-RPC spec
                 }
@@ -1391,14 +1733,13 @@ async fn store_and_maybe_compile(
     .await;
 
     // 1. Store message to PostgreSQL
-    let next_seq: Option<(i64,)> = sqlx::query_as(
-        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE thread_id = $1",
-    )
-    .bind(thread_id)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten();
+    let next_seq: Option<(i64,)> =
+        sqlx::query_as("SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE thread_id = $1")
+            .bind(thread_id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
 
     let seq = next_seq.map(|(s,)| s).unwrap_or(1);
 
@@ -1473,10 +1814,7 @@ async fn store_and_maybe_compile(
     if let Err(e) = tx.try_send(req) {
         tracing::warn!("[compiler] Failed to enqueue compilation: {e}");
     } else {
-        tracing::info!(
-            "[compiler] Triggered compilation for thread {}",
-            thread_id
-        );
+        tracing::info!("[compiler] Triggered compilation for thread {}", thread_id);
     }
 }
 
@@ -1498,9 +1836,7 @@ async fn thread_participants(deps: &DeliverDeps<'_>, thread_id: &str) -> Vec<Str
 /// A2A hop cap trips. It is a normal `ainm.message.deliver` with a system sender so
 /// the existing client renders it inline (no new client surface — P1 constraint).
 fn a2a_limit_notice(thread_id: &str, cap: u32) -> String {
-    let text = format!(
-        "Agents paused after {cap} consecutive exchanges — reply to continue."
-    );
+    let text = format!("Agents paused after {cap} consecutive exchanges — reply to continue.");
     let deliver = protocol::new_notification(
         "ainm.message.deliver",
         serde_json::json!({
@@ -1575,10 +1911,16 @@ pub async fn deliver_message(
     sender_type: &str,
     verified: bool,
 ) {
-    let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("");
+    let thread_id = params
+        .get("thread_id")
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
     let from = params.get("from").and_then(|f| f.as_str()).unwrap_or("");
     let to_field = params.get("to").and_then(|t| t.as_str());
-    let content = params.get("content").cloned().unwrap_or(serde_json::json!([]));
+    let content = params
+        .get("content")
+        .cloned()
+        .unwrap_or(serde_json::json!([]));
 
     let sender_is_agent = sender_type == "agent";
 
@@ -1595,7 +1937,9 @@ pub async fn deliver_message(
 
     // Agent-originated messages are always shown to humans (this is what SP3/SP4 render).
     if sender_is_agent {
-        deps.human_registry.send_to_thread(thread_id, &deliver_text).await;
+        deps.human_registry
+            .send_to_thread(thread_id, &deliver_text)
+            .await;
     }
 
     // Record the sender's thread membership (agents only; humans are tracked elsewhere).
@@ -1608,7 +1952,8 @@ pub async fn deliver_message(
     let content_text = content_to_plain(&content);
     let target = crate::routing::resolve_recipient(to_field, &content_text, &participants);
 
-    let hosted_addr = deps.hosted_agent
+    let hosted_addr = deps
+        .hosted_agent
         .filter(|a| a.enabled)
         .map(|a| a.address.clone());
 
@@ -1631,8 +1976,12 @@ pub async fn deliver_message(
 
     // Hop guard (pure decision over the stored per-thread counter).
     let current = { *deps.a2a_hops.lock().await.get(thread_id).unwrap_or(&0) };
-    let decision =
-        crate::routing::a2a_hop_decision(current, sender_is_agent, target_is_agent, deps.a2a_hop_cap);
+    let decision = crate::routing::a2a_hop_decision(
+        current,
+        sender_is_agent,
+        target_is_agent,
+        deps.a2a_hop_cap,
+    );
     {
         let mut hops = deps.a2a_hops.lock().await;
         if decision.new_count == 0 {
@@ -1678,7 +2027,9 @@ pub async fn deliver_message(
                 crate::runtime_server::handle_turn(&state2, &tid, &requester, &user_text).await;
             });
         } else {
-            tracing::debug!("[a2a] hosted-assistant target with no ServerState (federation path); not spawning");
+            tracing::debug!(
+                "[a2a] hosted-assistant target with no ServerState (federation path); not spawning"
+            );
         }
     } else if target_is_connected_agent {
         deps.agent_registry.join_thread(&t, thread_id).await;
@@ -1708,7 +2059,8 @@ fn relay_to_foreign_target(
             fed.relay_sender.enqueue(&domain, params.clone());
             tracing::info!(
                 "[a2a-p3b] relayed agent message to foreign target domain {} (thread {})",
-                domain, thread_id
+                domain,
+                thread_id
             );
             true
         }
@@ -1731,16 +2083,31 @@ async fn handle_compound_memory(
         "ainm.memory.graph.query" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
                 let text_q = params.get("query").and_then(|q| q.as_str());
-                let min_conf = params.get("min_confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32;
+                let min_conf = params
+                    .get("min_confidence")
+                    .and_then(|c| c.as_f64())
+                    .unwrap_or(0.0) as f32;
                 let lim = params.get("limit").and_then(|l| l.as_i64()).unwrap_or(20);
-                let temporal = params.get("temporal_filter").and_then(|t| t.as_str()).unwrap_or("current");
-                let include_edges = params.get("include_edges").and_then(|e| e.as_bool()).unwrap_or(false);
+                let temporal = params
+                    .get("temporal_filter")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("current");
+                let include_edges = params
+                    .get("include_edges")
+                    .and_then(|e| e.as_bool())
+                    .unwrap_or(false);
 
-                match crate::graph::query_nodes(db, from_addr, text_q, None, None, temporal, min_conf, lim).await {
+                match crate::graph::query_nodes(
+                    db, from_addr, text_q, None, None, temporal, min_conf, lim,
+                )
+                .await
+                {
                     Ok(nodes) => {
                         let node_ids: Vec<uuid::Uuid> = nodes.iter().map(|n| n.id).collect();
                         let edges = if include_edges && !node_ids.is_empty() {
-                            crate::graph::get_edges_for_nodes(db, from_addr, &node_ids).await.unwrap_or_default()
+                            crate::graph::get_edges_for_nodes(db, from_addr, &node_ids)
+                                .await
+                                .unwrap_or_default()
                         } else {
                             vec![]
                         };
@@ -1752,33 +2119,61 @@ async fn handle_compound_memory(
                             "returned_count": total,
                         });
                         if has_id {
-                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                            let resp =
+                                protocol::new_response(parsed.get("id").cloned().unwrap(), result);
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .await;
                         }
                     }
                     Err(e) => {
                         if has_id {
-                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Graph query failed: {e}"));
+                            let err = protocol::new_error(
+                                parsed.get("id").cloned().unwrap(),
+                                -32050,
+                                &format!("Graph query failed: {e}"),
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                .await;
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.graph.traverse" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
-                let start_str = params.get("start_node").and_then(|s| s.as_str()).unwrap_or("");
-                let max_depth = params.get("max_depth").and_then(|d| d.as_i64()).unwrap_or(2) as i32;
-                let direction = params.get("direction").and_then(|d| d.as_str()).unwrap_or("both");
+                let start_str = params
+                    .get("start_node")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("");
+                let max_depth = params
+                    .get("max_depth")
+                    .and_then(|d| d.as_i64())
+                    .unwrap_or(2) as i32;
+                let direction = params
+                    .get("direction")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("both");
 
                 if let Ok(start_uuid) = uuid::Uuid::parse_str(start_str) {
-                    match crate::graph::traverse(db, from_addr, start_uuid, max_depth, direction, None).await {
+                    match crate::graph::traverse(
+                        db, from_addr, start_uuid, max_depth, direction, None,
+                    )
+                    .await
+                    {
                         Ok((nodes, edges)) => {
                             let result = serde_json::json!({
                                 "subgraph": {
@@ -1788,57 +2183,141 @@ async fn handle_compound_memory(
                                 "traversal_depth_reached": max_depth,
                             });
                             if has_id {
-                                let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                let resp = protocol::new_response(
+                                    parsed.get("id").cloned().unwrap(),
+                                    result,
+                                );
                                 let mut sender = ws_sender.lock().await;
-                                let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&resp).unwrap().into(),
+                                    ))
+                                    .await;
                             }
                         }
                         Err(e) => {
                             if has_id {
-                                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Traversal failed: {e}"));
+                                let err = protocol::new_error(
+                                    parsed.get("id").cloned().unwrap(),
+                                    -32050,
+                                    &format!("Traversal failed: {e}"),
+                                );
                                 let mut sender = ws_sender.lock().await;
-                                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&err).unwrap().into(),
+                                    ))
+                                    .await;
                             }
                         }
                     }
                 } else if has_id {
-                    let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32066, "Invalid start_node UUID");
+                    let err = protocol::new_error(
+                        parsed.get("id").cloned().unwrap(),
+                        -32066,
+                        "Invalid start_node UUID",
+                    );
                     let mut sender = ws_sender.lock().await;
-                    let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                    let _ = sender
+                        .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                        .await;
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.graph.contribute" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
-                let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                let thread_id = params
+                    .get("thread_id")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if let Some(node_data) = params.get("node") {
-                    let node_type = node_data.get("type").and_then(|t| t.as_str()).unwrap_or("semantic");
-                    let category = node_data.get("category").and_then(|c| c.as_str()).unwrap_or("fact");
-                    let label = node_data.get("label").and_then(|l| l.as_str()).unwrap_or("");
-                    let confidence = node_data.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.85) as f32;
+                    let node_type = node_data
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("semantic");
+                    let category = node_data
+                        .get("category")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("fact");
+                    let label = node_data
+                        .get("label")
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("");
+                    let confidence = node_data
+                        .get("confidence")
+                        .and_then(|c| c.as_f64())
+                        .unwrap_or(0.85) as f32;
                     let confidence = confidence.min(0.85);
-                    let properties = node_data.get("properties").cloned().unwrap_or(serde_json::json!({}));
-                    let tags = node_data.get("tags").cloned().unwrap_or(serde_json::json!([]));
+                    let properties = node_data
+                        .get("properties")
+                        .cloned()
+                        .unwrap_or(serde_json::json!({}));
+                    let tags = node_data
+                        .get("tags")
+                        .cloned()
+                        .unwrap_or(serde_json::json!([]));
                     let provenance = serde_json::json!({
                         "thread_id": thread_id,
                         "contributed_by": from_addr,
                         "extracted_at": protocol::now_rfc3339(),
                     });
 
-                    match crate::graph::insert_node(db, from_addr, node_type, category, label, &properties, confidence, &provenance, &tags).await {
+                    match crate::graph::insert_node(
+                        db,
+                        from_addr,
+                        node_type,
+                        category,
+                        label,
+                        &properties,
+                        confidence,
+                        &provenance,
+                        &tags,
+                    )
+                    .await
+                    {
                         Ok(node_id) => {
                             let mut edge_ids = Vec::new();
                             if let Some(edges) = params.get("edges").and_then(|e| e.as_array()) {
                                 for edge_data in edges {
-                                    let rel = edge_data.get("relationship").and_then(|r| r.as_str()).unwrap_or("related_to");
-                                    let edge_conf = edge_data.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.85) as f32;
-                                    if let Some(target_id_str) = edge_data.get("target_node").and_then(|t| t.as_str()) {
-                                        if let Ok(target_uuid) = uuid::Uuid::parse_str(target_id_str) {
-                                            if let Ok(eid) = crate::graph::insert_edge(db, from_addr, node_id, target_uuid, rel, 1.0, edge_conf, &provenance, &serde_json::json!({})).await {
+                                    let rel = edge_data
+                                        .get("relationship")
+                                        .and_then(|r| r.as_str())
+                                        .unwrap_or("related_to");
+                                    let edge_conf = edge_data
+                                        .get("confidence")
+                                        .and_then(|c| c.as_f64())
+                                        .unwrap_or(0.85)
+                                        as f32;
+                                    if let Some(target_id_str) =
+                                        edge_data.get("target_node").and_then(|t| t.as_str())
+                                    {
+                                        if let Ok(target_uuid) =
+                                            uuid::Uuid::parse_str(target_id_str)
+                                        {
+                                            if let Ok(eid) = crate::graph::insert_edge(
+                                                db,
+                                                from_addr,
+                                                node_id,
+                                                target_uuid,
+                                                rel,
+                                                1.0,
+                                                edge_conf,
+                                                &provenance,
+                                                &serde_json::json!({}),
+                                            )
+                                            .await
+                                            {
                                                 edge_ids.push(eid.to_string());
                                             }
                                         }
@@ -1851,32 +2330,61 @@ async fn handle_compound_memory(
                                     "node_id": node_id.to_string(),
                                     "edge_ids": edge_ids,
                                 });
-                                let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                                let resp = protocol::new_response(
+                                    parsed.get("id").cloned().unwrap(),
+                                    result,
+                                );
                                 let mut sender = ws_sender.lock().await;
-                                let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&resp).unwrap().into(),
+                                    ))
+                                    .await;
                             }
                         }
                         Err(e) => {
                             if has_id {
-                                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32067, &format!("Contribution rejected: {e}"));
+                                let err = protocol::new_error(
+                                    parsed.get("id").cloned().unwrap(),
+                                    -32067,
+                                    &format!("Contribution rejected: {e}"),
+                                );
                                 let mut sender = ws_sender.lock().await;
-                                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&err).unwrap().into(),
+                                    ))
+                                    .await;
                             }
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.lint" => {
             if let Some(ref db) = state.db {
-                let contradictions = crate::graph::find_contradictions(db, from_addr).await.unwrap_or_default();
-                let orphans = crate::graph::find_orphans(db, from_addr).await.unwrap_or_default();
-                let stale = crate::graph::find_stale(db, from_addr, 180).await.unwrap_or_default();
-                let (total_nodes, total_edges) = crate::graph::graph_stats(db, from_addr).await.unwrap_or((0, 0));
+                let contradictions = crate::graph::find_contradictions(db, from_addr)
+                    .await
+                    .unwrap_or_default();
+                let orphans = crate::graph::find_orphans(db, from_addr)
+                    .await
+                    .unwrap_or_default();
+                let stale = crate::graph::find_stale(db, from_addr, 180)
+                    .await
+                    .unwrap_or_default();
+                let (total_nodes, total_edges) = crate::graph::graph_stats(db, from_addr)
+                    .await
+                    .unwrap_or((0, 0));
 
                 let mut findings = Vec::new();
                 for (s, t, _) in &contradictions {
@@ -1898,113 +2406,227 @@ async fn handle_compound_memory(
                 if has_id {
                     let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
                     let mut sender = ws_sender.lock().await;
-                    let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                    let _ = sender
+                        .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                        .await;
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.briefing" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
-                let thread_id = params.get("thread_id").and_then(|t| t.as_str()).unwrap_or("");
-                let user_addr = params.get("user_identity").and_then(|u| u.as_str()).unwrap_or(from_addr);
+                let thread_id = params
+                    .get("thread_id")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                let user_addr = params
+                    .get("user_identity")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or(from_addr);
 
-                match crate::briefing::generate_briefing(db, user_addr, from_addr, thread_id, crate::briefing::ConsentLevel::Standard).await {
+                match crate::briefing::generate_briefing(
+                    db,
+                    user_addr,
+                    from_addr,
+                    thread_id,
+                    crate::briefing::ConsentLevel::Standard,
+                )
+                .await
+                {
                     Ok(briefing) => {
                         if has_id {
-                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), briefing);
+                            let resp = protocol::new_response(
+                                parsed.get("id").cloned().unwrap(),
+                                briefing,
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .await;
                         }
                     }
                     Err(e) => {
                         if has_id {
-                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32065, &format!("Briefing failed: {e}"));
+                            let err = protocol::new_error(
+                                parsed.get("id").cloned().unwrap(),
+                                -32065,
+                                &format!("Briefing failed: {e}"),
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                .await;
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.briefing.ack" => {
             if let Some(params) = parsed.get("params") {
-                let briefing_id = params.get("briefing_id").and_then(|b| b.as_str()).unwrap_or("unknown");
-                tracing::info!("[briefing] {} acknowledged briefing {}", from_addr, briefing_id);
+                let briefing_id = params
+                    .get("briefing_id")
+                    .and_then(|b| b.as_str())
+                    .unwrap_or("unknown");
+                tracing::info!(
+                    "[briefing] {} acknowledged briefing {}",
+                    from_addr,
+                    briefing_id
+                );
             }
         }
         "ainm.memory.grant" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
-                let agent_addr = params.get("agent_identity").and_then(|a| a.as_str()).unwrap_or("");
-                let scopes: Vec<String> = params.get("scopes").and_then(|s| s.as_array()).map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
-                let consent_str = params.get("consent_level").and_then(|c| c.as_str()).unwrap_or("standard");
+                let agent_addr = params
+                    .get("agent_identity")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("");
+                let scopes: Vec<String> = params
+                    .get("scopes")
+                    .and_then(|s| s.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let consent_str = params
+                    .get("consent_level")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("standard");
                 let consent = crate::briefing::ConsentLevel::from_str(consent_str);
 
-                match crate::briefing::grant_scopes(db, from_addr, agent_addr, &scopes, consent).await {
+                match crate::briefing::grant_scopes(db, from_addr, agent_addr, &scopes, consent)
+                    .await
+                {
                     Ok(()) => {
                         if has_id {
                             let result = serde_json::json!({"granted": true, "agent_identity": agent_addr, "effective_scopes": scopes, "effective_consent_level": consent.as_str()});
-                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                            let resp =
+                                protocol::new_response(parsed.get("id").cloned().unwrap(), result);
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .await;
                         }
                     }
                     Err(e) => {
                         if has_id {
-                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Grant failed: {e}"));
+                            let err = protocol::new_error(
+                                parsed.get("id").cloned().unwrap(),
+                                -32050,
+                                &format!("Grant failed: {e}"),
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                .await;
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.revoke" => {
             if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
-                let agent_addr = params.get("agent_identity").and_then(|a| a.as_str()).unwrap_or("");
-                let scopes: Vec<String> = params.get("scopes").and_then(|s| s.as_array()).map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+                let agent_addr = params
+                    .get("agent_identity")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("");
+                let scopes: Vec<String> = params
+                    .get("scopes")
+                    .and_then(|s| s.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
                 match crate::briefing::revoke_scopes(db, from_addr, agent_addr, &scopes).await {
                     Ok(()) => {
                         if has_id {
-                            let result = serde_json::json!({"revoked": true, "agent_identity": agent_addr});
-                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                            let result =
+                                serde_json::json!({"revoked": true, "agent_identity": agent_addr});
+                            let resp =
+                                protocol::new_response(parsed.get("id").cloned().unwrap(), result);
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .await;
                         }
                     }
                     Err(e) => {
                         if has_id {
-                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Revoke failed: {e}"));
+                            let err = protocol::new_error(
+                                parsed.get("id").cloned().unwrap(),
+                                -32050,
+                                &format!("Revoke failed: {e}"),
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                .await;
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         "ainm.memory.export" => {
             if let Some(ref db) = state.db {
-                let include_superseded = parsed.get("params").and_then(|p| p.get("include_superseded")).and_then(|v| v.as_bool()).unwrap_or(false);
+                let include_superseded = parsed
+                    .get("params")
+                    .and_then(|p| p.get("include_superseded"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 match crate::graph::export_graph(db, from_addr, include_superseded).await {
                     Ok((nodes, edges)) => {
-                        let earliest = nodes.first().map(|n| n.valid_from.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-                        let latest = nodes.last().map(|n| n.valid_from.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+                        let earliest = nodes.first().map(|n| {
+                            n.valid_from
+                                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+                        });
+                        let latest = nodes.last().map(|n| {
+                            n.valid_from
+                                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+                        });
                         let result = serde_json::json!({
                             "format": "ainm-memory-v1",
                             "version": "1.0.0",
@@ -2017,30 +2639,51 @@ async fn handle_compound_memory(
                             "metadata": {"node_count": nodes.len(), "edge_count": edges.len(), "earliest_node": earliest, "latest_node": latest}
                         });
                         if has_id {
-                            let resp = protocol::new_response(parsed.get("id").cloned().unwrap(), result);
+                            let resp =
+                                protocol::new_response(parsed.get("id").cloned().unwrap(), result);
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .await;
                         }
                     }
                     Err(e) => {
                         if has_id {
-                            let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32050, &format!("Export failed: {e}"));
+                            let err = protocol::new_error(
+                                parsed.get("id").cloned().unwrap(),
+                                -32050,
+                                &format!("Export failed: {e}"),
+                            );
                             let mut sender = ws_sender.lock().await;
-                            let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                                .await;
                         }
                     }
                 }
             } else if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32062, "Compound memory not supported");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32062,
+                    "Compound memory not supported",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
         _ => {
             if has_id {
-                let err = protocol::new_error(parsed.get("id").cloned().unwrap(), -32601, "Method not found");
+                let err = protocol::new_error(
+                    parsed.get("id").cloned().unwrap(),
+                    -32601,
+                    "Method not found",
+                );
                 let mut sender = ws_sender.lock().await;
-                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap().into())).await;
+                let _ = sender
+                    .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                    .await;
             }
         }
     }
@@ -2092,7 +2735,8 @@ async fn handle_agent_connection(
     });
 
     // Track stream_id -> thread_id for federation relay of delta/end events
-    let mut stream_thread_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut stream_thread_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
 
     // Main loop: receive agent messages and forward to human, or drain on shutdown.
     let mut shutdown_rx = state.shutdown.subscribe();
@@ -2652,7 +3296,7 @@ async fn handle_agent_connection(
             } // end select!
         } // end loop
     } // end if !is_shutting_down
-    // On break, close the socket cleanly so the client sees a Close frame.
+      // On break, close the socket cleanly so the client sees a Close frame.
     {
         let mut sender = ws_sender.lock().await;
         let _ = sender.send(Message::Close(None)).await;
@@ -2990,7 +3634,7 @@ async fn handle_human_connection(
             } // end select!
         } // end loop
     } // end if !is_shutting_down
-    // On break, close the socket cleanly so the client sees a Close frame.
+      // On break, close the socket cleanly so the client sees a Close frame.
     {
         let mut sender = ws_sender.lock().await;
         let _ = sender.send(Message::Close(None)).await;
@@ -3023,11 +3667,21 @@ mod tests {
 
         // (2) Static identity match.
         let got = published_card_for(None, &static_card, &registry, "testdom", "helper").await;
-        assert_eq!(got.as_ref().and_then(|c| c.get("name")).and_then(|n| n.as_str()), Some("helper"));
+        assert_eq!(
+            got.as_ref()
+                .and_then(|c| c.get("name"))
+                .and_then(|n| n.as_str()),
+            Some("helper")
+        );
 
         // (3) Live connector match by {name}@{domain}.
         let got = published_card_for(None, &static_card, &registry, "testdom", "coder").await;
-        assert_eq!(got.as_ref().and_then(|c| c["ainm"].get("address")).and_then(|a| a.as_str()), Some("coder@testdom"));
+        assert_eq!(
+            got.as_ref()
+                .and_then(|c| c["ainm"].get("address"))
+                .and_then(|a| a.as_str()),
+            Some("coder@testdom")
+        );
 
         // Unknown name → None (→ 404).
         let got = published_card_for(None, &static_card, &registry, "testdom", "ghost").await;
@@ -3036,6 +3690,9 @@ mod tests {
         // A non-matching static card must NOT block the connector branch (falls through, not early None).
         let other = json!({ "address": "someoneelse@testdom" });
         let got = published_card_for(None, &other, &registry, "testdom", "coder").await;
-        assert!(got.is_some(), "non-matching static card must not block the connector branch");
+        assert!(
+            got.is_some(),
+            "non-matching static card must not block the connector branch"
+        );
     }
 }

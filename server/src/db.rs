@@ -32,10 +32,7 @@ pub async fn init_pool(config: &DatabaseConfig) -> Result<PgPool, sqlx::Error> {
 
 /// Health check: verify the database is reachable.
 pub async fn health_check(pool: &PgPool) -> bool {
-    sqlx::query("SELECT 1")
-        .fetch_one(pool)
-        .await
-        .is_ok()
+    sqlx::query("SELECT 1").fetch_one(pool).await.is_ok()
 }
 
 #[cfg(test)]
@@ -47,6 +44,9 @@ mod tests {
         // The binary must carry its own schema — resolving `migrations/` from CWD
         // silently skips migrations when launched from anywhere but server/.
         assert!(MIGRATOR.iter().count() >= 7);
-        assert!(MIGRATOR.iter().any(|m| m.description.contains("compound_memory") || m.description.contains("compound memory")));
+        assert!(MIGRATOR
+            .iter()
+            .any(|m| m.description.contains("compound_memory")
+                || m.description.contains("compound memory")));
     }
 }

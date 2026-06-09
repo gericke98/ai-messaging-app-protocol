@@ -21,14 +21,23 @@ async fn pool_and_url_or_skip() -> Option<(sqlx::PgPool, String)> {
         .ok()?;
     let pool = sqlx::PgPool::connect(&url).await.ok()?;
     let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    sqlx::migrate::Migrator::new(migrations_dir).await.ok()?.run(&pool).await.ok()?;
+    sqlx::migrate::Migrator::new(migrations_dir)
+        .await
+        .ok()?
+        .run(&pool)
+        .await
+        .ok()?;
     Some((pool, url))
 }
 
 /// Insert an active, email-verified account and bind a freshly generated Ed25519 key
 /// (stored as URL-safe-base64-no-pad of the public key, matching the bind-key endpoint).
 /// Returns the in-memory identity (address + key pair) for signing.
-async fn make_bound_account(pool: &sqlx::PgPool, address: &str, domain: &str) -> identity::Identity {
+async fn make_bound_account(
+    pool: &sqlx::PgPool,
+    address: &str,
+    domain: &str,
+) -> identity::Identity {
     let username = address.split('@').next().unwrap();
     let account_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO accounts (username, domain, address, email_hash, email_verified, status) \
@@ -106,12 +115,18 @@ async fn ws_conversation_delivers_agent_reply() {
     // Spawn the compiled binary headless with the mock LLM affordance.
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_ainm-server"))
         .args([
-            "--mode", "human",
-            "--port", &port.to_string(),
-            "--identity", &domain,
-            "--cert", certs.join("server-a.pem").to_str().unwrap(),
-            "--key", certs.join("server-a-key.pem").to_str().unwrap(),
-            "--ca-cert", certs.join("ca.pem").to_str().unwrap(),
+            "--mode",
+            "human",
+            "--port",
+            &port.to_string(),
+            "--identity",
+            &domain,
+            "--cert",
+            certs.join("server-a.pem").to_str().unwrap(),
+            "--key",
+            certs.join("server-a-key.pem").to_str().unwrap(),
+            "--ca-cert",
+            certs.join("ca.pem").to_str().unwrap(),
         ])
         .env("AINM_DATABASE__URL", &db_url)
         .env("AINM_LLM__MOCK", "1")
@@ -142,7 +157,10 @@ async fn ws_conversation_delivers_agent_reply() {
             use tokio::io::AsyncReadExt;
             let _ = e.read_to_string(&mut stderr).await;
         }
-        panic!("server did not become ready in 15s. stderr tail:\n{}", stderr);
+        panic!(
+            "server did not become ready in 15s. stderr tail:\n{}",
+            stderr
+        );
     }
 
     // Open the WebSocket and do the signed handshake (mirror repl.rs:20-48).
@@ -172,21 +190,27 @@ async fn ws_conversation_delivers_agent_reply() {
         }),
         serde_json::json!(2),
     );
-    tx.send(Message::Text(serde_json::to_string(&init_req).unwrap().into()))
-        .await
-        .unwrap();
+    tx.send(Message::Text(
+        serde_json::to_string(&init_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
 
     // Await the `initialized` response (id 2 result), then send the `ainm.initialized` notification.
-    let init_resp = next_text(&mut rx, Duration::from_secs(10)).await.expect("init response");
+    let init_resp = next_text(&mut rx, Duration::from_secs(10))
+        .await
+        .expect("init response");
     let init_resp_json: serde_json::Value = serde_json::from_str(&init_resp).unwrap();
     assert!(
         init_resp_json.get("result").is_some(),
         "handshake rejected: {init_resp}"
     );
     let initialized = protocol::new_notification("ainm.initialized", serde_json::json!({}));
-    tx.send(Message::Text(serde_json::to_string(&initialized).unwrap().into()))
-        .await
-        .unwrap();
+    tx.send(Message::Text(
+        serde_json::to_string(&initialized).unwrap().into(),
+    ))
+    .await
+    .unwrap();
 
     // Build + JCS-sign a message addressed to the agent (mirror repl.rs:317-344).
     let thread_id = protocol::new_message_id();
@@ -211,9 +235,11 @@ async fn ws_conversation_delivers_agent_reply() {
         envelope,
         serde_json::json!(protocol::new_message_id()),
     );
-    tx.send(Message::Text(serde_json::to_string(&send_req).unwrap().into()))
-        .await
-        .unwrap();
+    tx.send(Message::Text(
+        serde_json::to_string(&send_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
 
     // Read frames until the terminal `ainm.message.deliver` from the agent (~20s budget).
     // Tolerate the send ack (id result), stream deltas, and any other notifications.
@@ -224,13 +250,20 @@ async fn ws_conversation_delivers_agent_reply() {
         let remaining = deadline
             .checked_duration_since(tokio::time::Instant::now())
             .unwrap_or(Duration::ZERO);
-        let Some(frame) = next_text(&mut rx, remaining).await else { break };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&frame) else { continue };
+        let Some(frame) = next_text(&mut rx, remaining).await else {
+            break;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&frame) else {
+            continue;
+        };
         if v.get("method").and_then(|m| m.as_str()) != Some("ainm.message.deliver") {
             continue;
         }
         let msg = v.get("params").and_then(|p| p.get("message"));
-        let from = msg.and_then(|m| m.get("from")).and_then(|f| f.as_str()).unwrap_or("");
+        let from = msg
+            .and_then(|m| m.get("from"))
+            .and_then(|f| f.as_str())
+            .unwrap_or("");
         if from != agent_addr {
             continue;
         }

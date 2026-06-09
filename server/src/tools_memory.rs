@@ -224,8 +224,8 @@ mod tests {
     fn granted_categories_unions_scopes() {
         let scopes = vec!["identity".to_string(), "preferences".to_string()];
         let cats = granted_categories(&scopes);
-        assert!(cats.contains(&"fact"));        // from identity
-        assert!(cats.contains(&"preference"));  // from preferences
-        assert!(!cats.contains(&"skill"));      // expertise not granted
+        assert!(cats.contains(&"fact")); // from identity
+        assert!(cats.contains(&"preference")); // from preferences
+        assert!(!cats.contains(&"skill")); // expertise not granted
     }
 }

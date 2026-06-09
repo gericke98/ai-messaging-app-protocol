@@ -41,9 +41,15 @@ impl Default for QuotaConfig {
         }
     }
 }
-fn default_quota_enabled() -> bool { true }
-fn default_monthly_token_budget() -> i64 { 200_000 }
-fn default_missing_usage_fallback() -> u32 { 1000 }
+fn default_quota_enabled() -> bool {
+    true
+}
+fn default_monthly_token_budget() -> i64 {
+    200_000
+}
+fn default_missing_usage_fallback() -> u32 {
+    1000
+}
 
 /// Runtime A2A (agent-to-agent) policy knobs.
 #[derive(Debug, Deserialize, Clone)]
@@ -55,10 +61,14 @@ pub struct A2aConfig {
 }
 impl Default for A2aConfig {
     fn default() -> Self {
-        Self { hop_cap: default_a2a_hop_cap() }
+        Self {
+            hop_cap: default_a2a_hop_cap(),
+        }
     }
 }
-fn default_a2a_hop_cap() -> u32 { 6 }
+fn default_a2a_hop_cap() -> u32 {
+    6
+}
 
 /// A single curated (config-defined, trusted) MCP server the hosted agent may use.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -144,13 +154,27 @@ impl Default for SandboxLimits {
         }
     }
 }
-fn default_max_memory_mb() -> u64 { 512 }
-fn default_max_cpu_secs() -> u64 { 30 }
-fn default_max_procs() -> u64 { 64 }
-fn default_max_nofile() -> u64 { 256 }
-fn default_max_fsize_mb() -> u64 { 64 }
-fn default_max_output_bytes() -> usize { 1_048_576 }
-fn default_wall_timeout_secs() -> u64 { 60 }
+fn default_max_memory_mb() -> u64 {
+    512
+}
+fn default_max_cpu_secs() -> u64 {
+    30
+}
+fn default_max_procs() -> u64 {
+    64
+}
+fn default_max_nofile() -> u64 {
+    256
+}
+fn default_max_fsize_mb() -> u64 {
+    64
+}
+fn default_max_output_bytes() -> usize {
+    1_048_576
+}
+fn default_wall_timeout_secs() -> u64 {
+    60
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
@@ -182,15 +206,26 @@ impl Default for DatabaseConfig {
     }
 }
 
-fn default_max_connections() -> u32 { 20 }
-fn default_min_connections() -> u32 { 2 }
-fn default_acquire_timeout() -> u64 { 5 }
-fn default_idle_timeout() -> u64 { 600 }
+fn default_max_connections() -> u32 {
+    20
+}
+fn default_min_connections() -> u32 {
+    2
+}
+fn default_acquire_timeout() -> u64 {
+    5
+}
+fn default_idle_timeout() -> u64 {
+    600
+}
 
 /// Load configuration from TOML files and environment variables.
 #[allow(clippy::result_large_err)] // figment::Error is large; load() runs once at startup
 pub fn load() -> Result<AppConfig, figment::Error> {
-    use figment::{Figment, providers::{Format, Toml, Env}};
+    use figment::{
+        providers::{Env, Format, Toml},
+        Figment,
+    };
 
     Figment::new()
         .merge(Toml::file("config/default.toml"))
@@ -248,7 +283,10 @@ mod tests {
         assert!(cfg.allow_network);
         assert_eq!(cfg.allow_read, vec!["/opt/data".to_string()]);
         assert_eq!(cfg.allowed_hosts, vec!["api.weather.example".to_string()]);
-        assert_eq!(cfg.env.get("WEATHER_UNITS").map(String::as_str), Some("metric"));
+        assert_eq!(
+            cfg.env.get("WEATHER_UNITS").map(String::as_str),
+            Some("metric")
+        );
         assert_eq!(cfg.limits.max_memory_mb, 256);
         assert_eq!(cfg.limits.wall_timeout_secs, 15);
         assert_eq!(cfg.limits.max_cpu_secs, 30);

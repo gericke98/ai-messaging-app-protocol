@@ -15,9 +15,9 @@ mod escrow;
 mod federation;
 mod graph;
 mod hosted_agent;
+mod identity;
 mod lifecycle;
 mod llm;
-mod identity;
 mod mcp;
 mod persistence;
 mod prod_guard;
@@ -35,9 +35,9 @@ mod sandbox;
 mod server;
 mod signing;
 mod streaming;
+mod tls;
 mod tools;
 mod tools_memory;
-mod tls;
 
 use anyhow::Result;
 use axum::response::IntoResponse;
@@ -180,8 +180,7 @@ async fn run_uat(_cli: Cli) -> Result<()> {
     let agent_card = build_uat_agent_card();
 
     // 5. Boot server on fixed port 8080 with /health registered.
-    let (addr, handle) =
-        server::start_with_port(identity_store.clone(), agent_card, 8080).await?;
+    let (addr, handle) = server::start_with_port(identity_store.clone(), agent_card, 8080).await?;
     tracing::info!(
         "[uat] server ready on ws://{}/ws, GET /health returns 200",
         addr
@@ -288,7 +287,10 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     let mut tls_fingerprints = vec![tls_fingerprint.clone()];
     if let Some(ref extra_fp) = cli.additional_fingerprint {
         tls_fingerprints.push(extra_fp.clone());
-        tracing::info!("[identity] Cert rotation mode: serving tls_fingerprints = {:?}", tls_fingerprints);
+        tracing::info!(
+            "[identity] Cert rotation mode: serving tls_fingerprints = {:?}",
+            tls_fingerprints
+        );
     }
 
     // 4. Build ServerIdentity
@@ -302,10 +304,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 4b. Initialize persistent storage (redb)
     let data_dir = &cli.data_dir;
     std::fs::create_dir_all(data_dir).expect("failed to create data directory");
-    let persistence = persistence::PersistenceLayer::open(
-        &format!("{}/ainm.redb", data_dir),
-    )
-    .expect("failed to open redb database");
+    let persistence = persistence::PersistenceLayer::open(&format!("{}/ainm.redb", data_dir))
+        .expect("failed to open redb database");
 
     // 5. Build mTLS HTTP client and RelaySender
     let http_client = tls::build_mtls_client(ca_cert_path, cert_path, key_path);
@@ -456,7 +456,12 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 7b. Initialize PostgreSQL if configured
     let app_config = config::load().unwrap_or_else(|e| {
         tracing::warn!("[config] Failed to load config: {e}, using defaults");
-        config::AppConfig { database: config::DatabaseConfig::default(), mcp_servers: vec![], quota: config::QuotaConfig::default(), a2a: config::A2aConfig::default() }
+        config::AppConfig {
+            database: config::DatabaseConfig::default(),
+            mcp_servers: vec![],
+            quota: config::QuotaConfig::default(),
+            a2a: config::A2aConfig::default(),
+        }
     });
     let db_pool = if app_config.database.url.is_some() {
         match db::init_pool(&app_config.database).await {
@@ -465,7 +470,9 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 Some(pool)
             }
             Err(e) => {
-                tracing::warn!("[db] PostgreSQL init failed: {e}. Running without database persistence.");
+                tracing::warn!(
+                    "[db] PostgreSQL init failed: {e}. Running without database persistence."
+                );
                 None
             }
         }
@@ -480,7 +487,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         Option<tokio::sync::broadcast::Sender<String>>,
     ) = if let Some(ref pool) = db_pool {
         let llm_api_key = std::env::var("AINM_LLM__API_KEY").ok();
-        let llm_model = std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let llm_model =
+            std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
         let llm_base_url = std::env::var("AINM_LLM__BASE_URL").ok();
 
         let llm_client: Arc<dyn llm::LlmClient> = if let Some(api_key) = llm_api_key {
@@ -502,23 +510,30 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     // 7d. Account identity: token signer + email sender
     let token_signer = auth_token::TokenSigner::new(&auth_token::secret_from_env());
 
-    let email_sender: std::sync::Arc<dyn email::EmailSender> =
-        match (std::env::var("AINM_EMAIL__RESEND_API_KEY").ok(), std::env::var("AINM_EMAIL__FROM").ok()) {
-            (Some(key), Some(from)) => {
-                tracing::info!("[email] using Resend sender");
-                std::sync::Arc::new(email::ResendEmailSender::new(key, from))
-            }
-            _ => {
-                tracing::info!("[email] no AINM_EMAIL__RESEND_API_KEY; using mock email sender (codes logged)");
-                std::sync::Arc::new(email::MockEmailSender::new())
-            }
-        };
+    let email_sender: std::sync::Arc<dyn email::EmailSender> = match (
+        std::env::var("AINM_EMAIL__RESEND_API_KEY").ok(),
+        std::env::var("AINM_EMAIL__FROM").ok(),
+    ) {
+        (Some(key), Some(from)) => {
+            tracing::info!("[email] using Resend sender");
+            std::sync::Arc::new(email::ResendEmailSender::new(key, from))
+        }
+        _ => {
+            tracing::info!(
+                "[email] no AINM_EMAIL__RESEND_API_KEY; using mock email sender (codes logged)"
+            );
+            std::sync::Arc::new(email::MockEmailSender::new())
+        }
+    };
 
     // 7e. Provision the hosted agent + its LLM client + curated MCP providers (B-8).
     //     Requires a DB (the agent signer + prompt live in hosted_agents). The LLM client
     //     is independent of the compilation worker's (different lifecycle / sharing).
-    let (hosted_agent, hosted_llm, mcp_providers): HostedAgentBuild = if let Some(ref pool) = db_pool {
-        let agent = hosted_agent::provision(pool, server_id).await
+    let (hosted_agent, hosted_llm, mcp_providers): HostedAgentBuild = if let Some(ref pool) =
+        db_pool
+    {
+        let agent = hosted_agent::provision(pool, server_id)
+            .await
             .map(std::sync::Arc::new)
             .map_err(|e| tracing::warn!("[hosted-agent] provisioning failed: {e}"))
             .ok();
@@ -550,20 +565,23 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
     };
 
     // C: BYO-key cipher (None if AINM_LLM_ENCRYPTION_KEY unset → BYO disabled, fail-safe) + quota config.
-    let cred_cipher: Option<std::sync::Arc<credentials::CredCipher>> =
-        match std::env::var("AINM_LLM_ENCRYPTION_KEY") {
-            Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-                Ok(key) => Some(std::sync::Arc::new(credentials::CredCipher::new(&key))),
-                Err(e) => {
-                    tracing::warn!("[cred] AINM_LLM_ENCRYPTION_KEY not valid base64 ({e}); BYO keys disabled");
-                    None
-                }
-            },
-            Err(_) => {
-                tracing::info!("[cred] AINM_LLM_ENCRYPTION_KEY unset; BYO LLM keys disabled");
+    let cred_cipher: Option<std::sync::Arc<credentials::CredCipher>> = match std::env::var(
+        "AINM_LLM_ENCRYPTION_KEY",
+    ) {
+        Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+            Ok(key) => Some(std::sync::Arc::new(credentials::CredCipher::new(&key))),
+            Err(e) => {
+                tracing::warn!(
+                    "[cred] AINM_LLM_ENCRYPTION_KEY not valid base64 ({e}); BYO keys disabled"
+                );
                 None
             }
-        };
+        },
+        Err(_) => {
+            tracing::info!("[cred] AINM_LLM_ENCRYPTION_KEY unset; BYO LLM keys disabled");
+            None
+        }
+    };
     let quota_config = app_config.quota.clone();
 
     // 8. Create broadcast channel for local delivery
@@ -648,7 +666,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         let static_card = agent_card.clone();
         let registry = agent_registry.clone();
         let domain = server_id.to_string();
-        move |headers: axum::http::HeaderMap, axum::extract::Path(agent_name): axum::extract::Path<String>| {
+        move |headers: axum::http::HeaderMap,
+              axum::extract::Path(agent_name): axum::extract::Path<String>| {
             let hosted = hosted.clone();
             let static_card = static_card.clone();
             let registry = registry.clone();
@@ -684,7 +703,10 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 (
                     axum::http::StatusCode::OK,
                     [
-                        (axum::http::header::CONTENT_TYPE, "application/json".to_string()),
+                        (
+                            axum::http::header::CONTENT_TYPE,
+                            "application/json".to_string(),
+                        ),
                         (axum::http::header::ETAG, etag_value),
                     ],
                     body,
@@ -716,8 +738,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         );
 
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(mtls_config);
-    let tls_listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", cli.federation_port))
-        .await?;
+    let tls_listener =
+        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", cli.federation_port)).await?;
     let fed_addr = tls_listener.local_addr()?;
 
     let remote_cache_for_tls = remote_cache.clone();
@@ -781,11 +803,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                 .serve_connection(io, hyper_service)
                                 .await
                                 {
-                                    tracing::error!(
-                                        "[federation] HTTP error from {}: {}",
-                                        addr,
-                                        e
-                                    );
+                                    tracing::error!("[federation] HTTP error from {}: {}", addr, e);
                                 }
                             }
                             Err(e) => {
@@ -837,10 +855,7 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
         "  Federation: https://0.0.0.0:{}/ainm/v1/relay",
         fed_addr.port()
     );
-    println!(
-        "  Remote:     {}",
-        cli.remote.as_deref().unwrap_or("none")
-    );
+    println!("  Remote:     {}", cli.remote.as_deref().unwrap_or("none"));
     println!("========================================");
     println!();
 
@@ -923,10 +938,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                 match recv {
                     Ok(msg_text) => {
                         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg_text) {
-                            let method = parsed
-                                .get("method")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or("");
+                            let method =
+                                parsed.get("method").and_then(|m| m.as_str()).unwrap_or("");
                             match method {
                                 "ainm.message.deliver" => {
                                     if let Some(message) =
@@ -966,10 +979,12 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
 
                                         // Parse message text for scenario command keywords (D-11)
                                         let response_lower = text.trim().to_lowercase();
-                                        let origin =
-                                            federation::parse_origin_domain(thread_id).unwrap_or("");
+                                        let origin = federation::parse_origin_domain(thread_id)
+                                            .unwrap_or("");
 
-                                        if response_lower.contains("stream") || response_lower.contains("hello") {
+                                        if response_lower.contains("stream")
+                                            || response_lower.contains("hello")
+                                        {
                                             // Streaming response via relay (Pitfall 2: emit events directly, no WS needed)
                                             let stream_events = build_stream_events(
                                                 &local_identity,
@@ -989,18 +1004,25 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                                         "method": event.get("method").and_then(|m| m.as_str()).unwrap_or("ainm.stream.delta"),
                                                         "params": event.get("params").cloned().unwrap_or_default(),
                                                     });
-                                                    let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
+                                                    let _ = local_delivery_tx.send(
+                                                        serde_json::to_string(&deliver).unwrap(),
+                                                    );
                                                 }
-                                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                                tokio::time::sleep(
+                                                    std::time::Duration::from_millis(50),
+                                                )
+                                                .await;
                                             }
-                                            tracing::info!("[agent] Streamed response for thread {}", thread_id);
-
-                                        } else if response_lower.contains("weather") || response_lower.contains("tool") {
-                                            // Tool call events via relay
-                                            let tool_events = build_tool_call_events(
-                                                &local_identity,
-                                                thread_id,
+                                            tracing::info!(
+                                                "[agent] Streamed response for thread {}",
+                                                thread_id
                                             );
+                                        } else if response_lower.contains("weather")
+                                            || response_lower.contains("tool")
+                                        {
+                                            // Tool call events via relay
+                                            let tool_events =
+                                                build_tool_call_events(&local_identity, thread_id);
 
                                             for (event, delay_ms) in tool_events {
                                                 if origin != server_id {
@@ -1011,15 +1033,24 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                                         "method": "ainm.message.deliver",
                                                         "params": { "message": event, "verified": true }
                                                     });
-                                                    let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
+                                                    let _ = local_delivery_tx.send(
+                                                        serde_json::to_string(&deliver).unwrap(),
+                                                    );
                                                 }
                                                 if delay_ms > 0 {
-                                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                                                    tokio::time::sleep(
+                                                        std::time::Duration::from_millis(delay_ms),
+                                                    )
+                                                    .await;
                                                 }
                                             }
-                                            tracing::info!("[agent] Tool call events sent for thread {}", thread_id);
-
-                                        } else if response_lower.contains("memory") || response_lower.contains("context") {
+                                            tracing::info!(
+                                                "[agent] Tool call events sent for thread {}",
+                                                thread_id
+                                            );
+                                        } else if response_lower.contains("memory")
+                                            || response_lower.contains("context")
+                                        {
                                             // Memory store + context frame push
                                             let response_text_msg = format!(
                                                 "Memory context active for this thread. I have {} context frames available. Storing an example fact now...",
@@ -1040,23 +1071,30 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                                     "fallback": response_text_msg
                                                 }]
                                             });
-                                            if let Err(e) = signing::sign_envelope(&local_identity.key_pair, &mut store_envelope) {
+                                            if let Err(e) = signing::sign_envelope(
+                                                &local_identity.key_pair,
+                                                &mut store_envelope,
+                                            ) {
                                                 tracing::error!("[agent] Signing error: {}", e);
                                                 continue;
                                             }
 
                                             if origin != server_id {
-                                                relay_sender.enqueue(origin, store_envelope.clone());
+                                                relay_sender
+                                                    .enqueue(origin, store_envelope.clone());
                                             } else {
                                                 let deliver = serde_json::json!({
                                                     "jsonrpc": "2.0",
                                                     "method": "ainm.message.deliver",
                                                     "params": { "message": store_envelope, "verified": true }
                                                 });
-                                                let _ = local_delivery_tx.send(serde_json::to_string(&deliver).unwrap());
+                                                let _ = local_delivery_tx
+                                                    .send(serde_json::to_string(&deliver).unwrap());
                                             }
-                                            tracing::info!("[agent] Memory response sent for thread {}", thread_id);
-
+                                            tracing::info!(
+                                                "[agent] Memory response sent for thread {}",
+                                                thread_id
+                                            );
                                         } else {
                                             // Default: echo response (existing behavior)
                                             let response_text = format!(
@@ -1088,7 +1126,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                             }
 
                                             if origin != server_id {
-                                                relay_sender.enqueue(origin, response_envelope.clone());
+                                                relay_sender
+                                                    .enqueue(origin, response_envelope.clone());
                                                 tracing::info!(
                                                     "[agent] Response relayed to origin: {}",
                                                     origin
@@ -1115,9 +1154,8 @@ async fn run_federation(cli: Cli, mode: String) -> Result<()> {
                                             .get("thread_id")
                                             .and_then(|t| t.as_str())
                                             .unwrap_or("");
-                                        let frames = params
-                                            .get("context_frames")
-                                            .and_then(|f| f.as_array());
+                                        let frames =
+                                            params.get("context_frames").and_then(|f| f.as_array());
                                         if let Some(frames) = frames {
                                             tracing::info!(
                                                 "[agent] Received {} context frames for thread {}",
@@ -1258,10 +1296,8 @@ async fn participant_key_handler(
     axum::extract::State(store): axum::extract::State<identity::IdentityStore>,
 ) -> impl axum::response::IntoResponse {
     if let Some(pk_bytes) = store.get_public_key_bytes(&address) {
-        let pk_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            &pk_bytes,
-        );
+        let pk_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &pk_bytes);
         (
             axum::http::StatusCode::OK,
             axum::Json(serde_json::json!({
@@ -1364,8 +1400,7 @@ async fn run_reference_scenario() -> Result<()> {
     });
 
     // 4. Start Axum server (legacy mode -- no federation)
-    let (server_addr, server_handle) =
-        server::start(identity_store.clone(), agent_card).await?;
+    let (server_addr, server_handle) = server::start(identity_store.clone(), agent_card).await?;
 
     // Update identity store with actual server address
     identity_store.register(

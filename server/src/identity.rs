@@ -92,16 +92,20 @@ impl IdentityStore {
 
     /// Get the raw public key bytes for an address.
     pub fn get_public_key_bytes(&self, address: &str) -> Option<Vec<u8>> {
-        self.inner.lock().unwrap().get(address).map(|r| {
-            URL_SAFE_NO_PAD
-                .decode(&r.public_key)
-                .unwrap_or_default()
-        })
+        self.inner
+            .lock()
+            .unwrap()
+            .get(address)
+            .map(|r| URL_SAFE_NO_PAD.decode(&r.public_key).unwrap_or_default())
     }
 
     /// The registered participant type ("human"/"agent") for an address, if known.
     pub fn participant_type(&self, address: &str) -> Option<String> {
-        self.inner.lock().unwrap().get(address).map(|r| r.type_.clone())
+        self.inner
+            .lock()
+            .unwrap()
+            .get(address)
+            .map(|r| r.type_.clone())
     }
 }
 

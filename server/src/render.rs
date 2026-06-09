@@ -18,12 +18,7 @@ pub fn render_message(envelope: &serde_json::Value, verified: bool) {
     } else {
         " [FAILED]".red().to_string()
     };
-    println!(
-        "\n  [{}]{}  {}",
-        from.cyan(),
-        badge,
-        timestamp.dimmed()
-    );
+    println!("\n  [{}]{}  {}", from.cyan(), badge, timestamp.dimmed());
 
     // Render each content block
     if let Some(blocks) = envelope.get("content").and_then(|c| c.as_array()) {
@@ -55,7 +50,10 @@ pub fn render_content_block(block: &serde_json::Value) {
             println!("  {}", "```".dimmed());
         }
         "button" => {
-            let label = block.get("label").and_then(|l| l.as_str()).unwrap_or("Button");
+            let label = block
+                .get("label")
+                .and_then(|l| l.as_str())
+                .unwrap_or("Button");
             let style = block
                 .get("style")
                 .and_then(|s| s.as_str())
@@ -100,7 +98,8 @@ pub fn render_content_block(block: &serde_json::Value) {
                                 .iter()
                                 .filter_map(|o| {
                                     // Options can be strings or {value, label} objects
-                                    o.as_str().or_else(|| o.get("label").and_then(|l| l.as_str()))
+                                    o.as_str()
+                                        .or_else(|| o.get("label").and_then(|l| l.as_str()))
                                 })
                                 .collect();
                             println!(
@@ -121,10 +120,7 @@ pub fn render_content_block(block: &serde_json::Value) {
                     }
                 }
             }
-            println!(
-                "    {}",
-                format!("[ {} ]", submit_label).green().bold()
-            );
+            println!("    {}", format!("[ {} ]", submit_label).green().bold());
         }
         "approval" => {
             let prompt = block
@@ -135,10 +131,7 @@ pub fn render_content_block(block: &serde_json::Value) {
                 .get("status")
                 .and_then(|s| s.as_str())
                 .unwrap_or("pending");
-            println!(
-                "  {}",
-                format!("! APPROVAL: {} !", prompt).yellow().bold()
-            );
+            println!("  {}", format!("! APPROVAL: {} !", prompt).yellow().bold());
             println!("    Status: {}", status.dimmed());
             if let Some(options) = block.get("options").and_then(|o| o.as_array()) {
                 for opt in options {
@@ -272,19 +265,13 @@ pub fn render_tool_event(event_type: &str, params: &serde_json::Value) {
                 .and_then(|d| d.as_u64())
                 .unwrap_or(0);
             let color_fn = if status == "success" {
-                format!(
-                    ">> Tool complete: {} ({}ms)",
-                    result_summary, duration_ms
-                )
-                .green()
-                .to_string()
+                format!(">> Tool complete: {} ({}ms)", result_summary, duration_ms)
+                    .green()
+                    .to_string()
             } else {
-                format!(
-                    ">> Tool failed: {} ({}ms)",
-                    result_summary, duration_ms
-                )
-                .red()
-                .to_string()
+                format!(">> Tool failed: {} ({}ms)", result_summary, duration_ms)
+                    .red()
+                    .to_string()
             };
             println!("  {}", color_fn);
         }
@@ -300,10 +287,7 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                 .get("key")
                 .and_then(|k| k.as_str())
                 .unwrap_or("unknown");
-            println!(
-                "  {}",
-                format!("Stored archival fact: {}", key).green()
-            );
+            println!("  {}", format!("Stored archival fact: {}", key).green());
         }
         "query_result" => {
             if let Some(results) = params.get("results").and_then(|r| r.as_array()) {
@@ -312,10 +296,7 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                 } else {
                     println!("  Archival memory query results:");
                     for fact in results {
-                        let key = fact
-                            .get("key")
-                            .and_then(|k| k.as_str())
-                            .unwrap_or("?");
+                        let key = fact.get("key").and_then(|k| k.as_str()).unwrap_or("?");
                         let value = fact
                             .get("value")
                             .map(|v| {
@@ -326,20 +307,13 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                                 }
                             })
                             .unwrap_or_default();
-                        println!(
-                            "    - {}: {}",
-                            key.yellow(),
-                            value
-                        );
+                        println!("    - {}: {}", key.yellow(), value);
                     }
                 }
             }
         }
         "context_frame" => {
-            println!(
-                "  {}",
-                "=== Context Frame Received ===".yellow().bold()
-            );
+            println!("  {}", "=== Context Frame Received ===".yellow().bold());
             if let Some(frame) = params.get("frame") {
                 let sections = [
                     "active_context",
@@ -349,9 +323,7 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                 ];
                 for section in &sections {
                     if let Some(val) = frame.get(*section) {
-                        let byte_count = serde_json::to_string(val)
-                            .map(|s| s.len())
-                            .unwrap_or(0);
+                        let byte_count = serde_json::to_string(val).map(|s| s.len()).unwrap_or(0);
                         println!(
                             "    [{}] {}",
                             section.cyan(),
@@ -366,10 +338,7 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
                 .get("key")
                 .and_then(|k| k.as_str())
                 .unwrap_or("unknown");
-            println!(
-                "  {}",
-                format!("Evicted archival fact: {}", key).green()
-            );
+            println!("  {}", format!("Evicted archival fact: {}", key).green());
         }
         _ => {}
     }
@@ -379,38 +348,23 @@ pub fn render_memory_event(event_type: &str, params: &serde_json::Value) {
 pub fn render_bridge_event(bridge_type: &str, params: &serde_json::Value) {
     match bridge_type {
         "mcp_header" => {
-            println!(
-                "  {}",
-                "--- MCP Bridge ---".cyan().bold()
-            );
+            println!("  {}", "--- MCP Bridge ---".cyan().bold());
         }
         "a2a_header" => {
-            println!(
-                "  {}",
-                "--- A2A Bridge ---".cyan().bold()
-            );
+            println!("  {}", "--- A2A Bridge ---".cyan().bold());
         }
         "a2a_submitted" => {
-            println!(
-                "  {}",
-                "A2A task submitted -> sub-thread created".yellow()
-            );
+            println!("  {}", "A2A task submitted -> sub-thread created".yellow());
         }
         "a2a_working" => {
             let detail = params
                 .get("detail")
                 .and_then(|d| d.as_str())
                 .unwrap_or("A2A task working -> agent processing");
-            println!(
-                "  {}",
-                detail.dimmed()
-            );
+            println!("  {}", detail.dimmed());
         }
         "a2a_completed" => {
-            println!(
-                "  {}",
-                "A2A task completed -> result delivered".green()
-            );
+            println!("  {}", "A2A task completed -> result delivered".green());
         }
         _ => {}
     }
@@ -455,8 +409,14 @@ pub fn render_agent_card(card: &serde_json::Value) {
                 .get("subThreads")
                 .and_then(|s| s.as_bool())
                 .unwrap_or(false);
-            println!("  Threads:     sub-threads {}", if sub { "enabled" } else { "disabled" });
-            if let Some(max) = threading.get("maxConcurrentThreads").and_then(|m| m.as_u64()) {
+            println!(
+                "  Threads:     sub-threads {}",
+                if sub { "enabled" } else { "disabled" }
+            );
+            if let Some(max) = threading
+                .get("maxConcurrentThreads")
+                .and_then(|m| m.as_u64())
+            {
                 println!("  Concurrency: {} threads", max);
             }
         }
@@ -469,8 +429,18 @@ pub fn render_agent_card(card: &serde_json::Value) {
                 .get("contextFramePreferred")
                 .and_then(|f| f.as_bool())
                 .unwrap_or(false);
-            println!("  Memory:      archival {}", if archival { "supported" } else { "not supported" });
-            println!("  Context:     frame delivery {}", if frame { "preferred" } else { "not preferred" });
+            println!(
+                "  Memory:      archival {}",
+                if archival {
+                    "supported"
+                } else {
+                    "not supported"
+                }
+            );
+            println!(
+                "  Context:     frame delivery {}",
+                if frame { "preferred" } else { "not preferred" }
+            );
         }
         if let Some(tools) = ainm.get("tools").and_then(|t| t.as_array()) {
             println!("  Tools:");

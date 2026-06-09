@@ -22,7 +22,10 @@ async fn drain_waits_for_in_flight_turn() {
     tokio::time::timeout(Duration::from_secs(5), controller.wait_idle())
         .await
         .expect("drains within deadline");
-    assert!(done.load(Ordering::SeqCst), "in-flight turn ran to completion");
+    assert!(
+        done.load(Ordering::SeqCst),
+        "in-flight turn ran to completion"
+    );
 }
 
 #[tokio::test]

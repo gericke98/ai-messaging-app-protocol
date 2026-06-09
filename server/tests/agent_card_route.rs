@@ -58,12 +58,18 @@ async fn canonical_agent_card_route_serves_hosted_card() {
     // no DB required. /health/ready returns 200 in no-DB mode ("still healthy").
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_ainm-server"))
         .args([
-            "--mode", "agent",
-            "--port", &port.to_string(),
-            "--identity", "localhost",
-            "--cert", certs.join("server-a.pem").to_str().unwrap(),
-            "--key", certs.join("server-a-key.pem").to_str().unwrap(),
-            "--ca-cert", certs.join("ca.pem").to_str().unwrap(),
+            "--mode",
+            "agent",
+            "--port",
+            &port.to_string(),
+            "--identity",
+            "localhost",
+            "--cert",
+            certs.join("server-a.pem").to_str().unwrap(),
+            "--key",
+            certs.join("server-a-key.pem").to_str().unwrap(),
+            "--ca-cert",
+            certs.join("ca.pem").to_str().unwrap(),
         ])
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())
@@ -92,13 +98,20 @@ async fn canonical_agent_card_route_serves_hosted_card() {
             use tokio::io::AsyncReadExt;
             let _ = e.read_to_string(&mut stderr).await;
         }
-        panic!("server did not become ready in 15s. stderr tail:\n{}", stderr);
+        panic!(
+            "server did not become ready in 15s. stderr tail:\n{}",
+            stderr
+        );
     }
 
     // Canonical route — NO `agents/` segment.
     let card_url = format!("http://127.0.0.1:{port}/.well-known/ainm/helper/agent-card.json");
     let resp = http.get(&card_url).send().await.expect("GET agent-card");
-    assert_eq!(resp.status().as_u16(), 200, "canonical agent-card route must return 200");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "canonical agent-card route must return 200"
+    );
 
     let body: serde_json::Value = resp.json().await.expect("agent-card JSON body");
     assert!(
@@ -109,8 +122,11 @@ async fn canonical_agent_card_route_serves_hosted_card() {
     // Unknown agent name must 404 (the static card is published only under its own identity).
     let unknown = format!("http://127.0.0.1:{port}/.well-known/ainm/ghost/agent-card.json");
     let unknown_resp = http.get(&unknown).send().await.expect("GET unknown");
-    assert_eq!(unknown_resp.status().as_u16(), 404,
-               "an unknown agent name must 404, not serve the static card");
+    assert_eq!(
+        unknown_resp.status().as_u16(),
+        404,
+        "an unknown agent name must 404, not serve the static card"
+    );
 
     // A bogus `agents/`-prefixed path must NOT serve the card (locks the no-`agents/` contract).
     let bogus = format!("http://127.0.0.1:{port}/.well-known/ainm/agents/helper/agent-card.json");
@@ -144,12 +160,18 @@ async fn assistant_card_route_serves_hosted_card() {
 
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_ainm-server"))
         .args([
-            "--mode", "human",
-            "--port", &port.to_string(),
-            "--identity", domain,
-            "--cert", certs.join("server-a.pem").to_str().unwrap(),
-            "--key", certs.join("server-a-key.pem").to_str().unwrap(),
-            "--ca-cert", certs.join("ca.pem").to_str().unwrap(),
+            "--mode",
+            "human",
+            "--port",
+            &port.to_string(),
+            "--identity",
+            domain,
+            "--cert",
+            certs.join("server-a.pem").to_str().unwrap(),
+            "--key",
+            certs.join("server-a-key.pem").to_str().unwrap(),
+            "--ca-cert",
+            certs.join("ca.pem").to_str().unwrap(),
         ])
         .env("AINM_DATABASE__URL", &db_url)
         .env("RUST_LOG", "warn")
@@ -179,13 +201,24 @@ async fn assistant_card_route_serves_hosted_card() {
             use tokio::io::AsyncReadExt;
             let _ = e.read_to_string(&mut stderr).await;
         }
-        panic!("server did not become ready in 15s. stderr tail:\n{}", stderr);
+        panic!(
+            "server did not become ready in 15s. stderr tail:\n{}",
+            stderr
+        );
     }
 
     // The hosted assistant card resolves at the canonical route.
     let card_url = format!("http://127.0.0.1:{port}/.well-known/ainm/assistant/agent-card.json");
-    let resp = http.get(&card_url).send().await.expect("GET assistant card");
-    assert_eq!(resp.status().as_u16(), 200, "assistant card route must return 200 with a DB");
+    let resp = http
+        .get(&card_url)
+        .send()
+        .await
+        .expect("GET assistant card");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "assistant card route must return 200 with a DB"
+    );
 
     let body: serde_json::Value = resp.json().await.expect("assistant card JSON");
     assert_eq!(body["name"], "Assistant", "assistant card name; got {body}");
@@ -193,7 +226,10 @@ async fn assistant_card_route_serves_hosted_card() {
         body["capabilities"]["pushNotifications"], false,
         "camelCase capability key must be present; got {body}"
     );
-    assert_eq!(body["ainm"]["memory"]["archivalSupported"], true, "got {body}");
+    assert_eq!(
+        body["ainm"]["memory"]["archivalSupported"], true,
+        "got {body}"
+    );
     assert_eq!(
         body["ainm"]["address"], "assistant@assistant-card-e2e.local",
         "card must carry the routing address; got {body}"
@@ -202,7 +238,11 @@ async fn assistant_card_route_serves_hosted_card() {
     // Unknown names still 404 even with an assistant provisioned.
     let unknown = format!("http://127.0.0.1:{port}/.well-known/ainm/ghost/agent-card.json");
     let unknown_resp = http.get(&unknown).send().await.expect("GET unknown");
-    assert_eq!(unknown_resp.status().as_u16(), 404, "unknown agent name must 404");
+    assert_eq!(
+        unknown_resp.status().as_u16(),
+        404,
+        "unknown agent name must 404"
+    );
 
     child.start_kill().ok();
 }

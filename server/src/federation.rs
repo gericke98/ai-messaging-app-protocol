@@ -198,10 +198,7 @@ pub async fn relay_handler(
     Json(body): Json<serde_json::Value>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // 1. Parse JSON-RPC envelope
-    let method = body
-        .get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
+    let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let id = body.get("id").cloned().unwrap_or(serde_json::json!(1));
 
     match method {
@@ -237,11 +234,7 @@ pub async fn relay_handler(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(
-                    id,
-                    -32602,
-                    "Missing from_server",
-                )),
+                Json(protocol::new_error_value(id, -32602, "Missing from_server")),
             )
         }
     };
@@ -252,7 +245,11 @@ pub async fn relay_handler(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(id, -32026, "Missing relay_timestamp")),
+                Json(protocol::new_error_value(
+                    id,
+                    -32026,
+                    "Missing relay_timestamp",
+                )),
             );
         }
     };
@@ -271,17 +268,28 @@ pub async fn relay_handler(
         Ok(ts) => {
             let age = chrono::Utc::now().signed_duration_since(ts);
             if age > chrono::Duration::minutes(5) {
-                tracing::warn!("[federation] Replay rejected: timestamp too old ({} ago)", age);
+                tracing::warn!(
+                    "[federation] Replay rejected: timestamp too old ({} ago)",
+                    age
+                );
                 return (
                     StatusCode::OK,
-                    Json(protocol::new_error_value(id, -32026, "Relay timestamp too old (>5 min)")),
+                    Json(protocol::new_error_value(
+                        id,
+                        -32026,
+                        "Relay timestamp too old (>5 min)",
+                    )),
                 );
             }
             if age < chrono::Duration::minutes(-1) {
                 tracing::warn!("[federation] Replay rejected: timestamp in future");
                 return (
                     StatusCode::OK,
-                    Json(protocol::new_error_value(id, -32026, "Relay timestamp in future")),
+                    Json(protocol::new_error_value(
+                        id,
+                        -32026,
+                        "Relay timestamp in future",
+                    )),
                 );
             }
         }
@@ -298,12 +306,18 @@ pub async fn relay_handler(
     }
 
     // Check dedup cache: reject if relay_id already seen (D-04: persisted in redb)
-    match state.persistence.check_and_insert_relay_id(&relay_id, &relay_timestamp) {
+    match state
+        .persistence
+        .check_and_insert_relay_id(&relay_id, &relay_timestamp)
+    {
         Ok(true) => {
             tracing::info!("[federation] Replay check passed: relay_id={}", relay_id);
         }
         Ok(false) => {
-            tracing::warn!("[federation] Replay rejected: duplicate relay_id={}", relay_id);
+            tracing::warn!(
+                "[federation] Replay rejected: duplicate relay_id={}",
+                relay_id
+            );
             return (
                 StatusCode::OK,
                 Json(protocol::new_error_value(
@@ -335,7 +349,10 @@ pub async fn relay_handler(
             // Use the relay endpoint pattern: from_server is the server_id (domain)
             // We need to find their federation port. Check if we have a --remote configured
             // that matches this domain.
-            tracing::info!("[federation] Lazily resolving unknown server: {}", from_server);
+            tracing::info!(
+                "[federation] Lazily resolving unknown server: {}",
+                from_server
+            );
             // Try common federation ports based on the from_server identity
             // The relay_endpoint in their identity response will tell us the correct port
             for port in &[8443u16, 9443] {
@@ -343,11 +360,29 @@ pub async fn relay_handler(
                 if let Ok(resp) = client.get(&url).send().await {
                     if let Ok(body) = resp.json::<serde_json::Value>().await {
                         let resolved = crate::identity::ServerIdentity {
-                            server_id: body.get("server_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            public_key_b64: body.get("public_key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            relay_endpoint: body.get("relay_endpoint").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            tls_fingerprints: body.get("tls_fingerprints").and_then(|v| v.as_array())
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                            server_id: body
+                                .get("server_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            public_key_b64: body
+                                .get("public_key")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            relay_endpoint: body
+                                .get("relay_endpoint")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            tls_fingerprints: body
+                                .get("tls_fingerprints")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect()
+                                })
                                 .unwrap_or_default(),
                             supported_versions: vec!["0.1.0".to_string()],
                         };
@@ -382,10 +417,7 @@ pub async fn relay_handler(
         .unwrap_or_default();
 
     if !crate::signing::verify_relay_signature(&remote_pk_bytes, &params).unwrap_or(false) {
-        tracing::error!(
-            "Server signature verification failed for {}",
-            from_server
-        );
+        tracing::error!("Server signature verification failed for {}", from_server);
         return (
             StatusCode::OK,
             Json(protocol::new_error_value(
@@ -432,13 +464,28 @@ pub async fn relay_handler(
                         if let Ok(resp) = client.get(&url).send().await {
                             if let Ok(body) = resp.json::<serde_json::Value>().await {
                                 if let Some(pk) = body.get("public_key").and_then(|v| v.as_str()) {
-                                    if let Ok(pk_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(pk) {
-                                        let type_ = body.get("type").and_then(|v| v.as_str()).unwrap_or("human");
-                                        state.identity_store.register(sender, pk, type_, domain, None);
-                                        tracing::info!("[federation] Lazily fetched key for {}", sender);
+                                    if let Ok(pk_bytes) =
+                                        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(pk)
+                                    {
+                                        let type_ = body
+                                            .get("type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("human");
+                                        state
+                                            .identity_store
+                                            .register(sender, pk, type_, domain, None);
+                                        tracing::info!(
+                                            "[federation] Lazily fetched key for {}",
+                                            sender
+                                        );
                                         // Now verify the message signature
-                                        if crate::signing::verify_signature(&pk_bytes, msg).unwrap_or(false) {
-                                            tracing::info!("[federation] Message signature verified: {}", sender);
+                                        if crate::signing::verify_signature(&pk_bytes, msg)
+                                            .unwrap_or(false)
+                                        {
+                                            tracing::info!(
+                                                "[federation] Message signature verified: {}",
+                                                sender
+                                            );
                                             resolved = true;
                                         }
                                     }
@@ -464,19 +511,14 @@ pub async fn relay_handler(
 
     // 4. Process messages: register thread, deliver locally, fan out if origin
     for msg in &messages {
-        let thread_id = msg
-            .get("thread_id")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let thread_id = msg.get("thread_id").and_then(|t| t.as_str()).unwrap_or("");
         let origin = parse_origin_domain(thread_id).unwrap_or("");
 
         // Register the thread if we don't know about it
         state
             .thread_registry
             .register_remote_thread(thread_id, origin);
-        state
-            .thread_registry
-            .add_server(thread_id, &from_server);
+        state.thread_registry.add_server(thread_id, &from_server);
 
         // Deliver to local participants via broadcast channel
         let deliver = serde_json::json!({
@@ -513,7 +555,10 @@ pub async fn relay_handler(
             // invite on the receiving side. (The TARGET's invitation remains B's own
             // human-curated membership — established when a human's relayed message invited it.)
             if sender_type == "agent" && !sender.is_empty() && !thread_id.is_empty() {
-                state.agent_registry.invite_to_thread(sender, thread_id).await;
+                state
+                    .agent_registry
+                    .invite_to_thread(sender, thread_id)
+                    .await;
             }
 
             let deps = crate::server::DeliverDeps {
@@ -538,14 +583,8 @@ pub async fn relay_handler(
                     thread_id
                 );
                 // Store message in persistent thread history for backfill (BKFL-01)
-                if let Err(e) = state
-                    .persistence
-                    .store_thread_message(thread_id, seq, msg)
-                {
-                    tracing::error!(
-                        "[federation] Failed to store message for backfill: {}",
-                        e
-                    );
+                if let Err(e) = state.persistence.store_thread_message(thread_id, seq, msg) {
+                    tracing::error!("[federation] Failed to store message for backfill: {}", e);
                 }
                 // Fan out to other participating servers (skip sender)
                 if let Some(sender) = &state.relay_sender {
@@ -604,11 +643,7 @@ async fn handle_backfill(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(
-                    id,
-                    -32602,
-                    "Missing thread_id",
-                )),
+                Json(protocol::new_error_value(id, -32602, "Missing thread_id")),
             );
         }
     };
@@ -630,11 +665,7 @@ async fn handle_backfill(
         None => {
             return (
                 StatusCode::OK,
-                Json(protocol::new_error_value(
-                    id,
-                    -32602,
-                    "Missing from_server",
-                )),
+                Json(protocol::new_error_value(id, -32602, "Missing from_server")),
             );
         }
     };
@@ -853,8 +884,7 @@ mod tests {
             .into_owned();
         // keep `dir` alive by leaking it for the duration of the test process
         std::mem::forget(dir);
-        crate::persistence::PersistenceLayer::open(&path)
-            .expect("PersistenceLayer::open")
+        crate::persistence::PersistenceLayer::open(&path).expect("PersistenceLayer::open")
     }
 
     /// Build a signed inner message envelope as sent by `alpha` to `beta`.
@@ -878,8 +908,7 @@ mod tests {
                 "fallback": "hello from alpha"
             }]
         });
-        crate::signing::sign_envelope(&alpha.key_pair, &mut msg)
-            .expect("sign_envelope");
+        crate::signing::sign_envelope(&alpha.key_pair, &mut msg).expect("sign_envelope");
         msg
     }
 
@@ -917,12 +946,8 @@ mod tests {
         // 2. Server B identity (the receiving server under test)
         let server_b_kp =
             crate::identity::generate_keypair("server-b.local").expect("server-b keypair");
-        let server_b_identity = crate::identity::build_server_identity(
-            "server-b.local",
-            &server_b_kp,
-            8443,
-            vec![],
-        );
+        let server_b_identity =
+            crate::identity::build_server_identity("server-b.local", &server_b_kp, 8443, vec![]);
 
         // 3. Server A identity (the relaying peer)
         let server_a_kp =
@@ -969,11 +994,11 @@ mod tests {
             .await;
 
         // 8. Build FederationState
-        let (local_delivery_tx, _local_delivery_rx) =
-            tokio::sync::broadcast::channel::<String>(64);
-        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(
-            std::collections::HashMap::<String, u32>::new(),
-        ));
+        let (local_delivery_tx, _local_delivery_rx) = tokio::sync::broadcast::channel::<String>(64);
+        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+            String,
+            u32,
+        >::new()));
         let fed_state = FederationState {
             server_id: "server-b.local".to_string(),
             server_keypair: std::sync::Arc::new(server_b_kp),
@@ -994,8 +1019,7 @@ mod tests {
         };
 
         // 9. Build signed inner message (alpha → beta)
-        let inner_msg =
-            build_inner_msg(&alpha_kp, &thread_id, "beta@server-b.local");
+        let inner_msg = build_inner_msg(&alpha_kp, &thread_id, "beta@server-b.local");
 
         // 10. Build signed relay payload (signed by server A)
         let payload = build_relay_payload(&server_a_kp, vec![inner_msg]);
@@ -1058,12 +1082,8 @@ mod tests {
 
         let server_b_kp =
             crate::identity::generate_keypair("server-b.local").expect("server-b keypair");
-        let server_b_identity = crate::identity::build_server_identity(
-            "server-b.local",
-            &server_b_kp,
-            8443,
-            vec![],
-        );
+        let server_b_identity =
+            crate::identity::build_server_identity("server-b.local", &server_b_kp, 8443, vec![]);
 
         let server_a_kp =
             crate::identity::generate_keypair("server-a.local").expect("server-a keypair");
@@ -1099,9 +1119,10 @@ mod tests {
         // consent requires BOTH — so delivery to beta must be denied.
 
         let (local_delivery_tx, _rx) = tokio::sync::broadcast::channel::<String>(64);
-        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(
-            std::collections::HashMap::<String, u32>::new(),
-        ));
+        let a2a_hops = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+            String,
+            u32,
+        >::new()));
         let fed_state = FederationState {
             server_id: "server-b.local".to_string(),
             server_keypair: std::sync::Arc::new(server_b_kp),
@@ -1126,7 +1147,11 @@ mod tests {
 
         let (status, body) = relay_handler(State(fed_state), Json(payload)).await;
         assert_eq!(status, axum::http::StatusCode::OK);
-        assert!(body.0.get("error").is_none(), "relay returned error: {:?}", body.0);
+        assert!(
+            body.0.get("error").is_none(),
+            "relay returned error: {:?}",
+            body.0
+        );
 
         // beta must NOT receive the message (consent denied — target not invited).
         let res = tokio::time::timeout(Duration::from_millis(300), beta_rx.recv()).await;

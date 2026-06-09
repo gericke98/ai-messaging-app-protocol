@@ -27,7 +27,9 @@ pub fn build_mtls_server_config(
 
     let mut root_store = rustls::RootCertStore::empty();
     for cert in ca_certs {
-        root_store.add(cert).expect("failed to add CA cert to root store");
+        root_store
+            .add(cert)
+            .expect("failed to add CA cert to root store");
     }
 
     // Build client verifier requiring valid client certificate
@@ -43,8 +45,8 @@ pub fn build_mtls_server_config(
             .expect("failed to parse server certs");
 
     // Load this server's private key
-    let server_key = PrivateKeyDer::from_pem_file(server_key_path)
-        .expect("failed to load server private key");
+    let server_key =
+        PrivateKeyDer::from_pem_file(server_key_path).expect("failed to load server private key");
 
     // Build the ServerConfig with mTLS
     let mut config = ServerConfig::builder()
@@ -78,7 +80,9 @@ pub fn build_mtls_client(
 
     let mut root_store = rustls::RootCertStore::empty();
     for cert in ca_certs {
-        root_store.add(cert).expect("failed to add CA cert to root store");
+        root_store
+            .add(cert)
+            .expect("failed to add CA cert to root store");
     }
 
     // Load client cert chain and key for mTLS
@@ -88,8 +92,8 @@ pub fn build_mtls_client(
             .collect::<Result<Vec<_>, _>>()
             .expect("failed to parse client certs");
 
-    let client_key = PrivateKeyDer::from_pem_file(client_key_path)
-        .expect("failed to load client private key");
+    let client_key =
+        PrivateKeyDer::from_pem_file(client_key_path).expect("failed to load client private key");
 
     // Build rustls ClientConfig with webpki verifier (bypasses platform verifier)
     let config = rustls::ClientConfig::builder()
@@ -109,7 +113,11 @@ pub fn build_mtls_client(
 /// Used for FAUT-02 certificate fingerprint verification.
 pub fn compute_cert_fingerprint(der_bytes: &[u8]) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, der_bytes);
-    let hex: String = digest.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+    let hex: String = digest
+        .as_ref()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     format!("sha256:{}", hex)
 }
 

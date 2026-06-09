@@ -39,8 +39,12 @@ async fn bootstrap_is_idempotent() {
         .execute(&pool)
         .await;
 
-    let a1 = hosted_agent::provision(&pool, &domain).await.expect("provision 1");
-    let a2 = hosted_agent::provision(&pool, &domain).await.expect("provision 2");
+    let a1 = hosted_agent::provision(&pool, &domain)
+        .await
+        .expect("provision 1");
+    let a2 = hosted_agent::provision(&pool, &domain)
+        .await
+        .expect("provision 2");
 
     assert_eq!(a1.address, format!("assistant@{domain}"));
     assert_eq!(a1.public_key_bytes, a2.public_key_bytes);
@@ -79,7 +83,11 @@ async fn consent_gate_hides_ungranted_tools() {
     let offered = ainm_server::tools_memory::offered_tool_names(&minimal);
     assert!(offered.contains(&"query_memory".to_string()));
     assert!(!offered.contains(&"store_fact".to_string()));
-    assert_eq!(offered.len(), 2, "identity scope must offer exactly retrieve_briefing + query_memory");
+    assert_eq!(
+        offered.len(),
+        2,
+        "identity scope must offer exactly retrieve_briefing + query_memory"
+    );
 
     let none: Vec<String> = vec![];
     assert!(ainm_server::tools_memory::offered_tool_names(&none).is_empty());
@@ -127,7 +135,16 @@ async fn full_hosted_turn_with_mock_llm_and_mock_tool() {
     ]);
     let reg = ToolRegistry::new(vec![Box::new(MockMcp)]);
 
-    let out = run_loop(&llm, &reg, "sys", &["patterns".to_string()], vec![], "what time is it?", 8).await;
+    let out = run_loop(
+        &llm,
+        &reg,
+        "sys",
+        &["patterns".to_string()],
+        vec![],
+        "what time is it?",
+        8,
+    )
+    .await;
     assert_eq!(out.final_text, "It is noon UTC.");
     assert_eq!(out.tool_rounds, 1);
 }
@@ -163,7 +180,11 @@ async fn mcp_tool_absent_without_capability() {
     let reg = ToolRegistry::new(vec![Box::new(MockMcp)]);
     assert!(reg.list_tools(&["identity".to_string()]).await.is_empty());
     let refused = reg
-        .call("get_time", &serde_json::json!({}), &["identity".to_string()])
+        .call(
+            "get_time",
+            &serde_json::json!({}),
+            &["identity".to_string()],
+        )
         .await;
     assert!(refused.is_error);
 }
@@ -199,9 +220,24 @@ async fn loop_stops_at_cap_integration() {
         .collect();
     let llm = MockLlmClient::with_turns(turns);
     let reg = ToolRegistry::new(vec![Box::new(AlwaysTool)]);
-    let out = run_loop(&llm, &reg, "sys", &["identity".to_string()], vec![], "go", 3).await;
+    let out = run_loop(
+        &llm,
+        &reg,
+        "sys",
+        &["identity".to_string()],
+        vec![],
+        "go",
+        3,
+    )
+    .await;
     assert_eq!(out.tool_rounds, 3);
     assert!(out.stopped_early);
-    assert!(!out.final_text.is_empty(), "cap exit must produce a user-facing message");
-    assert!(!out.final_text.contains("error contacting"), "must be the cap branch, not the LLM-error branch");
+    assert!(
+        !out.final_text.is_empty(),
+        "cap exit must produce a user-facing message"
+    );
+    assert!(
+        !out.final_text.contains("error contacting"),
+        "must be the cap branch, not the LLM-error branch"
+    );
 }

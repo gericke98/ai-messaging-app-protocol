@@ -21,11 +21,15 @@ pub async fn handle_turn(
     tracing::debug!(
         "[runtime] handle_turn entered: thread={thread_id} requester={requester} \
          has_agent={} has_llm={} has_db={}",
-        state.hosted_agent.is_some(), state.llm_client.is_some(), state.db.is_some()
+        state.hosted_agent.is_some(),
+        state.llm_client.is_some(),
+        state.db.is_some()
     );
-    let (Some(agent), Some(llm), Some(db)) =
-        (state.hosted_agent.as_ref(), state.llm_client.as_ref(), state.db.as_ref())
-    else {
+    let (Some(agent), Some(llm), Some(db)) = (
+        state.hosted_agent.as_ref(),
+        state.llm_client.as_ref(),
+        state.db.as_ref(),
+    ) else {
         tracing::warn!("[runtime] handle_turn early return: missing agent/llm/db");
         return; // hosted agent not provisioned → nothing to do
     };
@@ -33,12 +37,21 @@ pub async fn handle_turn(
         tracing::warn!("[runtime] handle_turn early return: agent disabled");
         return; // agent disabled
     }
-    tracing::info!("[runtime] running agent turn for {} (agent={})", requester, agent.address);
+    tracing::info!(
+        "[runtime] running agent turn for {} (agent={})",
+        requester,
+        agent.address
+    );
 
     // Resolve the requester's granted scopes (consent gate spine).
     let (scopes, _level) = match crate::briefing::resolve_scopes(
-        db, requester, &agent.address, crate::briefing::ConsentLevel::Standard,
-    ).await {
+        db,
+        requester,
+        &agent.address,
+        crate::briefing::ConsentLevel::Standard,
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("[runtime] resolve_scopes failed: {e}");
@@ -76,22 +89,32 @@ pub async fn handle_turn(
         Some(id) => match crate::credentials::get_settings(db, id).await {
             Ok(opt) => opt,
             Err(e) => {
-                tracing::error!("[runtime] llm-settings lookup failed for account {id}: {e}; aborting turn");
+                tracing::error!(
+                    "[runtime] llm-settings lookup failed for account {id}: {e}; aborting turn"
+                );
                 return;
             }
         },
         None => None,
     };
-    let credential = crate::credentials::resolve_credential(state.cred_cipher.as_deref(), settings.as_ref());
+    let credential =
+        crate::credentials::resolve_credential(state.cred_cipher.as_deref(), settings.as_ref());
 
     // Build the inner client: BYO key (fresh OpenAiClient) or the server default.
-    let default_model = std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+    let default_model =
+        std::env::var("AINM_LLM__MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
     let (inner, is_byo): (std::sync::Arc<dyn crate::llm::LlmClient>, bool) = match credential {
         // NOTE(C-follow-up): builds a fresh reqwest-backed client per BYO turn; acceptable at v1
         // low concurrency. Cache a client per (account/base_url) before BYO sees production load.
-        crate::credentials::Credential::ByoKey { api_key, model, base_url } => (
+        crate::credentials::Credential::ByoKey {
+            api_key,
+            model,
+            base_url,
+        } => (
             std::sync::Arc::new(crate::llm::OpenAiClient::new(
-                api_key, model.unwrap_or(default_model), base_url,
+                api_key,
+                model.unwrap_or(default_model),
+                base_url,
             )),
             true,
         ),
@@ -105,7 +128,10 @@ pub async fn handle_turn(
         state.quota.monthly_token_budget,
     );
     let store = std::sync::Arc::new(DbQuotaStore {
-        pool: db.clone(), requester: requester.to_string(), account_id, period,
+        pool: db.clone(),
+        requester: requester.to_string(),
+        account_id,
+        period,
     });
     let metered = crate::llm::MeteredLlmClient {
         inner,
@@ -116,9 +142,15 @@ pub async fn handle_turn(
     };
 
     let outcome = run_loop(
-        &metered, &registry, &agent.system_prompt, &scopes, history,
-        inbound_user_text, 8,
-    ).await;
+        &metered,
+        &registry,
+        &agent.system_prompt,
+        &scopes,
+        history,
+        inbound_user_text,
+        8,
+    )
+    .await;
 
     tracing::info!(
         "[runtime] agent turn complete: delivering {} chars to thread {thread_id}",
@@ -131,9 +163,18 @@ pub async fn handle_turn(
 struct SharedProvider(std::sync::Arc<dyn crate::tools::ToolProvider>);
 #[async_trait::async_trait]
 impl crate::tools::ToolProvider for SharedProvider {
-    fn name(&self) -> &'static str { self.0.name() }
-    async fn list_tools(&self, scopes: &[String]) -> Vec<ToolSchema> { self.0.list_tools(scopes).await }
-    async fn call(&self, name: &str, args: &serde_json::Value, scopes: &[String]) -> crate::tools::ToolResult {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    async fn list_tools(&self, scopes: &[String]) -> Vec<ToolSchema> {
+        self.0.list_tools(scopes).await
+    }
+    async fn call(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        scopes: &[String],
+    ) -> crate::tools::ToolResult {
         self.0.call(name, args, scopes).await
     }
 }
@@ -150,10 +191,20 @@ struct DbQuotaStore {
 #[async_trait::async_trait]
 impl crate::llm::QuotaStore for DbQuotaStore {
     async fn current_used(&self) -> i64 {
-        crate::quota::current_usage(&self.pool, &self.requester, &self.period).await.unwrap_or(0)
+        crate::quota::current_usage(&self.pool, &self.requester, &self.period)
+            .await
+            .unwrap_or(0)
     }
     async fn debit(&self, tokens: i64) {
-        if let Err(e) = crate::quota::debit(&self.pool, &self.requester, self.account_id, &self.period, tokens).await {
+        if let Err(e) = crate::quota::debit(
+            &self.pool,
+            &self.requester,
+            self.account_id,
+            &self.period,
+            tokens,
+        )
+        .await
+        {
             tracing::warn!("[quota] debit failed for {}: {e}", self.requester);
         }
     }
@@ -162,7 +213,9 @@ impl crate::llm::QuotaStore for DbQuotaStore {
 /// Load recent thread messages and map them to chat messages (the agent's own messages
 /// become assistant turns; everyone else becomes user turns, prefixed with the sender).
 async fn fetch_history_as_chat(
-    db: &sqlx::PgPool, thread_id: &str, agent_addr: &str,
+    db: &sqlx::PgPool,
+    thread_id: &str,
+    agent_addr: &str,
 ) -> Vec<ChatMessage> {
     let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
         "SELECT from_addr, content FROM messages WHERE thread_id = $1 ORDER BY sequence ASC LIMIT 20",
@@ -175,14 +228,16 @@ async fn fetch_history_as_chat(
         Vec::new()
     });
 
-    rows.into_iter().map(|(from, content)| {
-        let text = content_to_text(&content);
-        if from == agent_addr {
-            ChatMessage::assistant_text(text)
-        } else {
-            ChatMessage::user(format!("{from}: {text}"))
-        }
-    }).collect()
+    rows.into_iter()
+        .map(|(from, content)| {
+            let text = content_to_text(&content);
+            if from == agent_addr {
+                ChatMessage::assistant_text(text)
+            } else {
+                ChatMessage::user(format!("{from}: {text}"))
+            }
+        })
+        .collect()
 }
 
 /// Flatten a content block array to plain text. Content blocks in this codebase carry the
@@ -217,19 +272,28 @@ async fn stream_reply(
         "jsonrpc": "2.0", "method": "ainm.stream.start",
         "params": {"stream_id": stream_id, "thread_id": thread_id, "from": agent.address}
     });
-    state.human_registry.send_to_thread(thread_id, &start.to_string()).await;
+    state
+        .human_registry
+        .send_to_thread(thread_id, &start.to_string())
+        .await;
 
     let delta = serde_json::json!({
         "jsonrpc": "2.0", "method": "ainm.stream.delta",
         "params": {"stream_id": stream_id, "thread_id": thread_id, "delta": text}
     });
-    state.human_registry.send_to_thread(thread_id, &delta.to_string()).await;
+    state
+        .human_registry
+        .send_to_thread(thread_id, &delta.to_string())
+        .await;
 
     let end = serde_json::json!({
         "jsonrpc": "2.0", "method": "ainm.stream.end",
         "params": {"stream_id": stream_id, "thread_id": thread_id}
     });
-    state.human_registry.send_to_thread(thread_id, &end.to_string()).await;
+    state
+        .human_registry
+        .send_to_thread(thread_id, &end.to_string())
+        .await;
 
     // Build the inner message in the same shape the server uses for normal sends
     // (`id`, `from`, `thread_id`, `content`, `timestamp`), sign it, then wrap it in the
@@ -262,7 +326,10 @@ async fn stream_reply(
             "verified": true,
         }
     });
-    state.human_registry.send_to_thread(thread_id, &envelope.to_string()).await;
+    state
+        .human_registry
+        .send_to_thread(thread_id, &envelope.to_string())
+        .await;
 
     // Runtime A2A P3b: if this thread originated on another server, relay the hosted agent's
     // reply back to the origin so it reaches the federated thread (humans + the addressing peer
@@ -273,7 +340,8 @@ async fn stream_reply(
                 fed.relay_sender.enqueue(origin, message.clone());
                 tracing::info!(
                     "[a2a-p3b] relayed hosted reply home to origin {} (thread {})",
-                    origin, thread_id
+                    origin,
+                    thread_id
                 );
             }
         }

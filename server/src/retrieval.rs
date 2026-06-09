@@ -3,8 +3,8 @@
 //! No DB or network here — all functions are pure and unit-tested.
 
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "you", "your", "are", "but", "with", "this", "that",
-    "have", "was", "not", "can", "will", "what", "how", "why", "who", "our",
+    "the", "and", "for", "you", "your", "are", "but", "with", "this", "that", "have", "was", "not",
+    "can", "will", "what", "how", "why", "who", "our",
 ];
 
 /// Build a `to_tsquery`-safe OR query from recent message texts.
@@ -47,7 +47,11 @@ pub struct RankedItem {
 /// keep while cumulative char_len <= budget. Returns kept ids in score order.
 pub fn pack_to_budget(mut items: Vec<RankedItem>, budget_chars: usize, min_score: f32) -> Vec<i64> {
     items.retain(|it| it.score >= min_score);
-    items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    items.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut used = 0usize;
     let mut kept = Vec::new();
     for it in items {
@@ -115,9 +119,21 @@ mod tests {
     #[test]
     fn pack_to_budget_keeps_highest_scores_within_budget() {
         let items = vec![
-            RankedItem { id: 1, score: 0.2, char_len: 50 },
-            RankedItem { id: 2, score: 0.9, char_len: 50 },
-            RankedItem { id: 3, score: 0.5, char_len: 50 },
+            RankedItem {
+                id: 1,
+                score: 0.2,
+                char_len: 50,
+            },
+            RankedItem {
+                id: 2,
+                score: 0.9,
+                char_len: 50,
+            },
+            RankedItem {
+                id: 3,
+                score: 0.5,
+                char_len: 50,
+            },
         ];
         let kept = pack_to_budget(items, 100, 0.0);
         assert_eq!(kept, vec![2, 3]);
@@ -126,9 +142,21 @@ mod tests {
     #[test]
     fn pack_to_budget_skips_overflow_keeps_later_smaller() {
         let items = vec![
-            RankedItem { id: 1, score: 0.9, char_len: 80 },
-            RankedItem { id: 2, score: 0.8, char_len: 50 },
-            RankedItem { id: 3, score: 0.7, char_len: 15 },
+            RankedItem {
+                id: 1,
+                score: 0.9,
+                char_len: 80,
+            },
+            RankedItem {
+                id: 2,
+                score: 0.8,
+                char_len: 50,
+            },
+            RankedItem {
+                id: 3,
+                score: 0.7,
+                char_len: 15,
+            },
         ];
         let kept = pack_to_budget(items, 100, 0.0);
         assert_eq!(kept, vec![1, 3]);
@@ -137,8 +165,16 @@ mod tests {
     #[test]
     fn pack_to_budget_drops_below_floor_even_with_budget_room() {
         let items = vec![
-            RankedItem { id: 1, score: 0.9, char_len: 10 },
-            RankedItem { id: 2, score: 0.001, char_len: 10 }, // below floor, budget has room
+            RankedItem {
+                id: 1,
+                score: 0.9,
+                char_len: 10,
+            },
+            RankedItem {
+                id: 2,
+                score: 0.001,
+                char_len: 10,
+            }, // below floor, budget has room
         ];
         let kept = pack_to_budget(items, 1000, 0.05);
         assert_eq!(kept, vec![1]); // id 2 dropped by floor despite ample budget

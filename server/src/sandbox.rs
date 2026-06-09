@@ -18,8 +18,7 @@ impl UrlGuard {
     /// This is a connect-time check; it does not defend against DNS-rebinding
     /// mid-session (documented v1 limitation — see the design doc §6).
     pub fn check(url_str: &str, allowed_hosts: &[String]) -> anyhow::Result<()> {
-        let url = url::Url::parse(url_str)
-            .map_err(|e| anyhow::anyhow!("invalid MCP url: {e}"))?;
+        let url = url::Url::parse(url_str).map_err(|e| anyhow::anyhow!("invalid MCP url: {e}"))?;
         match url.scheme() {
             "http" | "https" => {}
             other => anyhow::bail!("MCP url scheme '{other}' not allowed (need http/https)"),
@@ -579,7 +578,9 @@ mod bwrap_tests {
         cfg.allow_read = vec!["/opt/data".into()];
         cfg.allow_write = vec!["/var/cache/weather".into()];
         let args = BubblewrapLauncher::bwrap_args(&cfg).unwrap();
-        assert!(args.windows(3).any(|w| w == ["--ro-bind", "/opt/data", "/opt/data"]));
+        assert!(args
+            .windows(3)
+            .any(|w| w == ["--ro-bind", "/opt/data", "/opt/data"]));
         assert!(args
             .windows(3)
             .any(|w| w == ["--bind", "/var/cache/weather", "/var/cache/weather"]));
@@ -601,7 +602,10 @@ mod bwrap_tests {
         let cfg = base_cfg();
         let result = launcher_for(&cfg);
         if !bwrap_available() || !cfg!(target_os = "linux") {
-            assert!(result.is_err(), "bubblewrap must fail-closed when unavailable");
+            assert!(
+                result.is_err(),
+                "bubblewrap must fail-closed when unavailable"
+            );
         } else {
             assert_eq!(result.unwrap().name(), "bubblewrap");
         }
@@ -690,17 +694,25 @@ mod linux_sandbox_tests {
 
     #[tokio::test]
     async fn sandboxed_command_runs_and_returns_output() {
-        if skip_if_no_bwrap() { return; }
+        if skip_if_no_bwrap() {
+            return;
+        }
         let cfg = sandboxed_cfg("/bin/echo", vec!["sandboxed-ok".into()]);
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
         let out = cmd.output().await.unwrap();
-        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sandboxed-ok");
     }
 
     #[tokio::test]
     async fn parent_env_absent_inside_sandbox() {
-        if skip_if_no_bwrap() { return; }
+        if skip_if_no_bwrap() {
+            return;
+        }
         // The set/remove of this process-global var races with the parallel
         // hardening_tests env test, but both assert *absence* of AINM_* in the child,
         // so the race is benign: env_clear + the allowlist make the leak structurally
@@ -719,7 +731,9 @@ mod linux_sandbox_tests {
 
     #[tokio::test]
     async fn no_network_when_disallowed() {
-        if skip_if_no_bwrap() { return; }
+        if skip_if_no_bwrap() {
+            return;
+        }
         // Correctness rests on `--unshare-all` dropping the network namespace, NOT on the
         // `/dev/tcp` shell builtin (which is bash-only; dash would print BLOCKED anyway).
         // The deterministic `--share-net` presence/absence is covered by `bwrap_tests`.
@@ -730,39 +744,63 @@ mod linux_sandbox_tests {
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
         let out = cmd.output().await.unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("BLOCKED"), "network was reachable without allow_network: {stdout}");
+        assert!(
+            stdout.contains("BLOCKED"),
+            "network was reachable without allow_network: {stdout}"
+        );
     }
 
     #[tokio::test]
     async fn cannot_read_unbound_path() {
-        if skip_if_no_bwrap() { return; }
-        let cfg = sandboxed_cfg("/bin/sh", vec![
-            "-c".into(),
-            "cat /etc/shadow 2>/dev/null && echo READ || echo DENIED".into(),
-        ]);
+        if skip_if_no_bwrap() {
+            return;
+        }
+        let cfg = sandboxed_cfg(
+            "/bin/sh",
+            vec![
+                "-c".into(),
+                "cat /etc/shadow 2>/dev/null && echo READ || echo DENIED".into(),
+            ],
+        );
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
         let out = cmd.output().await.unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("DENIED"), "read a path not granted: {stdout}");
+        assert!(
+            stdout.contains("DENIED"),
+            "read a path not granted: {stdout}"
+        );
     }
 
     #[tokio::test]
     async fn rlimit_caps_memory() {
-        if skip_if_no_bwrap() { return; }
-        let mut cfg = sandboxed_cfg("/bin/sh", vec![
-            "-c".into(),
-            "A=$(head -c 400000000 /dev/zero | tr '\\0' 'a') ; echo ALLOCATED".into(),
-        ]);
-        cfg.limits = SandboxLimits { max_memory_mb: 64, ..SandboxLimits::default() };
+        if skip_if_no_bwrap() {
+            return;
+        }
+        let mut cfg = sandboxed_cfg(
+            "/bin/sh",
+            vec![
+                "-c".into(),
+                "A=$(head -c 400000000 /dev/zero | tr '\\0' 'a') ; echo ALLOCATED".into(),
+            ],
+        );
+        cfg.limits = SandboxLimits {
+            max_memory_mb: 64,
+            ..SandboxLimits::default()
+        };
         let mut cmd = BubblewrapLauncher.build_command(&cfg).unwrap();
         let out = cmd.output().await.unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(!stdout.contains("ALLOCATED"), "rlimit did not cap memory: {stdout}");
+        assert!(
+            !stdout.contains("ALLOCATED"),
+            "rlimit did not cap memory: {stdout}"
+        );
     }
 
     #[tokio::test]
     async fn network_works_when_allowed() {
-        if skip_if_no_bwrap() { return; }
+        if skip_if_no_bwrap() {
+            return;
+        }
         let mut cfg = sandboxed_cfg("/bin/sh", vec![
             "-c".into(),
             "timeout 5 sh -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null && echo CONNECTED || echo BLOCKED".into(),

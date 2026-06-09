@@ -34,7 +34,9 @@ impl KdfParams {
 
 /// Argon2id(PIN, salt) -> 32-byte OPRF input.
 fn pin_to_input(pin: &str, kdf: &KdfParams) -> Result<[u8; 32], String> {
-    let salt = URL_SAFE_NO_PAD.decode(&kdf.salt).map_err(|e| e.to_string())?;
+    let salt = URL_SAFE_NO_PAD
+        .decode(&kdf.salt)
+        .map_err(|e| e.to_string())?;
     let params = argon2::Params::new(kdf.m_cost, kdf.t_cost, kdf.p_cost, Some(32))
         .map_err(|e| e.to_string())?;
     let argon = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
@@ -69,7 +71,10 @@ pub fn enroll(secret: &[u8; 32], pin: &str) -> Result<Enrolled, String> {
     let blind = OprfClient::<Ristretto255>::blind(&input, &mut rand::thread_rng())
         .map_err(|e| e.to_string())?;
     let eval = server.blind_evaluate(&blind.message);
-    let output = blind.state.finalize(&input, &eval).map_err(|e| e.to_string())?;
+    let output = blind
+        .state
+        .finalize(&input, &eval)
+        .map_err(|e| e.to_string())?;
 
     let wk = wrapping_key(&output);
     let cipher = XChaCha20Poly1305::new((&wk).into());
@@ -109,7 +114,9 @@ pub fn client_blind(pin: &str, kdf: &KdfParams) -> Result<BlindState, String> {
 /// Server step: evaluate a blinded element with the stored OPRF key. Returns base64url evaluated point.
 pub fn server_evaluate(oprf_key: &[u8], blinded_b64: &str) -> Result<String, String> {
     let server = OprfServer::<Ristretto255>::deserialize(oprf_key).map_err(|e| e.to_string())?;
-    let blinded_bytes = URL_SAFE_NO_PAD.decode(blinded_b64).map_err(|e| e.to_string())?;
+    let blinded_bytes = URL_SAFE_NO_PAD
+        .decode(blinded_b64)
+        .map_err(|e| e.to_string())?;
     let blinded =
         BlindedElement::<Ristretto255>::deserialize(&blinded_bytes).map_err(|e| e.to_string())?;
     let eval = server.blind_evaluate(&blinded);
@@ -175,7 +182,10 @@ mod tests {
             &enrolled.ciphertext,
         )
         .expect("recover");
-        assert_eq!(recovered, secret, "correct PIN must recover the exact secret");
+        assert_eq!(
+            recovered, secret,
+            "correct PIN must recover the exact secret"
+        );
 
         // Recovery with a WRONG pin must fail to decrypt:
         let bad = "000000";

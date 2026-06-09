@@ -79,8 +79,8 @@ impl EscrowRecovery {
             .unwrap()
             .take()
             .ok_or(EscrowFfiError::Crypto("already finalized".into()))?;
-        let kdf: KdfParams =
-            serde_json::from_str(&self.kdf_json).map_err(|e| EscrowFfiError::Crypto(e.to_string()))?;
+        let kdf: KdfParams = serde_json::from_str(&self.kdf_json)
+            .map_err(|e| EscrowFfiError::Crypto(e.to_string()))?;
         let ct = URL_SAFE_NO_PAD
             .decode(&ciphertext_b64)
             .map_err(|e| EscrowFfiError::Crypto(e.to_string()))?;

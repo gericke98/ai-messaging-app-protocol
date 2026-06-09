@@ -18,7 +18,8 @@ pub async fn run(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     // Perform ainm.initialize handshake with Ed25519 signature
-    let (init_signature, init_timestamp) = signing::sign_init(&identity.key_pair, &identity.address)?;
+    let (init_signature, init_timestamp) =
+        signing::sign_init(&identity.key_pair, &identity.address)?;
     let init_req = protocol::new_request(
         "ainm.initialize",
         serde_json::json!({
@@ -45,7 +46,9 @@ pub async fn run(
     // Send ainm.initialized confirmation notification (transport.md Section 4.3)
     let initialized_notif = protocol::new_notification("ainm.initialized", serde_json::json!({}));
     let initialized_text = serde_json::to_string(&initialized_notif)?;
-    ws_sender.send(Message::Text(initialized_text.into())).await?;
+    ws_sender
+        .send(Message::Text(initialized_text.into()))
+        .await?;
 
     // Create a thread
     let thread_id = protocol::new_message_id();
@@ -124,10 +127,7 @@ async fn handle_incoming(
         if let Message::Text(text) = msg {
             let text_str = text.to_string();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text_str) {
-                let method = parsed
-                    .get("method")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
+                let method = parsed.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
                 match method {
                     "ainm.message.deliver" => {
@@ -137,10 +137,8 @@ async fn handle_incoming(
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false);
                             if let Some(message) = params.get("message") {
-                                let msg_type = message
-                                    .get("type")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
+                                let msg_type =
+                                    message.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                                 match msg_type {
                                     "tool.call.started" => {
@@ -179,23 +177,17 @@ async fn handle_incoming(
                     }
                     "ainm.stream.delta" => {
                         if let Some(params) = parsed.get("params") {
-                            let delta = params
-                                .get("delta")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("");
+                            let delta = params.get("delta").and_then(|d| d.as_str()).unwrap_or("");
                             render::render_stream_delta(delta);
                         }
                     }
                     "ainm.stream.end" => {
                         if let Some(params) = parsed.get("params") {
                             // Verify the collapsed message signature
-                            let verified = if let Some(collapsed) =
-                                params.get("collapsed_message")
+                            let verified = if let Some(collapsed) = params.get("collapsed_message")
                             {
-                                let from = collapsed
-                                    .get("from")
-                                    .and_then(|f| f.as_str())
-                                    .unwrap_or("");
+                                let from =
+                                    collapsed.get("from").and_then(|f| f.as_str()).unwrap_or("");
                                 if let Some(pk) = identity_store.get_public_key_bytes(from) {
                                     signing::verify_signature(&pk, collapsed).unwrap_or(false)
                                 } else {
@@ -229,14 +221,10 @@ async fn handle_incoming(
                     }
                     "ainm.presence.update" => {
                         if let Some(params) = parsed.get("params") {
-                            let detail = params
-                                .get("detail")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("");
-                            let status = params
-                                .get("status")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("");
+                            let detail =
+                                params.get("detail").and_then(|d| d.as_str()).unwrap_or("");
+                            let status =
+                                params.get("status").and_then(|s| s.as_str()).unwrap_or("");
                             if status == "processing" {
                                 render::render_bridge_event("a2a_working", params);
                             } else {
@@ -255,12 +243,16 @@ async fn handle_incoming(
 
 /// Run the rustyline REPL loop on a blocking thread.
 fn run_repl_loop(
-    ws_sender: std::sync::Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    ws_sender: std::sync::Arc<
+        tokio::sync::Mutex<
+            futures_util::stream::SplitSink<
+                tokio_tungstenite::WebSocketStream<
+                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                >,
+                Message,
+            >,
         >,
-        Message,
-    >>>,
+    >,
     identity: Identity,
     thread_id: &str,
     server_addr: SocketAddr,
@@ -290,8 +282,12 @@ fn run_repl_loop(
                         println!("    tool     - Tool visibility example");
                         println!("    button   - ButtonBlock example");
                         println!("    /card    - View Agent Card");
-                        println!("    /discover agent@host:port - Discover remote agent capabilities");
-                        println!("    /memory  - Memory store, query, and context frame operations");
+                        println!(
+                            "    /discover agent@host:port - Discover remote agent capabilities"
+                        );
+                        println!(
+                            "    /memory  - Memory store, query, and context frame operations"
+                        );
                         println!("    /evict   - Memory eviction (run /memory first)");
                         println!("    /bridge  - MCP and A2A bridge compatibility mappings");
                         println!("    /help    - Show this help");

@@ -47,5 +47,8 @@ async fn http_server_with_ssrf_url_is_skipped() {
         ..Default::default()
     }]);
     let providers = build_providers_from_config(&config).await;
-    assert!(providers.is_empty(), "SSRF URL must be rejected and the server skipped");
+    assert!(
+        providers.is_empty(),
+        "SSRF URL must be rejected and the server skipped"
+    );
 }

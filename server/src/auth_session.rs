@@ -138,7 +138,10 @@ pub async fn authenticate(
     };
     let new_expires = next_expiry(session.created_at, now);
     slide(pool, session.id, now, new_expires).await?;
-    Ok(Some(Caller { account_id: session.account_id, token_hash: hash }))
+    Ok(Some(Caller {
+        account_id: session.account_id,
+        token_hash: hash,
+    }))
 }
 
 /// List a caller's ACTIVE sessions, newest first.
