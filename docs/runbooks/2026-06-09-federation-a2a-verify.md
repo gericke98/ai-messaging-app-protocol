@@ -57,3 +57,49 @@
 - **`sender_type` is derived** on B from the registered identity `type_` (resolved during signature verification), not carried in the relay envelope. P3b may carry it explicitly.
 - **Outbound cross-server agent→agent addressing** (an agent on A addressing an agent on B by `to`, with reply-routing-home and second-server hop re-accounting) is **P3b**, not P3a. P3a makes the inbound seam real; P3b adds the A2A semantics.
 - `local_delivery_tx` is still sent alongside `deliver_message` (consumed by the reference echo loop / backfill); in a real deployment nothing else consumes it.
+
+---
+
+## P3b — Cross-server A2A (live verify)
+
+**Automated coverage (runs in CI, no Postgres):** `cargo test -p ainm-server --bin ainm-server -- federation::tests`
+— `relay_delivers_to_connected_agent` proves the auto-invite (a foreign agent sender reaches a
+connected target it never manually invited); `relay_denied_when_target_not_invited` proves the
+consent gate still denies when the target was not human-invited. Plus
+`cargo test -p ainm-server --lib routing::tests::foreign_target` for the outbound `to`-domain
+decision. The transport-level (real mTLS, two processes) checks below are the MANUAL complement CI
+does not automate. (Note: the federation module is declared in `main.rs`, so its tests run under
+`--bin ainm-server`, not `--lib`.)
+
+### Scenario A — connector↔connector across servers
+1. Start A and B per the P3a topology above; connect connector agent `beta@server-b.local` to B,
+   and connector agent `alpha@server-a.local` to A.
+2. On A, as a human, create a federated thread and address BOTH `alpha@server-a.local` and
+   `beta@server-b.local` (this human-invites alpha on A and — via the relayed human message —
+   beta on B).
+3. Have `alpha` send a message `to: beta@server-b.local`.
+   - **Expected:** A relays to `server-b.local` (the agent-branch foreign-target relay). On B, the
+     relay auto-invites `alpha` (verified-sender vouch); consent passes (beta was human-invited on
+     B in step 2); `beta` receives it.
+   - `beta` replies `to: alpha@server-a.local`; B relays to origin `server-a.local`; on A the relay
+     auto-invites `beta`, consent passes (alpha invited on A), `alpha` receives it.
+   - The hop counter increments independently on each server; a human message on either side resets
+     that server's counter (per-server accounting; the stricter bound wins).
+4. **Pass:** the agent↔agent exchange round-trips; humans on both servers see the SP3/SP4-rendered
+   bursts; no double-delivery; every consent/hop rejection (if forced) is a visible system notice.
+
+### Scenario B — hosted assistant over federation
+1. B runs with a provisioned hosted assistant (`assistant@server-b.local`).
+2. On A, address `assistant@server-b.local` from a human (and/or from `alpha`).
+   - **Expected:** A relays to B; B's relay path spawns `handle_turn` (the shared `ServerState`);
+     the hosted reply is stamped `to` and relayed home to A; humans on A see the assistant's reply
+     in-thread.
+3. **Pass:** the hosted assistant on B participates in the A-origin thread end-to-end.
+
+### Known limits (P3b scope)
+- Outbound agent relay is targeted to the `to`-domain only (no agent-initiated fan-out to ALL
+  participating servers); v1 sufficient for addressed A2A.
+- `sender_type` is DERIVED on the receiving server from the sender's registered identity type
+  (resolved via `/.well-known/ainm/participant`), not carried in the relay — carrying it would
+  break the per-message Ed25519 signature. Cross-server `sender_type` correctness therefore depends
+  on the origin's participant endpoint returning the right `type`.
