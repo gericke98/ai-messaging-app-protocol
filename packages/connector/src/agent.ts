@@ -91,6 +91,7 @@ export class AINMAgent {
       name: this.config.name,
       description: this.config.description,
       version: this.config.version,
+      acceptsA2A: this.config.acceptsA2A,
       capabilities: this.config.capabilities ?? [],
       skills: this.config.skills,
       tools,

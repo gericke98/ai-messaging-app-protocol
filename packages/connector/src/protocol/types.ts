@@ -4,6 +4,8 @@ export interface AINMAgentConfig {
   name: string;
   description?: string;
   version?: string;
+  /** Opt out of agent-to-agent (peer) messages. Defaults to true (cooperative). */
+  acceptsA2A?: boolean;
   capabilities?: string[];
   skills?: Array<{ name: string; description: string }>;
   privateKey?: Uint8Array;

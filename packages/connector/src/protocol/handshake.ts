@@ -8,6 +8,7 @@ export interface HandshakeOptions {
   name: string;
   description?: string;
   version?: string;
+  acceptsA2A?: boolean;
   capabilities: string[];
   skills?: Array<{ name: string; description: string }>;
   tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
@@ -30,6 +31,7 @@ export async function performHandshake(
     name: options.name,
     skills: options.skills ?? [],
     tools: options.tools ?? [],
+    acceptsA2A: options.acceptsA2A ?? true,
   };
   if (options.description !== undefined) card.description = options.description;
   if (options.version !== undefined) card.version = options.version;
