@@ -206,8 +206,9 @@ async fn agent_to_agent_routes_and_hop_cap_trips() {
     send_addressed(&mut a_tx, &agent_a, &thread_id, &agent_b.address, "hop 3 should be blocked @beta").await;
 
     let blocked = await_deliver_from(&mut b_rx, &agent_a.address, Duration::from_secs(3)).await;
+    let hop3_delivered = blocked.as_ref().is_some_and(|(t, _)| t.contains("hop 3"));
     assert!(
-        blocked.as_ref().map(|(t, _)| t.contains("hop 3")).unwrap_or(false) == false,
+        !hop3_delivered,
         "agent B should NOT receive the over-cap hop-3 message, got: {blocked:?}"
     );
 

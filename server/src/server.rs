@@ -1302,6 +1302,7 @@ async fn handle_ws_connection(socket: WebSocket, state: ServerState) {
 /// Messages are stored for history. Compilation is triggered after agent responses
 /// (which represent completed exchanges with the richest extractable knowledge).
 /// A minimum message count threshold prevents compilation on trivial threads.
+#[allow(clippy::too_many_arguments)]
 async fn store_and_maybe_compile(
     db: &sqlx::PgPool,
     compile_tx: &Option<tokio::sync::mpsc::Sender<crate::compiler::CompileRequest>>,
