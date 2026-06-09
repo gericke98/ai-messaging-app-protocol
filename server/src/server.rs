@@ -2476,11 +2476,15 @@ async fn handle_agent_connection(
     }
 
     forward_handle.abort();
-    // Aborting targeted_forward_handle drops the registry receiver it owns, which causes
-    // its paired sender to report `is_closed()`, letting `cleanup` prune it and (if it was
-    // the last connection) remove the cached card. This replaces the explicit `drop(rx)` that
-    // was present when the receiver was owned by the teardown scope directly.
+    // `targeted_forward_handle` OWNS the registry receiver (`from_registry_rx`). `cleanup` below
+    // prunes the paired sender via `tx.is_closed()`, which only reports closed once that receiver
+    // is dropped. `abort()` merely SCHEDULES cancellation — the task (and its captured receiver)
+    // is dropped asynchronously, NOT necessarily before the next line. So we `abort()` then AWAIT
+    // the handle: awaiting a cancelled task resolves only after its frame is torn down, guaranteeing
+    // the receiver is dropped BEFORE `cleanup` runs. This preserves the disconnect→404 invariant
+    // (the prior CAC card-leak fix) that the old explicit `drop(rx)` provided.
     targeted_forward_handle.abort();
+    let _ = targeted_forward_handle.await;
 
     // Deregister this agent from the AgentRegistry
     state.agent_registry.cleanup(&from_addr).await;
