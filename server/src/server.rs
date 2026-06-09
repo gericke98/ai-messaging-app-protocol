@@ -2865,6 +2865,17 @@ async fn handle_human_connection(
                                     .unwrap_or("");
 
                                 if origin == fed.server_id || origin.is_empty() {
+                                    // P3b: a human addressing a foreign-host agent — register that
+                                    // agent's home domain as a thread participant so the fan-out below
+                                    // relays to it EXACTLY ONCE (no separate enqueue → no double send).
+                                    // This is also how the remote agent gets human-invited on its own
+                                    // server: the relayed human→agent message invites it there.
+                                    if let Some(domain) = crate::routing::foreign_relay_target(
+                                        params.get("to").and_then(|t| t.as_str()),
+                                        &fed.server_id,
+                                    ) {
+                                        fed.thread_registry.add_server(thread_id, &domain);
+                                    }
                                     // We are origin: deliver locally AND relay to remote servers
                                     let deliver = protocol::new_notification(
                                         "ainm.message.deliver",
