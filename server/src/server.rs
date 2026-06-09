@@ -1493,6 +1493,37 @@ fn a2a_limit_notice(thread_id: &str, cap: u32) -> String {
     serde_json::to_string(&deliver).unwrap()
 }
 
+/// Build the system notice delivered to humans when an agent→agent message is blocked by consent
+/// (target not human-invited, sender not human-invited, or the target opted out via `acceptsA2A`).
+/// Visible, never a silent drop (P2 success criterion).
+fn a2a_consent_notice(thread_id: &str, target: &str) -> String {
+    let text = format!(
+        "An agent tried to message {target}, but that agent isn't part of this conversation yet. Add it to allow agent-to-agent messages."
+    );
+    let deliver = protocol::new_notification(
+        "ainm.message.deliver",
+        serde_json::json!({
+            "message": {
+                "id": protocol::new_message_id(),
+                "from": "system@local",
+                "thread_id": thread_id,
+                "timestamp": protocol::now_rfc3339(),
+                "type": "message",
+                "content": [{
+                    "type": "text",
+                    "version": "1.0",
+                    "source": "system",
+                    "text": text,
+                    "fallback": text,
+                }],
+            },
+            "verified": false,
+            "sender_type": "system",
+        }),
+    );
+    serde_json::to_string(&deliver).unwrap()
+}
+
 /// Local delivery orchestrator for runtime A2A (P1, same-server core).
 ///
 /// Replaces the blind `to_agent_tx` broadcast. Given an inbound message envelope
@@ -1563,6 +1594,11 @@ async fn deliver_message(
     let target_is_connected_agent = state.agent_registry.is_connected(&t).await;
     let target_is_agent = target_is_hosted || target_is_connected_agent;
 
+    // P2 consent: a human addressing an agent INVITES it into the thread (human curates membership).
+    if !sender_is_agent && target_is_agent && !thread_id.is_empty() {
+        state.agent_registry.invite_to_thread(&t, thread_id).await;
+    }
+
     // Hop guard (pure decision over the stored per-thread counter).
     let current = { *state.a2a_hops.lock().await.get(thread_id).unwrap_or(&0) };
     let decision =
@@ -1582,6 +1618,23 @@ async fn deliver_message(
     }
     if !decision.deliver_to_target {
         return;
+    }
+
+    // P2 consent gate (agent→agent only): both endpoints must be human-invited, and the
+    // target must not have opted out via `acceptsA2A`. Denials are visible to humans.
+    if sender_is_agent && target_is_agent {
+        let from_invited = state.agent_registry.is_invited(from, thread_id).await;
+        let to_invited = state.agent_registry.is_invited(&t, thread_id).await;
+        let to_accepts = if target_is_hosted {
+            true
+        } else {
+            state.agent_registry.accepts_a2a(&t).await
+        };
+        if !crate::routing::consent_ok(from_invited, to_invited, to_accepts) {
+            let notice = a2a_consent_notice(thread_id, &t);
+            state.human_registry.send_to_thread(thread_id, &notice).await;
+            return;
+        }
     }
 
     if target_is_hosted {
