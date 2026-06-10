@@ -25,7 +25,7 @@ export async function performHandshake(
   transport: Transport,
   options: HandshakeOptions
 ): Promise<HandshakeResult> {
-  const signature = await signInit(options.keypair, options.identity);
+  const { signature, timestamp } = await signInit(options.keypair, options.identity);
 
   const card: Record<string, unknown> = {
     name: options.name,
@@ -40,6 +40,7 @@ export async function performHandshake(
     protocolVersion: "0.1.0",
     identity: options.identity,
     signature,
+    timestamp,
     capabilities: {
       streaming: true,
       subThreads: true,

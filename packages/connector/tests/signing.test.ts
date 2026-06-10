@@ -23,11 +23,12 @@ describe("Ed25519 identity", () => {
 });
 
 describe("message signing", () => {
-  it("signs an init payload", async () => {
+  it("signs an init payload and returns the bound timestamp", async () => {
     const kp = await generateKeypair();
-    const sig = await signInit(kp, "agent@test.local");
-    expect(typeof sig).toBe("string");
-    expect(sig.length).toBeGreaterThan(0);
+    const { signature, timestamp } = await signInit(kp, "agent@test.local");
+    expect(typeof signature).toBe("string");
+    expect(signature.length).toBeGreaterThan(0);
+    expect(Number.isNaN(new Date(timestamp).getTime())).toBe(false);
   });
 
   it("signs and verifies an envelope", async () => {

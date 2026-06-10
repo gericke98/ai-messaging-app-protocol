@@ -98,3 +98,41 @@ describe("handshake", () => {
     await handshakePromise;
   });
 });
+
+describe("handshake anti-spoof binding", () => {
+  it("sends a timestamp whose payload the signature verifies over", async () => {
+    const ed = await import("@noble/ed25519");
+    const transport = mockTransport();
+    const kp = await generateKeypair();
+
+    const handshakePromise = performHandshake(transport, {
+      identity: "verified-agent@server.local",
+      name: "V",
+      capabilities: ["text"],
+      keypair: kp,
+    });
+
+    // Reply to the init request so the handshake completes.
+    await new Promise((r) => setTimeout(r, 10));
+    const init = JSON.parse(transport.sent[0]);
+    transport.triggerMessage(
+      JSON.stringify({ jsonrpc: "2.0", id: init.id, result: { protocolVersion: "0.1.0", capabilities: {} } }),
+    );
+    await handshakePromise;
+
+    // The server's verify_init checks signature over `${identity}|${timestamp}`
+    // and REJECTS when params.timestamp is absent or stale.
+    expect(typeof init.params.timestamp).toBe("string");
+    const ageMs = Date.now() - new Date(init.params.timestamp).getTime();
+    expect(Math.abs(ageMs)).toBeLessThan(60_000);
+
+    const payload = new TextEncoder().encode(
+      `verified-agent@server.local|${init.params.timestamp}`,
+    );
+    const sig = Buffer.from(
+      init.params.signature.replace(/-/g, "+").replace(/_/g, "/"),
+      "base64",
+    );
+    expect(await ed.verifyAsync(new Uint8Array(sig), payload, kp.publicKey)).toBe(true);
+  });
+});

@@ -13,6 +13,11 @@ export async function generateKeypair(): Promise<Keypair> {
   return { privateKey, publicKey };
 }
 
+/// Rebuild a full keypair from a stored private key (persistent identities).
+export async function keypairFromPrivateKey(privateKey: Uint8Array): Promise<Keypair> {
+  return { privateKey, publicKey: await ed.getPublicKeyAsync(privateKey) };
+}
+
 export function exportPublicKey(keypair: Keypair): string {
   return base64urlEncode(keypair.publicKey);
 }

@@ -2,11 +2,17 @@ import * as ed from "@noble/ed25519";
 import canonicalize from "canonicalize";
 import { base64urlEncode, base64urlDecode, type Keypair } from "./keypair.js";
 
-export async function signInit(keypair: Keypair, identity: string): Promise<string> {
+/// Sign the init binding `${identity}|${timestamp}`. The timestamp MUST be sent
+/// alongside the signature — the server's verify_init reconstructs the payload
+/// from `params.timestamp` and rejects the handshake when it is absent or stale.
+export async function signInit(
+  keypair: Keypair,
+  identity: string,
+): Promise<{ signature: string; timestamp: string }> {
   const timestamp = new Date().toISOString();
   const payload = `${identity}|${timestamp}`;
   const sig = await ed.signAsync(new TextEncoder().encode(payload), keypair.privateKey);
-  return base64urlEncode(new Uint8Array(sig));
+  return { signature: base64urlEncode(new Uint8Array(sig)), timestamp };
 }
 
 export async function signEnvelope(

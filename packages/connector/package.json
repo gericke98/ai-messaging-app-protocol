@@ -1,7 +1,7 @@
 {
   "name": "@ainm/connector",
   "version": "0.1.0",
-  "description": "AINM Protocol Connector SDK — connect any AI agent to the AINM messaging network",
+  "description": "AINM Protocol Connector SDK \u2014 connect any AI agent to the AINM messaging network",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,5 +32,8 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "ainm-connector": "dist/cli.js"
+  }
 }
