@@ -187,7 +187,7 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 **Gaps/risks closed:**
 - §5b iOS push notifications / background delivery (L) — APNs, `UNUserNotificationCenter`, background refresh, server-side push on thread activity.
 - §5d `ainm.ping`/`pong` keepalive (S) — confirm/wire the handler; required for iOS background WS correctness.
-- §5b/§3 Xcode 26 migration + `AinmEscrow.xcframework` rebuild (S–M) — Apple mandate since 2026-04-28; rebuild the UniFFI xcframework with the Xcode 26 toolchain; audit `nonisolated async` sites for SE-0461.
+- §5b/§3 Xcode 26 migration + `AinmEscrow.xcframework` rebuild (S–M) — **claim was STALE (verified 2026-06-10): Xcode 26.3 (17C529) has been installed since Feb; the xcframework was rebuilt June 2 (post-26-toolchain); the app builds clean under 26.3 (verified live).** Remaining from this bullet: only the archive/upload check at submission time.
 
 **Exit criteria (verifiable):**
 - App builds and archives cleanly under **Xcode 26 / iOS 26 SDK** (deployment target iOS 18); no upload-blocking deprecation warnings.
