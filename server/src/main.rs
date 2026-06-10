@@ -38,6 +38,7 @@ mod sandbox;
 mod server;
 mod signing;
 mod streaming;
+mod telemetry;
 mod tls;
 mod tools;
 mod tools_memory;
@@ -240,11 +241,19 @@ fn build_uat_agent_card() -> serde_json::Value {
 /// - Listener 1: Plain TCP for local WebSocket connections (REPL / agent)
 /// - Listener 2: mTLS TCP for federation relay with cert fingerprint verification (FAUT-02)
 async fn run_federation(cli: Cli, mode: String) -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_target(false)
-        .with_max_level(tracing::Level::INFO)
-        .init();
+    // Initialize tracing: fmt always; OTLP export layered in when
+    // AINM_OTEL__ENDPOINT is set (M2 observability).
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        let registry = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::INFO)
+            .with(tracing_subscriber::fmt::layer().with_target(false));
+        match telemetry::layer_from_env() {
+            Some(otel) => registry.with(otel).init(),
+            None => registry.init(),
+        }
+    }
 
     let controller = crate::lifecycle::ShutdownController::new();
     crate::lifecycle::install_signals(controller.clone());

@@ -93,6 +93,10 @@ hex = "0.4"
 url = "2"
 tower_governor = "0.8.0"
 governor = "0.10"
+opentelemetry = "0.32.0"
+opentelemetry_sdk = "0.32.1"
+opentelemetry-otlp = "0.32.0"
+tracing-opentelemetry = "0.33.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Compile the baseline seccomp denylist to BPF (Firecracker's pure-Rust seccomp compiler)

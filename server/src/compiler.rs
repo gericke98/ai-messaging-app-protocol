@@ -32,6 +32,7 @@ pub struct CompileResult {
 }
 
 /// Run a full compilation pass: extract → dedup → integrate → record.
+#[tracing::instrument(name = "memory_compilation", skip_all, fields(thread_id = %req.thread_id))]
 pub async fn run_compilation(
     db: PgPool,
     llm: Arc<dyn LlmClient>,

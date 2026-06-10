@@ -12,6 +12,7 @@ use crate::server::ServerState;
 /// Server entry point: invoked from the delivery path when the hosted agent is a
 /// participant in `thread_id` and the inbound message is addressed to/mentions it.
 /// `requester` is the human whose consent scopes gate everything.
+#[tracing::instrument(name = "hosted_agent_turn", skip_all, fields(thread_id))]
 pub async fn handle_turn(
     state: &ServerState,
     thread_id: &str,

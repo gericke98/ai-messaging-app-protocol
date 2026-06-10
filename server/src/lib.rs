@@ -29,5 +29,6 @@ pub mod routing;
 pub mod runtime;
 pub mod sandbox;
 pub mod signing;
+pub mod telemetry;
 pub mod tools;
 pub mod tools_memory;
