@@ -413,6 +413,51 @@ impl ServerState {
     }
 }
 
+// --- Instant agent registration (M5 connector fast path) ---
+
+#[derive(serde::Deserialize)]
+pub struct InstantRegisterBody {
+    pub name: String,
+    pub public_key: String,
+}
+
+pub async fn instant_register_handler(
+    State(state): State<ServerState>,
+    Json(body): Json<InstantRegisterBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    if !crate::instant::enabled() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "instant registration is disabled on this server".into(),
+        ));
+    }
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    match crate::instant::instant_register(
+        &pool,
+        &state.server_domain,
+        &body.name,
+        &body.public_key,
+    )
+    .await
+    {
+        Ok(address) => Ok((
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "address": address })),
+        )),
+        Err(
+            e @ (crate::instant::InstantError::InvalidName
+            | crate::instant::InstantError::InvalidKey),
+        ) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+        Err(e @ crate::instant::InstantError::KeyInUse) => {
+            Err((StatusCode::CONFLICT, e.to_string()))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
 // --- UGC safety handlers (App Store guideline 1.2): block users, report content ---
 
 /// Resolve the bearer caller's AINM address.
@@ -1267,6 +1312,10 @@ pub async fn start(
             get(agent_card_handler),
         )
         .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route(
+            "/agents/instant-register",
+            axum::routing::post(instant_register_handler),
+        )
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .route(
@@ -1389,6 +1438,10 @@ pub async fn start_with_port(
         .route("/health", get(|| async { StatusCode::OK }))
         .route("/health/live", get(|| async { StatusCode::OK }))
         .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route(
+            "/agents/instant-register",
+            axum::routing::post(instant_register_handler),
+        )
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .route(
@@ -1524,6 +1577,10 @@ pub async fn start_federation(
         .route("/health/live", get(|| async { StatusCode::OK }))
         .route("/health/ready", get(health_ready_handler))
         .route("/accounts/signup", axum::routing::post(signup_handler))
+        .route(
+            "/agents/instant-register",
+            axum::routing::post(instant_register_handler),
+        )
         .route("/accounts/verify", axum::routing::post(verify_handler))
         .route("/accounts/keys", axum::routing::post(bind_key_handler))
         .route(

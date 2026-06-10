@@ -17,6 +17,7 @@ mod federation;
 mod graph;
 mod hosted_agent;
 mod identity;
+mod instant;
 mod lifecycle;
 mod llm;
 mod mcp;
