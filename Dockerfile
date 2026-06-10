@@ -22,6 +22,9 @@ WORKDIR /app
 COPY --from=builder /build/target/release/ainm-server /usr/local/bin/ainm-server
 COPY --from=builder /build/server/migrations /app/migrations
 COPY --from=builder /build/server/config /app/config
+# Fly.io launcher (materializes federation certs from secrets, then execs the
+# server). Harmless for compose deployments, which set `command` directly.
+COPY --chmod=755 docker/fly-entrypoint.sh /app/fly-entrypoint.sh
 USER ainm
 EXPOSE 8080 8443
 # /health/ready is DB-aware (deeper than the always-200 /health/live).

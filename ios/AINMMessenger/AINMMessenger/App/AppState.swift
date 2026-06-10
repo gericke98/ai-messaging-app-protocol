@@ -503,6 +503,16 @@ final class AppState {
             subject: subject, threadId: threadId, messageId: messageId, reason: reason)
     }
 
+    // MARK: - App Lifecycle (M4)
+
+    /// Scene became active: verify (or revive) the connection immediately
+    /// instead of waiting for the keepalive idle window. No-op outside an
+    /// active session.
+    func appDidBecomeActive() async {
+        guard sessionPhase == .active, let client else { return }
+        await client.appBecameActive()
+    }
+
     // MARK: - Push Notifications (M4)
 
     /// The APNs device token (hex) received this launch, kept so an account

@@ -5,6 +5,7 @@ import GRDB
 struct AINMMessengerApp: App {
     /// Receives APNs device-token + notification-tap callbacks (M4 push).
     @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var appState = AppState()
     @State private var showThreadNotFound = false
     @State private var bootstrapComplete = false
@@ -131,6 +132,13 @@ struct AINMMessengerApp: App {
             }
             .onOpenURL { url in
                 handleDeepLink(url)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Foreground resume: verify/revive the connection immediately
+                // (suspension freezes the keepalive + reconnect timers).
+                if phase == .active {
+                    Task { await appState.appDidBecomeActive() }
+                }
             }
             .alert("Thread Not Found", isPresented: $showThreadNotFound) {
                 Button("OK", role: .cancel) { }

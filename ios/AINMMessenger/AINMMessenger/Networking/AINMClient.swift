@@ -840,6 +840,34 @@ actor AINMClient {
         }
     }
 
+    /// App returned to the foreground. iOS freezes timers during suspension,
+    /// so both the keepalive loop and the bounded reconnect loop can be stale:
+    /// a connected-looking socket may be dead (verify with an immediate ping —
+    /// detected in ≤pongTimeout instead of interval+timeout), and a reconnect
+    /// loop that exhausted its attempts against the frozen radio needs a fresh
+    /// cycle. A user sign-out is never resurrected.
+    func appBecameActive() async {
+        let connected = { if case .connected = state { return true } else { return false } }()
+        switch KeepalivePolicy.foregroundAction(
+            connected: connected,
+            reconnecting: reconnectTask != nil,
+            userDisconnected: isUserDisconnect
+        ) {
+        case .verifyNow:
+            do {
+                try await sendPing()
+            } catch {
+                await keepaliveFailed()
+            }
+        case .reconnect:
+            guard let serverURL = lastServerURL, let displayName = lastDisplayName else { return }
+            await reconnection.reset()
+            startReconnectLoop(serverURL: serverURL, displayName: displayName)
+        case .none:
+            break
+        }
+    }
+
     /// The connection is dead: tear the socket down and run the standard
     /// drop path (handleDisconnect → bounded-backoff reconnect, unless the
     /// user signed out). The receive loop is cancelled explicitly because a

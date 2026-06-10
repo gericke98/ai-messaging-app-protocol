@@ -22,6 +22,28 @@ struct KeepaliveTests {
         #expect(!policy.isIdle(lastTraffic: last, now: last.addingTimeInterval(29.9)))
     }
 
+    @Test("foreground action: verify live sockets, restart dead ones, respect sign-out")
+    func foregroundActions() {
+        // Connected: the socket may have died during suspension — ping NOW
+        // instead of waiting out the idle window.
+        #expect(
+            KeepalivePolicy.foregroundAction(
+                connected: true, reconnecting: false, userDisconnected: false) == .verifyNow)
+        // Dead with no loop running (e.g. the bounded reconnect exhausted its
+        // attempts against a frozen radio while suspended): start over.
+        #expect(
+            KeepalivePolicy.foregroundAction(
+                connected: false, reconnecting: false, userDisconnected: false) == .reconnect)
+        // A reconnect loop already in flight: leave it alone.
+        #expect(
+            KeepalivePolicy.foregroundAction(
+                connected: false, reconnecting: true, userDisconnected: false) == .none)
+        // The user signed out: foreground must NOT resurrect the session.
+        #expect(
+            KeepalivePolicy.foregroundAction(
+                connected: false, reconnecting: false, userDisconnected: true) == .none)
+    }
+
     @Test("ping frame is a JSON-RPC request the server's send_pong answers")
     func pingFrameShape() throws {
         let frame = KeepalivePolicy.pingFrame(id: 99)

@@ -1,0 +1,50 @@
+# Fly.io deployment for the AINM hosted server (M2).
+# Region: scl (Santiago) — lowest latency for the founding user base in Chile.
+# STATUS: written ahead of account creation; UNVERIFIED until `flyctl deploy`
+# runs against a real Fly app. See docs/deploy/fly.md for the full runbook.
+#
+# Postgres is deliberately NOT Fly Managed Postgres (cost decision 2026-06-10):
+# AINM_DATABASE__URL points at an external Postgres (e.g. Neon free tier,
+# sa-east-1) set via `flyctl secrets`.
+
+app = "ainm-server"
+primary_region = "scl"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  # Headless agent mode; federation certs are materialized from secrets by the
+  # entrypoint wrapper (docker/fly-entrypoint.sh) before exec'ing the server.
+  app = "/app/fly-entrypoint.sh"
+
+[env]
+  AINM_ENV = "production"
+  RUST_LOG = "info"
+
+# Fly's edge terminates public TLS: wss://<app>.fly.dev (and any custom domain)
+# reaches the plain-HTTP listener on 8080. The federation mTLS listener (8443)
+# is NOT exposed publicly — single-home-server v1 has no live federation.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # WebSockets must stay up: never autostop the only machine.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health/ready"
+
+# Durable disk for redb (--data-dir) and the materialized federation certs.
+[mounts]
+  source = "ainm_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
