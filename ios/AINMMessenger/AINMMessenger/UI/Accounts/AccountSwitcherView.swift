@@ -7,6 +7,9 @@ struct AccountSwitcherView: View {
     @Bindable var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var pendingRemoval: AccountSummary?
+    @State private var showDeleteAccount = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountError: String?
 
     var body: some View {
         NavigationStack {
@@ -30,6 +33,23 @@ struct AccountSwitcherView: View {
                     } label: {
                         Label("Blocked Users", systemImage: "hand.raised")
                     }
+                }
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAccount = true
+                    } label: {
+                        if isDeletingAccount {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Deleting Account…")
+                            }
+                        } else {
+                            Label("Delete Account", systemImage: "trash")
+                        }
+                    }
+                    .disabled(isDeletingAccount || appState.activeAccount == nil)
+                } footer: {
+                    Text("Permanently deletes your account, keys, and personal data from the server. Messages you sent in shared conversations remain visible to their participants.")
                 }
             }
             .navigationTitle("Accounts")
@@ -60,8 +80,42 @@ struct AccountSwitcherView: View {
             } message: {
                 Text("This deletes its key and local conversations on this device. The account itself is not deleted from the server.")
             }
+            .confirmationDialog(
+                "Delete your account permanently?",
+                isPresented: $showDeleteAccount,
+                titleVisibility: .visible
+            ) {
+                Button("Delete \(appState.activeAccount?.address ?? "account")", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This cannot be undone. Your account, device keys, recovery escrow, and memory data are erased from the server.")
+            }
+            .alert(
+                "Couldn't delete account",
+                isPresented: Binding(
+                    get: { deleteAccountError != nil },
+                    set: { if !$0 { deleteAccountError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { deleteAccountError = nil }
+            } message: {
+                Text(deleteAccountError ?? "")
+            }
             .onAppear { appState.refreshAccounts() }
         }
+    }
+
+    private func deleteAccount() async {
+        isDeletingAccount = true
+        do {
+            try await appState.deleteActiveAccount()
+            dismiss()
+        } catch {
+            deleteAccountError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+        isDeletingAccount = false
     }
 
     @ViewBuilder

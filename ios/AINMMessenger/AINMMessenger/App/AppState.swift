@@ -498,6 +498,24 @@ final class AppState {
             subject: subject, threadId: threadId, messageId: messageId, reason: reason)
     }
 
+    /// Permanently delete the active account (App Store guideline 5.1.1):
+    /// server-side first (`DELETE /accounts`, proves key possession via the
+    /// bearer mint), then the local key, database, and registry entry. Throws
+    /// before any local mutation if the server deletion fails, so a transient
+    /// error never strands a server account the user believes is gone.
+    func deleteActiveAccount() async throws {
+        guard let base = restBaseURL(from: serverURL) else { throw AuthedRestError.notConnected }
+        let token = try await bearerToken()
+        try await AccountService(baseURL: base).deleteAccount(token: token)
+        sessionToken = nil
+        if let address = registry.activeAddress {
+            await removeAccount(address, deleteData: true)
+        } else {
+            clearPersistedSession()
+            sessionPhase = .onboarding
+        }
+    }
+
     /// Trigger the signup email (sends the verification code). Separate from
     /// ``verifyCode(serverURL:email:code:)`` / ``finishSignup(serverURL:username:enrollmentToken:pin:faceIDEnabled:)``
     /// so the UI can advance to the code-entry step before the user has a code.

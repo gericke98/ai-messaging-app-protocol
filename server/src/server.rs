@@ -477,6 +477,27 @@ async fn caller_address(
     Ok((pool, acct.address))
 }
 
+/// `DELETE /accounts` — delete the caller's account and all personal data
+/// (App Store guideline 5.1.1). Bearer-authed: possession of a live session
+/// token (minted by signing the key challenge) is the proof of ownership.
+/// The token itself dies with the account (FK cascade), so the call is
+/// self-terminating; the client disconnects and wipes local state after.
+pub async fn account_delete_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    crate::account_deletion::delete_account(&pool, caller.account_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    tracing::info!(account_id = %caller.account_id, "[accounts] account deleted by owner");
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn block_put_handler(
     State(state): State<ServerState>,
     Path(address): Path<String>,
@@ -1342,6 +1363,7 @@ pub async fn start(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
+        .route("/accounts", axum::routing::delete(account_delete_handler))
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",
@@ -1468,6 +1490,7 @@ pub async fn start_with_port(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
+        .route("/accounts", axum::routing::delete(account_delete_handler))
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",
@@ -1607,6 +1630,7 @@ pub async fn start_federation(
             "/accounts/llm-credential",
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
+        .route("/accounts", axum::routing::delete(account_delete_handler))
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",

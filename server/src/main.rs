@@ -1,3 +1,4 @@
+mod account_deletion;
 mod accounts;
 mod agent;
 mod agent_card;

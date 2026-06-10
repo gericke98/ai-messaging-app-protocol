@@ -167,4 +167,25 @@ actor AccountService {
     func escrowFetch(recoveryToken: String, blindedPoint: String) async throws -> EscrowFetchResp {
         try await post("accounts/escrow/fetch", EscrowFetchReq(recovery_token: recoveryToken, blinded_point: blindedPoint))
     }
+
+    // MARK: - Account Deletion (App Store guideline 5.1.1)
+
+    /// Build the bearer-authed `DELETE /accounts` request (pure; unit-tested).
+    static func makeDeleteAccountRequest(baseURL: URL, token: String) throws -> URLRequest {
+        var req = URLRequest(url: baseURL.appendingPathComponent("accounts"))
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return req
+    }
+
+    /// `DELETE /accounts` — permanently delete the caller's account and personal
+    /// data on the server (204). The bearer session itself dies with the account.
+    func deleteAccount(token: String) async throws {
+        let req = try Self.makeDeleteAccountRequest(baseURL: baseURL, token: token)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw AccountError.decoding }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AccountError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
 }

@@ -14,7 +14,6 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 /// Pure env core: (endpoint, service_name) or `None` when telemetry is off.
 pub fn settings_with(get: &dyn Fn(&str) -> Option<String>) -> Option<(String, String)> {

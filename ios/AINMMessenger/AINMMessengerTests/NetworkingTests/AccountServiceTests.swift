@@ -68,6 +68,17 @@ struct AccountServiceTests {
         #expect(!json.contains("device_label"))
     }
 
+    @Test("account deletion request: DELETE /accounts with bearer auth")
+    func deleteAccountRequestShape() throws {
+        let req = try AccountService.makeDeleteAccountRequest(
+            baseURL: #require(URL(string: "https://server.example")),
+            token: "sess_tok_9"
+        )
+        #expect(req.httpMethod == "DELETE")
+        #expect(try #require(req.url).path() == "/accounts")
+        #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer sess_tok_9")
+    }
+
     @Test("EscrowFetchReq and VerifyResp use exact server keys")
     func testTokenKeys() throws {
         let fetchJSON = try #require(
