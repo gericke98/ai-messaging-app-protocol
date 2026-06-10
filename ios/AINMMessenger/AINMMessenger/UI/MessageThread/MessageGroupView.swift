@@ -15,6 +15,10 @@ struct MessageGroupView: View {
     var onNavigateToSubThread: ((_ threadId: String) -> Void)? = nil
     /// Called when user long-presses to branch a thread from a message.
     var onBranchThread: ((_ messageId: String) -> Void)? = nil
+    /// Called when user reports a message (UGC 1.2). Only offered on others' messages.
+    var onReportMessage: ((_ messageId: String, _ senderAddress: String) -> Void)? = nil
+    /// Called when user blocks the sender (UGC 1.2). Only offered on others' messages.
+    var onBlockSender: ((_ senderAddress: String) -> Void)? = nil
     /// Thread-level: more than one non-current-user participant (drives name-tinting).
     var isMultiParticipant: Bool = false
     /// The current user's home host, for foreign-host provenance suffixes.
@@ -70,6 +74,19 @@ struct MessageGroupView: View {
                             onBranchThread?(message.id)
                         } label: {
                             Label("Branch Thread", systemImage: "arrow.branch")
+                        }
+                    }
+                    if !group.isFromCurrentUser {
+                        Divider()
+                        Button {
+                            onReportMessage?(message.id, group.senderAddress)
+                        } label: {
+                            Label("Report…", systemImage: "exclamationmark.bubble")
+                        }
+                        Button(role: .destructive) {
+                            onBlockSender?(group.senderAddress)
+                        } label: {
+                            Label("Block \(group.senderName)", systemImage: "hand.raised")
                         }
                     }
                 }

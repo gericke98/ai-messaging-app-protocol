@@ -326,6 +326,8 @@ final class AppState {
         lintResult = nil
         activePresence.removeAll()
         savedAgents.removeAll()
+        sessionToken = nil
+        blockedAddresses.removeAll()
         presenceCleanupTask?.cancel()
         streamingViewModel = StreamingViewModel()
         toolCallTimeoutTasks.values.forEach { $0.cancel() }
@@ -423,6 +425,77 @@ final class AppState {
     /// Normalize any thrown error into a user-facing string for `onboardingError`.
     private func onboardingMessage(for error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "\(error)"
+    }
+
+    // MARK: - Authed REST Session (bearer token) + UGC Safety (blocks/reports)
+
+    /// Cached bearer session minted via `POST /accounts/auth/token`. Lazily minted
+    /// on first authed REST call and re-minted inside the expiry safety margin.
+    /// Cleared on disconnect-equivalent account changes via `activate(address:)`.
+    private var sessionToken: SessionAuthService.SessionToken?
+
+    /// Observable mirror of the caller's blocked addresses (refreshed by
+    /// ``refreshBlockedUsers()``; read by BlockedUsersView and thread UI).
+    var blockedAddresses: [String] = []
+
+    enum AuthedRestError: Error, LocalizedError {
+        case notConnected
+
+        var errorDescription: String? {
+            "You need to be connected to do that."
+        }
+    }
+
+    /// A valid bearer token for authed REST calls, minting a fresh session when
+    /// the cached one is missing or inside its expiry margin. Proof of possession:
+    /// the account's Keychain Ed25519 key signs the domain-separated challenge.
+    private func bearerToken() async throws -> String {
+        if let cached = sessionToken, cached.isValid(now: Date()) { return cached.token }
+        guard let base = restBaseURL(from: serverURL), let identity = connectedIdentity else {
+            throw AuthedRestError.notConnected
+        }
+        let kp = try await keyManager.getOrCreateKeypair()
+        let minted = try await SessionAuthService(baseURL: base).mint(
+            identity: identity, privateKey: kp.privateKey, deviceLabel: deviceLabelString())
+        sessionToken = minted
+        return minted.token
+    }
+
+    /// A BlocksService bound to the current server + a live bearer token.
+    private func blocksService() async throws -> BlocksService {
+        guard let base = restBaseURL(from: serverURL) else { throw AuthedRestError.notConnected }
+        return BlocksService(baseURL: base, token: try await bearerToken())
+    }
+
+    /// Block a user (`PUT /accounts/blocks/{address}`) and refresh the local mirror.
+    /// The server stops delivering their messages to this account immediately.
+    func blockUser(_ address: String) async throws {
+        try await blocksService().block(address)
+        await refreshBlockedUsers()
+    }
+
+    /// Unblock a user (`DELETE /accounts/blocks/{address}`) and refresh the local mirror.
+    func unblockUser(_ address: String) async throws {
+        try await blocksService().unblock(address)
+        await refreshBlockedUsers()
+    }
+
+    /// Re-read the blocked list into ``blockedAddresses``. Failures leave the
+    /// previous mirror in place (the list view surfaces errors on its own calls).
+    func refreshBlockedUsers() async {
+        guard let service = try? await blocksService() else { return }
+        if let list = try? await service.listBlocks() {
+            blockedAddresses = list.sorted()
+        }
+    }
+
+    /// File a content report (`POST /accounts/reports`). `reason` must already be
+    /// validated via `BlocksService.validReason`.
+    func reportContent(
+        subject: String, threadId: String?, messageId: String?, reason: String
+    ) async throws {
+        try await blocksService().report(
+            subject: subject, threadId: threadId, messageId: messageId, reason: reason)
     }
 
     /// Trigger the signup email (sends the verification code). Separate from

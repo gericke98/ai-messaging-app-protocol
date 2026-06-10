@@ -12,6 +12,16 @@ struct MessageThreadView: View {
     @State private var showMemoryGraph = false
     @State private var parentThreadInfo: (parentThreadId: String, parentMessageId: String, senderName: String)?
     @State private var showMessageNotFound = false
+    @State private var reportTarget: ReportTarget?
+    @State private var blockTarget: String?
+    @State private var blockError: String?
+
+    /// Identifies the message being reported (drives the report sheet).
+    private struct ReportTarget: Identifiable {
+        let messageId: String
+        let senderAddress: String
+        var id: String { messageId }
+    }
 
     /// The current user's home host (for foreign-host provenance). nil when not connected.
     private var homeHost: String? {
@@ -185,6 +195,49 @@ struct MessageThreadView: View {
         .sheet(isPresented: $showMemoryGraph) {
             MemoryGraphView(appState: appState)
         }
+        .sheet(item: $reportTarget) { target in
+            ReportSheetView(
+                appState: appState,
+                subject: target.senderAddress,
+                threadId: threadId,
+                messageId: target.messageId
+            )
+        }
+        .confirmationDialog(
+            "Block this user?",
+            isPresented: Binding(
+                get: { blockTarget != nil },
+                set: { if !$0 { blockTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let address = blockTarget {
+                Button("Block \(address.components(separatedBy: "@").first ?? address)", role: .destructive) {
+                    Task {
+                        do {
+                            try await appState.blockUser(address)
+                        } catch {
+                            blockError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                        }
+                        blockTarget = nil
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { blockTarget = nil }
+        } message: {
+            Text("Their messages will no longer be delivered to you. You can unblock them later from Accounts → Blocked Users.")
+        }
+        .alert(
+            "Couldn't block",
+            isPresented: Binding(
+                get: { blockError != nil },
+                set: { if !$0 { blockError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { blockError = nil }
+        } message: {
+            Text(blockError ?? "")
+        }
         .overlay(alignment: .bottom) {
             if showMessageNotFound {
                 Text("Message not found")
@@ -249,6 +302,12 @@ struct MessageThreadView: View {
             },
             onBranchThread: { messageId in
                 Task { await branchThread(fromMessageId: messageId) }
+            },
+            onReportMessage: { messageId, senderAddress in
+                reportTarget = ReportTarget(messageId: messageId, senderAddress: senderAddress)
+            },
+            onBlockSender: { senderAddress in
+                blockTarget = senderAddress
             },
             isMultiParticipant: viewModel.isMultiParticipant,
             homeHost: homeHost

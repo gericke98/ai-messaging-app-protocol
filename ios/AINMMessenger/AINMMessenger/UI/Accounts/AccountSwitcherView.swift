@@ -24,6 +24,13 @@ struct AccountSwitcherView: View {
                         Label("Add Account", systemImage: "plus.circle")
                     }
                 }
+                Section("Safety") {
+                    NavigationLink {
+                        BlockedUsersView(appState: appState)
+                    } label: {
+                        Label("Blocked Users", systemImage: "hand.raised")
+                    }
+                }
             }
             .navigationTitle("Accounts")
             .navigationBarTitleDisplayMode(.inline)

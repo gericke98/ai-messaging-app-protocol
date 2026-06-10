@@ -117,4 +117,33 @@ struct MessageSigner: Sendable {
         let signature = try privateKey.signature(for: data)
         return signature.withUnsafeBytes { Data($0) }.base64urlEncodedString()
     }
+
+    // MARK: - Auth Session Challenge Signing (server signing.rs)
+
+    /// Domain prefix for the session-token mint challenge. Must match the server's
+    /// `AUTH_CHALLENGE_DOMAIN`; the prefix keeps a captured handshake signature
+    /// (`"{identity}|{timestamp}"`) from ever minting a REST session.
+    static let authChallengeDomain = "ainm-auth-token"
+
+    /// Sign the session-token mint challenge for `POST /accounts/auth/token`.
+    ///
+    /// Payload format: `"ainm-auth-token|{identity}|{timestamp}"`.
+    ///
+    /// - Parameters:
+    ///   - identity: AINM address (e.g., "alice@server.com")
+    ///   - timestamp: RFC 3339 timestamp string (server rejects ±300s skew)
+    ///   - privateKey: Ed25519 private key bound to the account
+    /// - Returns: Base64url-encoded Ed25519 signature (86 characters, no padding)
+    static func signAuthChallenge(
+        identity: String,
+        timestamp: String,
+        privateKey: Curve25519.Signing.PrivateKey
+    ) throws -> String {
+        let payload = "\(authChallengeDomain)|\(identity)|\(timestamp)"
+        guard let data = payload.data(using: .utf8) else {
+            throw SigningError.encodingFailed
+        }
+        let signature = try privateKey.signature(for: data)
+        return signature.withUnsafeBytes { Data($0) }.base64urlEncodedString()
+    }
 }
