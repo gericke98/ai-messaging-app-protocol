@@ -22,6 +22,8 @@ actor AINMClient {
         case handshakeFailed(String)
         case encodingError
         case signingError(Error)
+        /// No ainm.pong within the keepalive timeout — connection is dead.
+        case keepaliveTimeout
     }
 
     private let webSocket: WebSocketConnection
@@ -47,6 +49,13 @@ actor AINMClient {
     private var isUserDisconnect: Bool = false
     /// Drives the bounded-backoff reconnect loop; cancelled by `disconnect()`.
     private var reconnectTask: Task<Void, Never>?
+
+    /// Keepalive (transport.md §4.4): pings during idle; a missed pong forces a
+    /// reconnect cycle. Started on successful connect, cancelled on disconnect.
+    private var keepaliveTask: Task<Void, Never>?
+    private let keepalivePolicy = KeepalivePolicy()
+    /// Last time ANY inbound frame arrived — the idle/liveness signal.
+    private var lastInboundAt = Date()
 
     /// Coarse connection state for the UI layer (AppState maps this onto its display state).
     enum ConnectionState: Sendable { case reconnecting, connected, disconnected }
@@ -204,10 +213,11 @@ actor AINMClient {
         let notifData = try JSONEncoder().encode(notification)
         try await webSocket.send(notifData)
 
-        // 8. Store capabilities and start receive loop
+        // 8. Store capabilities and start receive + keepalive loops
         serverCapabilities = initResult.capabilities
         state = .connected(initResult.capabilities)
         startReceiveLoop()
+        startKeepalive()
 
         await reconnection.reset()
         return initResult.capabilities
@@ -564,6 +574,8 @@ actor AINMClient {
         isUserDisconnect = true
         reconnectTask?.cancel()
         reconnectTask = nil
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         await reconnection.reset()
         receiveTask?.cancel()
         receiveTask = nil
@@ -615,6 +627,7 @@ actor AINMClient {
     }
 
     private func handleIncomingMessage(_ data: Data) async {
+        lastInboundAt = Date()
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
         // Check if it's a notification (no "id" field = notification)
@@ -767,7 +780,81 @@ actor AINMClient {
         }
     }
 
+    // MARK: - Keepalive (transport.md §4.4)
+
+    /// Ping every `interval` during idle; treat a missing pong as a dead
+    /// connection and drive the same reconnect path as a network drop.
+    private func startKeepalive() {
+        keepaliveTask?.cancel()
+        keepaliveTask = Task { [weak self, keepalivePolicy] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(keepalivePolicy.interval * 1_000_000_000))
+                if Task.isCancelled { return }
+                guard let self else { return }
+                guard await self.shouldPingNow() else { continue }
+                do {
+                    try await self.sendPing()
+                } catch {
+                    await self.keepaliveFailed()
+                    return
+                }
+            }
+        }
+    }
+
+    /// Ping only while connected and genuinely idle — inbound traffic is liveness.
+    private func shouldPingNow() -> Bool {
+        guard case .connected = state else { return false }
+        return keepalivePolicy.isIdle(lastTraffic: lastInboundAt, now: Date())
+    }
+
+    /// One ping round-trip: any non-error response within `pongTimeout` is a pong.
+    private func sendPing() async throws {
+        guard case .connected = state else { throw ClientError.notConnected }
+        let requestId = nextRequestId
+        nextRequestId += 1
+        let data = try JSONSerialization.data(
+            withJSONObject: KeepalivePolicy.pingFrame(id: requestId))
+        try await webSocket.send(data)
+
+        // Arm the timeout: if it fires first, it resolves (and removes) the
+        // pending continuation with keepaliveTimeout — exactly-once semantics
+        // are preserved because both paths go through pendingResponses.
+        let timeoutTask = Task { [weak self, keepalivePolicy] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(keepalivePolicy.pongTimeout * 1_000_000_000))
+            if Task.isCancelled { return }
+            await self?.failPending(requestId: requestId, with: ClientError.keepaliveTimeout)
+        }
+        defer { timeoutTask.cancel() }
+
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            pendingResponses[requestId] = continuation
+        }
+    }
+
+    /// Resolve a pending request exceptionally (e.g. pong timeout).
+    private func failPending(requestId: Int, with error: Error) {
+        if let continuation = pendingResponses.removeValue(forKey: requestId) {
+            continuation.resume(throwing: error)
+        }
+    }
+
+    /// The connection is dead: tear the socket down and run the standard
+    /// drop path (handleDisconnect → bounded-backoff reconnect, unless the
+    /// user signed out). The receive loop is cancelled explicitly because a
+    /// local close ENDS its stream rather than yielding a failure.
+    private func keepaliveFailed() async {
+        guard case .connected = state else { return }
+        receiveTask?.cancel()
+        receiveTask = nil
+        await webSocket.disconnect()
+        await handleDisconnect()
+    }
+
     private func handleDisconnect() async {
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         await streamingManager.clearAllStreams()
 
         // Only auto-reconnect when the drop was unexpected (not a user sign-out/disconnect)
