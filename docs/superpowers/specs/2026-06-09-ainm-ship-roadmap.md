@@ -46,6 +46,8 @@ Task 14 runs **before any feature code is written**, honoring locked decision 4 
 
 > Rejected (risk-retire): running Task 14 as M0 with exit criteria requiring real data but *before* a runnable pipeline — there was no instance to run against. Resolved by a local throwaway instance.
 
+> **STATUS 2026-06-10 — gate DEFERRED by owner decision.** The harness is fully built and preflighted (`experiments/compound-memory-spike/`, spec `2026-06-09-task14-gate-harness.md`); the only missing input was the owner's ChatGPT/Claude data exports, and the owner has chosen not to produce them for now. Consequence: the roadmap proceeds on the **MESSENGER TRACK (FAIL branch behavior)** until the gate is actually run — M3 Agent Grant and M6 AMO stay un-built, memory UI ships as-is without the grant/portability layer, and the launch headline is the messenger one. The gate is *deferred, not failed*: running it later (with exports or an alternative ≥200-fact real corpus) can still re-open the moat track pre- or post-launch.
+
 ---
 
 ## 4. Phased roadmap

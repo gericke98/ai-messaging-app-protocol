@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -350,6 +351,10 @@ final class AppState {
             connectionState = .connected
             await seedDefaultAssistantIfNeeded()
             await loadSavedAgents()
+            // M4 push: prompt once + register, and (re)upload any token APNs
+            // already handed us — covers cold launch, reconnect, account switch.
+            await enablePushNotifications()
+            await uploadPushTokenIfPossible()
         } catch {
             connectionState = .error
             errorMessage = mapErrorMessage(error)
@@ -496,6 +501,52 @@ final class AppState {
     ) async throws {
         try await blocksService().report(
             subject: subject, threadId: threadId, messageId: messageId, reason: reason)
+    }
+
+    // MARK: - Push Notifications (M4)
+
+    /// The APNs device token (hex) received this launch, kept so an account
+    /// switch or late connect can (re)upload it for the now-active account.
+    private var pendingPushTokenHex: String?
+
+    /// Ask for notification permission and register with APNs. Safe to call
+    /// repeatedly: the system prompt shows once; registration is idempotent.
+    /// Until the aps-environment entitlement exists, registration fails and is
+    /// logged by PushDelegate — the rest of the app is unaffected.
+    func enablePushNotifications() async {
+        #if canImport(UIKit)
+        let center = UNUserNotificationCenter.current()
+        let granted =
+            (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        guard granted else { return }
+        UIApplication.shared.registerForRemoteNotifications()
+        #endif
+    }
+
+    /// APNs delivered a device token (via PushDelegate): remember it and
+    /// upload it for the active account.
+    func pushTokenReceived(_ hex: String) async {
+        pendingPushTokenHex = hex
+        await uploadPushTokenIfPossible()
+    }
+
+    /// Upload the pending device token via bearer REST. Quietly skips when not
+    /// connected (re-attempted after the next connect / account switch).
+    func uploadPushTokenIfPossible() async {
+        guard let hex = pendingPushTokenHex, let base = restBaseURL(from: serverURL),
+            connectedIdentity != nil
+        else { return }
+        do {
+            let req = try PushRegistration.makeRegisterRequest(
+                baseURL: base, bearer: try await bearerToken(), deviceTokenHex: hex)
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            if let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                return
+            }
+            print("[push] token upload rejected: \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
+        } catch {
+            print("[push] token upload failed: \(error)")
+        }
     }
 
     /// Permanently delete the active account (App Store guideline 5.1.1):

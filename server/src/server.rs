@@ -101,6 +101,24 @@ impl HumanRegistry {
             .unwrap_or_default()
     }
 
+    /// Thread participants with NO live WebSocket connection — the push-notification
+    /// audience. Membership outlives connections (`cleanup` removes senders, not
+    /// `thread_participants` entries), which is exactly what makes this derivable.
+    pub async fn offline_participants_of(&self, thread_id: &str) -> Vec<String> {
+        let members: Vec<String> = {
+            let map = self.thread_participants.lock().await;
+            match map.get(thread_id) {
+                Some(s) => s.iter().cloned().collect(),
+                None => return Vec::new(),
+            }
+        };
+        let conns = self.connections.lock().await;
+        members
+            .into_iter()
+            .filter(|u| !conns.contains_key(u))
+            .collect()
+    }
+
     #[allow(dead_code)]
     pub async fn send_to_user(&self, user_addr: &str, msg: &str) {
         let map = self.connections.lock().await;
@@ -377,6 +395,8 @@ pub struct ServerState {
     /// Graceful-shutdown coordinator. Default (never triggered) for legacy/UAT start paths;
     /// the real one is threaded in by `run_federation` for the production listener.
     pub shutdown: crate::lifecycle::ShutdownController,
+    /// M4 push: APNs sender (env-gated; `Noop` when `AINM_APNS__*` is unset).
+    pub push_sender: std::sync::Arc<crate::push::PushSender>,
 }
 
 /// The exact dependencies `deliver_message` needs, decoupled from `ServerState` so both the
@@ -396,6 +416,9 @@ pub struct DeliverDeps<'a> {
     /// WS callers pass `Some(self)`; the relay handler (no ServerState) passes `None`, in which case
     /// a hosted-assistant target is NOT spawned (logged) — connector-agent delivery does not need it.
     pub state_for_hosted_turn: Option<&'a ServerState>,
+    /// M4 push: offline human thread participants get an APNs notification.
+    /// `None` (federation relay) or `Noop` (unconfigured) skips the hook entirely.
+    pub push_sender: Option<&'a std::sync::Arc<crate::push::PushSender>>,
 }
 
 impl ServerState {
@@ -409,6 +432,7 @@ impl ServerState {
             to_agent_tx: &self.to_agent_tx,
             db: self.db.as_ref(),
             state_for_hosted_turn: Some(self),
+            push_sender: Some(&self.push_sender),
         }
     }
 }
@@ -475,6 +499,56 @@ async fn caller_address(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::UNAUTHORIZED, "unknown account".into()))?;
     Ok((pool, acct.address))
+}
+
+#[derive(serde::Deserialize)]
+pub struct PushTokenBody {
+    pub device_token: String,
+    #[serde(default = "default_platform")]
+    pub platform: String,
+}
+fn default_platform() -> String {
+    "ios".to_string()
+}
+
+/// `PUT /accounts/push-token` — register (or refresh) the caller's APNs device
+/// token. Idempotent; a token presented by another account moves to it.
+pub async fn push_token_put_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(body): Json<PushTokenBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    let token = body.device_token.trim();
+    if token.is_empty() || token.len() > 200 || body.platform != "ios" {
+        return Err((StatusCode::BAD_REQUEST, "invalid device token".into()));
+    }
+    crate::push::register_token(&pool, caller.account_id, token, &body.platform)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /accounts/push-token/{token}` — remove one of the caller's device
+/// tokens (sign-out, token invalidation). Idempotent.
+pub async fn push_token_delete_handler(
+    State(state): State<ServerState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let caller = caller_from_bearer(&state, &headers).await?;
+    let pool = state
+        .db
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "no database".into()))?;
+    crate::push::remove_token(&pool, caller.account_id, &token)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `DELETE /accounts` — delete the caller's account and all personal data
@@ -1323,6 +1397,7 @@ pub async fn start(
         cred_cipher: None,
         quota: crate::config::QuotaConfig::default(),
         shutdown: crate::lifecycle::ShutdownController::new(),
+        push_sender: std::sync::Arc::new(crate::push::PushSender::from_env()),
     };
 
     let shutdown_rx = state.shutdown.subscribe();
@@ -1364,6 +1439,14 @@ pub async fn start(
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
         .route("/accounts", axum::routing::delete(account_delete_handler))
+        .route(
+            "/accounts/push-token",
+            axum::routing::put(push_token_put_handler),
+        )
+        .route(
+            "/accounts/push-token/{token}",
+            axum::routing::delete(push_token_delete_handler),
+        )
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",
@@ -1448,6 +1531,7 @@ pub async fn start_with_port(
         cred_cipher: None,
         quota: crate::config::QuotaConfig::default(),
         shutdown: crate::lifecycle::ShutdownController::new(),
+        push_sender: std::sync::Arc::new(crate::push::PushSender::from_env()),
     };
 
     let shutdown_rx = state.shutdown.subscribe();
@@ -1491,6 +1575,14 @@ pub async fn start_with_port(
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
         .route("/accounts", axum::routing::delete(account_delete_handler))
+        .route(
+            "/accounts/push-token",
+            axum::routing::put(push_token_put_handler),
+        )
+        .route(
+            "/accounts/push-token/{token}",
+            axum::routing::delete(push_token_delete_handler),
+        )
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",
@@ -1588,6 +1680,7 @@ pub async fn start_federation(
         cred_cipher,
         quota,
         shutdown: shutdown.clone(),
+        push_sender: std::sync::Arc::new(crate::push::PushSender::from_env()),
     };
 
     let app = Router::new()
@@ -1631,6 +1724,14 @@ pub async fn start_federation(
             axum::routing::put(llm_credential_put_handler).delete(llm_credential_delete_handler),
         )
         .route("/accounts", axum::routing::delete(account_delete_handler))
+        .route(
+            "/accounts/push-token",
+            axum::routing::put(push_token_put_handler),
+        )
+        .route(
+            "/accounts/push-token/{token}",
+            axum::routing::delete(push_token_delete_handler),
+        )
         .route("/accounts/blocks", get(blocks_list_handler))
         .route(
             "/accounts/blocks/{address}",
@@ -2188,6 +2289,44 @@ pub async fn deliver_message(
             .unwrap_or_default(),
         _ => Vec::new(),
     };
+
+    // M4 push: notify offline human participants (never the sender, never anyone
+    // who blocked the sender). Fire-and-forget — APNs latency must not delay
+    // live WebSocket delivery.
+    if let (Some(pool), Some(push)) = (deps.db, deps.push_sender) {
+        if push.is_enabled() && !thread_id.is_empty() && !from.is_empty() {
+            let targets: Vec<String> = deps
+                .human_registry
+                .offline_participants_of(thread_id)
+                .await
+                .into_iter()
+                .filter(|p| p != from && !blocked_recipients.contains(p))
+                .collect();
+            if !targets.is_empty() {
+                let pool = pool.clone();
+                let push = push.clone();
+                let sender_name = from.split('@').next().unwrap_or(from).to_string();
+                let preview = content_to_plain(&content);
+                let tid = thread_id.to_string();
+                tokio::spawn(async move {
+                    for addr in targets {
+                        match crate::push::tokens_for_address(&pool, &addr).await {
+                            Ok(tokens) => {
+                                for token in tokens {
+                                    let payload =
+                                        crate::push::apns_payload(&sender_name, &preview, &tid);
+                                    push.send(&token, &payload).await;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("[push] token lookup for {addr} failed: {e}")
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
 
     // Agent-originated messages are always shown to humans (this is what SP3/SP4 render).
     if sender_is_agent {
@@ -3987,6 +4126,101 @@ mod tests {
 
         assert_eq!(rx_b.try_recv().unwrap(), "hello");
         assert!(rx_a.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn deliver_message_pushes_to_offline_participants_only() {
+        // Requires PostgreSQL (token storage); skips gracefully without it.
+        let url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("AINM_DATABASE__URL"))
+            .unwrap_or_else(|_| "postgres://ainm:dev_password@localhost:5432/ainm".to_string());
+        let pool = match sqlx::PgPool::connect(&url).await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Skipping DB test (no PostgreSQL): {e}");
+                return;
+            }
+        };
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let tag = format!("{:x}", uuid::Uuid::new_v4().as_fields().0);
+        let mk_account = |name: &str| {
+            let username = format!("{name}{tag}");
+            let hash = format!("push-deliver:{name}:{tag}");
+            let pool = pool.clone();
+            async move {
+                crate::accounts::create_pending_account(&pool, &username, "x", &hash)
+                    .await
+                    .unwrap()
+            }
+        };
+        let alice = mk_account("alice").await; // connected — must NOT be pushed
+        let bob = mk_account("bob").await; // offline — must be pushed
+        let carol = mk_account("carol").await; // offline but blocked the sender — no push
+        for (acct, token) in [
+            (&alice, "tok-alice"),
+            (&bob, "tok-bob"),
+            (&carol, "tok-carol"),
+        ] {
+            crate::push::register_token(&pool, acct.id, &format!("{token}-{tag}"), "ios")
+                .await
+                .unwrap();
+        }
+
+        let registry = HumanRegistry::new();
+        let _rx_alice = registry.register(&alice.address).await; // live connection
+        for addr in [&alice.address, &bob.address, &carol.address] {
+            registry.join_thread(addr, "t-push").await;
+        }
+
+        let sender = format!("dave{tag}@x");
+        crate::blocks::block(&pool, &carol.address, &sender)
+            .await
+            .unwrap();
+
+        let (cap_tx, mut cap_rx) = tokio::sync::mpsc::unbounded_channel();
+        let push_sender = Arc::new(crate::push::PushSender::Capture(cap_tx));
+
+        let agent_registry = AgentRegistry::new();
+        let a2a_hops = Arc::new(Mutex::new(HashMap::new()));
+        let (to_agent_tx, _) = broadcast::channel(8);
+        let deps = DeliverDeps {
+            human_registry: &registry,
+            agent_registry: &agent_registry,
+            a2a_hops: &a2a_hops,
+            a2a_hop_cap: 8,
+            hosted_agent: None,
+            to_agent_tx: &to_agent_tx,
+            db: Some(&pool),
+            state_for_hosted_turn: None,
+            push_sender: Some(&push_sender),
+        };
+        let params = json!({
+            "id": "m1",
+            "from": sender,
+            "thread_id": "t-push",
+            "type": "message",
+            "content": [{"type": "text", "version": "1.0", "source": "user",
+                         "text": "hello bob", "fallback": "hello bob"}],
+        });
+        deliver_message(&deps, &params, "human", true).await;
+
+        // Exactly one push: bob's token, with sender title + preview + deep link.
+        let (token, payload) =
+            tokio::time::timeout(std::time::Duration::from_secs(3), cap_rx.recv())
+                .await
+                .expect("push must arrive")
+                .expect("channel open");
+        assert_eq!(token, format!("tok-bob-{tag}"));
+        assert_eq!(payload["aps"]["alert"]["title"], format!("dave{tag}"));
+        assert_eq!(payload["aps"]["alert"]["body"], "hello bob");
+        assert_eq!(payload["thread_id"], "t-push");
+        // No second push (alice is connected, carol blocked the sender).
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            cap_rx.try_recv().is_err(),
+            "connected and blocking participants must not be pushed"
+        );
     }
 
     #[tokio::test]

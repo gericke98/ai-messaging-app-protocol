@@ -572,6 +572,9 @@ pub async fn relay_handler(
                 // filtering applies on the local single-server delivery path.
                 db: None,
                 state_for_hosted_turn: state.hosted_turn_state.as_deref(),
+                // No DB on the relay path → token lookup is impossible; the local
+                // single-server delivery path owns push (matches the block filter).
+                push_sender: None,
             };
             crate::server::deliver_message(&deps, msg, sender_type, true).await;
         }

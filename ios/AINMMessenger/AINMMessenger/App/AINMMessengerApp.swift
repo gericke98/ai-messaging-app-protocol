@@ -3,6 +3,8 @@ import GRDB
 
 @main
 struct AINMMessengerApp: App {
+    /// Receives APNs device-token + notification-tap callbacks (M4 push).
+    @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
     @State private var appState = AppState()
     @State private var showThreadNotFound = false
     @State private var bootstrapComplete = false
@@ -38,6 +40,7 @@ struct AINMMessengerApp: App {
                 }
             }
             .task {
+                pushDelegate.appState = appState
                 #if DEBUG
                 // ---- Phase 14 UAT bootstrap: launch-arg parsing ----
                 let args = ProcessInfo.processInfo.arguments

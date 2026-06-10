@@ -25,6 +25,7 @@ mod mcp;
 mod persistence;
 mod prod_guard;
 mod protocol;
+mod push;
 mod quota;
 mod rate_limit;
 mod relay;

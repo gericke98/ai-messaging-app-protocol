@@ -22,6 +22,7 @@ pub mod mcp;
 pub mod persistence;
 pub mod prod_guard;
 pub mod protocol;
+pub mod push;
 pub mod quota;
 pub mod rate_limit;
 pub mod repository;
