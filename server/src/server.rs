@@ -2297,6 +2297,25 @@ fn relay_to_foreign_target(
     }
 }
 
+/// Reply to `ainm.ping` (transport.md Section 4.4). Shared by both connection
+/// handlers; pings without an id are notifications and get no reply.
+async fn send_pong(
+    parsed: &serde_json::Value,
+    ws_sender: &Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+) {
+    let Some(req_id) = parsed.get("id").cloned() else {
+        return;
+    };
+    let resp = protocol::new_response(
+        req_id,
+        serde_json::json!({ "timestamp": protocol::now_rfc3339() }),
+    );
+    let mut sender = ws_sender.lock().await;
+    let _ = sender
+        .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+        .await;
+}
+
 /// Handle compound memory JSON-RPC methods.
 /// Shared by both human and agent connection handlers.
 async fn handle_compound_memory(
@@ -2383,7 +2402,26 @@ async fn handle_compound_memory(
             }
         }
         "ainm.memory.graph.traverse" => {
-            if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
+            // Schema enum (compound-memory.schema.json): direction must be
+            // outgoing|incoming|both. graph::traverse's catch-all treats any
+            // other string as "both" — reject it here instead of guessing.
+            let invalid_direction = parsed
+                .pointer("/params/direction")
+                .and_then(|d| d.as_str())
+                .is_some_and(|d| !matches!(d, "outgoing" | "incoming" | "both"));
+            if invalid_direction {
+                if has_id {
+                    let err = protocol::new_error(
+                        parsed.get("id").cloned().unwrap(),
+                        -32602,
+                        "direction must be one of: outgoing, incoming, both",
+                    );
+                    let mut sender = ws_sender.lock().await;
+                    let _ = sender
+                        .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
+                        .await;
+                }
+            } else if let (Some(ref db), Some(params)) = (&state.db, parsed.get("params")) {
                 let start_str = params
                     .get("start_node")
                     .and_then(|s| s.as_str())
@@ -3445,6 +3483,10 @@ async fn handle_agent_connection(
                             }
                         }
                     }
+                    // ── Keepalive (transport.md Section 4.4) ──
+                    "ainm.ping" => {
+                        send_pong(&parsed, &ws_sender).await;
+                    }
                     // ── Compound Memory: delegated to shared handler ──
                     m if m.starts_with("ainm.memory.") => {
                         handle_compound_memory(&state, &from_addr, m, &parsed, &ws_sender).await;
@@ -3840,6 +3882,10 @@ async fn handle_human_connection(
                     }
                     "ainm.stream.cancel" => {
                         let _ = to_agent_tx.send(text_str);
+                    }
+                    // ── Keepalive (transport.md Section 4.4) ──
+                    "ainm.ping" => {
+                        send_pong(&parsed, &ws_sender).await;
                     }
                     m if m.starts_with("ainm.memory.") => {
                         // Compound memory operations — shared with agent handler
